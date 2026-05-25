@@ -108,7 +108,7 @@ function getCurrentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 const currentMonth = getCurrentMonth();
-let selectedMonth = currentMonth;
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedAssignmentId = '';
 
 function escapeHtml(value) {
@@ -190,6 +190,7 @@ function updateNewStudentField() {
   newStudentField.classList.toggle('hidden', !newMode);
   newStudentField.classList.toggle('block', newMode);
   newStudentName.required = newMode;
+  newStudentName.disabled = !newMode;
 }
 function renderCurrentList() {
   const visible = isSubmitPage
@@ -209,9 +210,15 @@ function renderFormAvailability() {
   } else if (selectedAssignmentApproved()) {
     message = '当月分は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
   }
-  formPanel.classList.toggle('hidden', Boolean(message));
-  formUnavailablePanel.classList.toggle('hidden', !message);
-  formUnavailablePanel.textContent = message;
+  formPanel.classList.remove('hidden');
+  formUnavailablePanel.classList.add('hidden');
+  formUnavailablePanel.textContent = '';
+  setReportInputsDisabled(Boolean(message));
+  if (message) {
+    showFormMessage(message);
+  } else if (!editingId.value) {
+    clearFormMessage();
+  }
 }
 function showFormMessage(message, isError = false) {
   formMessage.textContent = message;
@@ -220,6 +227,14 @@ function showFormMessage(message, isError = false) {
 function clearFormMessage() {
   formMessage.className = 'mb-3 hidden rounded-lg px-3 py-2 text-sm';
   formMessage.textContent = '';
+}
+function setReportInputsDisabled(disabled) {
+  [lessonDate, startTime, endTime, breakMinutes, subject, content, saveButton].forEach(el => {
+    el.disabled = disabled;
+  });
+  newStudentName.disabled = disabled || !isNewAssignmentMode();
+  saveButton.classList.toggle('opacity-50', disabled);
+  saveButton.classList.toggle('cursor-not-allowed', disabled);
 }
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
@@ -275,16 +290,13 @@ async function loadTutor() {
   }
 }
 function renderAssignmentOptions() {
-  const options = allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`);
+  const options = ['<option value="">すべての生徒</option>', ...allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`)];
   options.push(`<option value="${NEW_ASSIGNMENT_VALUE}">＋ 新しい生徒を追加</option>`);
   assignment.innerHTML = options.join('');
   if (selectedAssignmentId && allAssignments.some(a => a.id === selectedAssignmentId)) {
     assignment.value = selectedAssignmentId;
-  } else if (!selectedAssignmentId && allAssignments.length) {
-    selectedAssignmentId = allAssignments[0].id;
-    assignment.value = selectedAssignmentId;
   } else {
-    assignment.value = NEW_ASSIGNMENT_VALUE;
+    assignment.value = '';
     selectedAssignmentId = '';
   }
   updateNewStudentField();
@@ -389,6 +401,8 @@ reportForm.addEventListener('submit', async e => {
         payload.assignment_id = createdAssignment.id;
         selectedAssignmentId = createdAssignment.id;
         successMessage = '生徒を登録し、報告書を作成しました';
+      } else if (!payload.assignment_id) {
+        throw new Error('生徒を選択してください');
       }
       await api('/api/reports', {method:'POST', body: JSON.stringify(payload)});
       showFormMessage(successMessage);
