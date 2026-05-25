@@ -7,20 +7,37 @@
   <title>Login</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="min-h-screen bg-slate-50 grid place-items-center p-4">
-  <form id="loginForm" class="w-full max-w-sm bg-white border border-slate-200 rounded-lg p-6 space-y-4 shadow-sm">
-    <h1 class="text-xl font-semibold">指導実績報告</h1>
-    <input name="username" type="email" placeholder="email" class="w-full border rounded px-3 py-2" required>
-    <input name="password" type="password" placeholder="password" class="w-full border rounded px-3 py-2" required>
-    <button class="w-full bg-slate-900 text-white rounded px-3 py-2">Login</button>
-    <p id="error" class="text-sm text-red-700"></p>
-  </form>
+<body class="min-h-screen bg-[#1e2a3a]">
+  <div class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.18),_transparent_28%),linear-gradient(180deg,#1e2a3a_0%,#0f172a_100%)] px-4 py-10">
+    <div class="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center justify-center">
+      <div class="w-full rounded-2xl border border-white/10 bg-white p-8 shadow-2xl shadow-slate-950/20 md:p-10">
+        <div class="mb-8 text-center">
+          <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-xl font-bold text-white shadow-lg shadow-blue-600/30">TR</div>
+          <h1 class="text-2xl font-bold text-slate-800">Tutor Reports</h1>
+          <p class="mt-2 text-sm text-slate-500">指導実績報告システム</p>
+        </div>
+
+        <form id="loginForm" class="space-y-5">
+          <div>
+            <label class="mb-2 block text-sm font-medium text-slate-700" for="email">メールアドレス</label>
+            <input name="username" id="email" type="email" placeholder="example@email.com" class="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-800 placeholder-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          </div>
+          <div>
+            <label class="mb-2 block text-sm font-medium text-slate-700" for="password">パスワード</label>
+            <input name="password" id="password" type="password" placeholder="password" class="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-800 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          </div>
+          <p id="error" class="hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"></p>
+          <button class="w-full rounded-lg bg-blue-600 px-4 py-3 font-medium text-white transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">ログイン</button>
+        </form>
+      </div>
+    </div>
+  </div>
   <script>
     document.querySelector('#loginForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const data = new URLSearchParams(new FormData(event.target));
       const res = await fetch('/api/auth/login', { method: 'POST', body: data });
-      if (!res.ok) { document.querySelector('#error').textContent = 'ログインできません'; return; }
+      if (!res.ok) { document.querySelector('#error').textContent = 'ログインできません'; document.querySelector('#error').classList.remove('hidden'); return; }
       const json = await res.json();
       localStorage.setItem('access_token', json.access_token);
       localStorage.setItem('token', json.access_token);

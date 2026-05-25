@@ -1,18 +1,19 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<div class="mb-4">
-  <h1 class="text-xl font-semibold" id="pageTitle">運営ダッシュボード</h1>
+<div class="mb-6">
+  <p class="text-sm font-medium text-blue-600">運営ポータル</p>
+  <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">運営ダッシュボード</h1>
 </div>
 
-<div class="mb-4 flex flex-wrap items-center gap-3 rounded border bg-white p-4">
+<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
   <label class="text-sm">
     <span class="mr-2 text-slate-700">月選択</span>
-    <select id="monthFilter" class="border rounded px-3 py-2"></select>
+    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
   <label class="text-sm">
     <span class="mr-2 text-slate-700">講師選択</span>
-    <select id="tutorFilter" class="border rounded px-3 py-2"></select>
+    <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
 </div>
 
@@ -168,9 +169,9 @@ function renderFilters() {
 function renderSummary(groups) {
   summaryCards.innerHTML = summaryDefinitions.map(item => {
     const count = groups.filter(group => cardStatus(group.reports) === item.key).length;
-    return `<div class="rounded border bg-white p-3">
-      <div class="text-xs text-slate-500">${item.label}</div>
-      <div class="mt-1 text-2xl font-semibold">${count}<span class="ml-1 text-sm font-normal text-slate-500">セット</span></div>
+    return `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="text-xs font-medium uppercase tracking-wide text-slate-500">${item.label}</div>
+      <div class="mt-2 text-2xl font-semibold text-slate-800">${count}<span class="ml-1 text-sm font-normal text-slate-500">セット</span></div>
     </div>`;
   }).join('');
 }
@@ -197,21 +198,21 @@ function cardActions(group, status) {
   if (!isCurrentMonth()) return '<div class="text-sm text-slate-500">過去月のため操作できません。</div>';
   if (status === 'returned_to_tutor') {
     const reason = returnReason(group.reports);
-    return `<div class="text-sm font-medium text-rose-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
+    return `<div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
   }
   const config = actionConfig(status);
   if (status === 'admin_approved') {
-    if (!config) return '<div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>';
+    if (!config) return '<div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>';
     return `<div class="flex flex-wrap gap-2">
-      <div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>
-      <button class="rounded bg-rose-700 px-3 py-2 text-white" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+      <div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>
+      <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
     </div>`;
   }
   if (!config) return '<div class="text-sm text-slate-500">現在このロールで操作できる内容はありません。</div>';
   const targets = group.reports.filter(report => report.status === config.targetStatus);
   return `<div class="flex flex-wrap gap-2">
-    <button class="rounded bg-slate-900 px-3 py-2 text-white" onclick="bulkAct('${group.tutor_id}','${group.assignment_id}','${config.targetStatus}')">${monthShortLabel(selectedMonth)}を${config.label}</button>
-    <button class="rounded bg-rose-700 px-3 py-2 text-white" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+    <button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="bulkAct('${group.tutor_id}','${group.assignment_id}','${config.targetStatus}')">${monthShortLabel(selectedMonth)}を${config.label}</button>
+    <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
   </div>`;
 }
 function reportRows(reports) {
@@ -235,40 +236,36 @@ function renderStudentCards() {
     const total = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
     const status = cardStatus(sorted);
     const detailId = `detail-${index}`;
-    return `<section class="rounded-lg border bg-white">
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b bg-slate-50 p-4">
+    return `<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
         <div>
           <div class="text-sm text-slate-500">${escapeHtml(tutorName(group.tutor_id))}</div>
-          <h2 class="text-lg font-semibold">${escapeHtml(assignmentName(group.assignment_id))}</h2>
+          <h2 class="text-lg font-semibold text-slate-800">${escapeHtml(assignmentName(group.assignment_id))}</h2>
           <div class="mt-1 text-sm text-slate-600">合計：${durationLabel(total)} / ${sorted.length}件</div>
-          <span class="mt-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusClass(status)}">${statusLabel(status)}</span>
+          <span class="mt-3 inline-flex rounded-full px-3 py-1 text-sm font-medium ${statusClass(status)}">${statusLabel(status)}</span>
         </div>
         ${cardActions(group, status)}
       </div>
       <div class="p-4">
-        <button class="text-sm underline" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
-        <div class="mt-3 flex flex-wrap gap-2">
-          <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${selectedMonth}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
-          <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${selectedMonth}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
-        </div>
+        <button class="text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
       </div>
-      <div id="${detailId}" class="hidden overflow-x-auto border-t">
+      <div id="${detailId}" class="hidden overflow-x-auto border-t border-slate-200">
         <table class="w-full text-sm">
-          <thead class="bg-white">
+          <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
             <tr>
-              <th class="p-2 text-left">回数</th>
-              <th class="p-2 text-left">指導日</th>
-              <th class="p-2 text-left">在室時間</th>
-              <th class="p-2 text-left">指導時間数</th>
-              <th class="p-2 text-left">科目</th>
-              <th class="p-2 text-left">指導内容（先頭30文字）</th>
+              <th class="px-4 py-3 text-left">回数</th>
+              <th class="px-4 py-3 text-left">指導日</th>
+              <th class="px-4 py-3 text-left">在室時間</th>
+              <th class="px-4 py-3 text-left">指導時間数</th>
+              <th class="px-4 py-3 text-left">科目</th>
+              <th class="px-4 py-3 text-left">指導内容（先頭30文字）</th>
             </tr>
           </thead>
           <tbody>${reportRows(sorted)}</tbody>
         </table>
       </div>
     </section>`;
-  }).join('') : '<div class="rounded border bg-white p-4 text-sm text-slate-600">表示できる報告書セットはありません。</div>';
+  }).join('') : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">表示できる報告書セットはありません。</div>';
 }
 function toggleDetails(id, button) {
   const panel = document.getElementById(id);

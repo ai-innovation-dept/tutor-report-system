@@ -1,9 +1,16 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<div class="mb-4 flex flex-wrap items-center gap-3">
-  <h1 class="text-xl font-semibold">保護者 報告書</h1>
-  <select id="monthFilter" class="border rounded px-3 py-2 text-sm"></select>
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <p class="text-sm font-medium text-blue-600">保護者ポータル</p>
+    <h1 class="text-2xl font-semibold text-slate-800">報告書一覧</h1>
+    <p class="mt-1 text-sm text-slate-500">月ごとの報告書を確認し、承認または差戻しできます。</p>
+  </div>
+  <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+    <span class="text-slate-600">表示月</span>
+    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+  </label>
 </div>
 <div id="parentReports" class="grid gap-4"></div>
 {% endblock %}
@@ -54,35 +61,35 @@ function sortReportsOldestFirst(reports) {
   });
 }
 function statusBadge(report) {
-  if (report.status === 'awaiting_parent_approval') return '<span class="font-medium text-blue-700">確認待ち</span>';
-  if (report.status === 'returned_to_tutor') return '<span class="font-medium text-rose-700">差戻し済み</span>';
-  if (report.status === 'parent_approved') return '<span class="font-medium text-emerald-700">承認済み</span>';
-  return '<span class="text-slate-500">対象外</span>';
+  if (report.status === 'awaiting_parent_approval') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
+  if (report.status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
+  if (report.status === 'parent_approved') return '<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">承認済み</span>';
+  return '<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">対象外</span>';
 }
 function rowAction(report) {
   if (selectedMonth !== currentMonth) return '';
   if (report.status === 'awaiting_parent_approval') {
-    return `<button class="rounded border px-3 py-1 text-sm hover:bg-slate-50" onclick="showReturnForm('${report.id}')">差戻す</button>`;
+    return `<button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="showReturnForm('${report.id}')">差戻す</button>`;
   }
   if (report.status === 'returned_to_tutor') {
-    return `<button class="rounded border px-3 py-1 text-sm hover:bg-slate-50" onclick="cancelReturn('${report.id}')">差戻しを取消</button>`;
+    return `<button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="cancelReturn('${report.id}')">差戻しを取消</button>`;
   }
   return '';
 }
 function returnComment(report) {
   if (report.status !== 'returned_to_tutor' || !report.last_return_comment) return '';
-  return `<div class="mt-1 text-xs text-rose-700">コメント：${escapeHtml(report.last_return_comment)}</div>`;
+  return `<div class="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">コメント：${escapeHtml(report.last_return_comment)}</div>`;
 }
 function returnFormRow(report) {
   if (expandedReturnId !== report.id) return '';
-  return `<tr class="border-t bg-rose-50">
+  return `<tr class="border-t bg-red-50/60">
     <td class="p-3" colspan="6">
       <div class="grid gap-2">
         <label class="text-sm font-medium text-slate-700" for="returnComment-${report.id}">コメントを入力してください</label>
-        <textarea id="returnComment-${report.id}" class="min-h-24 rounded border px-3 py-2 text-sm" maxlength="2000"></textarea>
+        <textarea id="returnComment-${report.id}" class="min-h-24 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000"></textarea>
         <div class="flex gap-2">
-          <button class="rounded bg-rose-700 px-3 py-2 text-sm text-white" onclick="confirmReturn('${report.id}')">コメントを送信する</button>
-          <button class="rounded border px-3 py-2 text-sm" onclick="hideReturnForm()">キャンセル</button>
+          <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="confirmReturn('${report.id}')">コメントを送信する</button>
+          <button class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-white" onclick="hideReturnForm()">キャンセル</button>
         </div>
       </div>
     </td>
@@ -103,16 +110,16 @@ function renderActionArea(month, reports) {
   const returned = reports.filter(report => report.status === 'returned_to_tutor');
   const summary = `<div class="text-sm text-slate-700">差戻し済み：${returned.length}件　未確認：${pending.length}件</div>`;
   if (month !== currentMonth) {
-    return `${summary}<div class="mt-3 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">過去月のため差戻しできません。</div>`;
+    return `${summary}<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため差戻しできません。</div>`;
   }
   if (returned.length) {
-    return `${summary}<button class="mt-3 rounded bg-slate-200 px-3 py-2 text-sm text-slate-500" disabled>すべての指導日を承認する</button>
+    return `${summary}<button class="mt-3 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>すべての指導日を承認する</button>
       <div class="mt-2 text-sm text-slate-600">差戻し中の報告書があります。講師の修正をお待ちください。</div>`;
   }
   if (pending.length) {
-    return `${summary}<button class="mt-3 rounded bg-emerald-700 px-3 py-2 text-sm text-white" onclick="approvePending('${month}')">すべての指導日を承認する</button>`;
+    return `${summary}<button class="mt-3 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="approvePending('${month}')">すべての指導日を承認する</button>`;
   }
-  return `${summary}<div class="mt-3 rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>`;
+  return `${summary}<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>`;
 }
 function renderDownloadArea(month, reports) {
   const byAssignment = {};
@@ -128,8 +135,8 @@ function renderDownloadArea(month, reports) {
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700">Excelでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50">CSVでダウンロード</a>
   </div>`).join('');
   return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
 }
@@ -137,28 +144,28 @@ function renderMonthSection(month, reports) {
   const sorted = sortReportsOldestFirst(reports);
   const totalMinutes = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
   if (!sorted.length) {
-    return '<div class="rounded border bg-white p-4 text-sm text-slate-600">この月の報告書はありません。</div>';
+    return '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">この月の報告書はありません。</div>';
   }
-  return `<section class="overflow-hidden rounded-lg border bg-white">
-    <div class="border-b bg-slate-50 p-4">
-      <h2 class="font-semibold">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
+  return `<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="border-b border-slate-200 bg-slate-50 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
-        <thead class="bg-slate-100">
+        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
           <tr>
-            <th class="p-2 text-left">回</th>
-            <th class="p-2 text-left">指導日</th>
-            <th class="p-2 text-left">在室時間</th>
-            <th class="p-2 text-left">科目</th>
-            <th class="p-2 text-left">状態</th>
-            <th class="p-2 text-left">差戻す</th>
+            <th class="px-4 py-3 text-left">回</th>
+            <th class="px-4 py-3 text-left">指導日</th>
+            <th class="px-4 py-3 text-left">在室時間</th>
+            <th class="px-4 py-3 text-left">科目</th>
+            <th class="px-4 py-3 text-left">状態</th>
+            <th class="px-4 py-3 text-left">差戻す</th>
           </tr>
         </thead>
         <tbody>${renderReportRows(sorted)}</tbody>
       </table>
     </div>
-    <div class="border-t p-4">${renderActionArea(month, sorted)}${renderDownloadArea(month, sorted)}</div>
+    <div class="border-t border-slate-200 p-5">${renderActionArea(month, sorted)}${renderDownloadArea(month, sorted)}</div>
   </section>`;
 }
 function renderMonthFilter(groups) {
@@ -173,7 +180,7 @@ function renderParent() {
   renderMonthFilter(groups);
   parentReports.innerHTML = groups[selectedMonth]
     ? renderMonthSection(selectedMonth, groups[selectedMonth])
-    : '<div class="rounded border bg-white p-4 text-sm text-slate-600">表示できる報告書はありません。</div>';
+    : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">表示できる報告書はありません。</div>';
 }
 function showReturnForm(reportId) {
   expandedReturnId = reportId;

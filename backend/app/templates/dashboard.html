@@ -1,11 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<section class="grid md:grid-cols-3 gap-4">
-  <a class="bg-white border rounded-lg p-5" href="/tutor/reports"><h2 class="font-semibold">講師</h2><p class="text-sm text-slate-600">報告書作成と提出</p></a>
-  <a class="bg-white border rounded-lg p-5" href="/parent/reports"><h2 class="font-semibold">保護者</h2><p class="text-sm text-slate-600">確認と承認</p></a>
-  <a class="bg-white border rounded-lg p-5" href="/admin/dashboard"><h2 class="font-semibold">運営</h2><p class="text-sm text-slate-600">受付、再鑑、承認</p></a>
+<section class="grid gap-4 md:grid-cols-3">
+  <a class="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md" href="/tutor/reports">
+    <h2 class="text-base font-semibold text-slate-800">講師</h2>
+    <p class="mt-2 text-sm text-slate-600">報告書作成と提出</p>
+    <div class="mt-4 text-sm font-medium text-blue-600 group-hover:text-blue-700">開く →</div>
+  </a>
+  <a class="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md" href="/parent/reports">
+    <h2 class="text-base font-semibold text-slate-800">保護者</h2>
+    <p class="mt-2 text-sm text-slate-600">確認と承認</p>
+    <div class="mt-4 text-sm font-medium text-blue-600 group-hover:text-blue-700">開く →</div>
+  </a>
+  <a class="group rounded-xl border border-slate-200 bg-white p-6 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md" href="/admin/dashboard">
+    <h2 class="text-base font-semibold text-slate-800">運営</h2>
+    <p class="mt-2 text-sm text-slate-600">受付、再鑑、承認</p>
+    <div class="mt-4 text-sm font-medium text-blue-600 group-hover:text-blue-700">開く →</div>
+  </a>
 </section>
 <!-- # === Phase 9 END === -->
 {% endblock %}
-

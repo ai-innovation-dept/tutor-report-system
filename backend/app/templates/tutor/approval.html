@@ -1,8 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
-  <h1 class="text-xl font-semibold">承認管理</h1>
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <p class="text-sm font-medium text-blue-600">講師ポータル</p>
+    <h1 class="text-2xl font-semibold text-slate-800">承認管理</h1>
+  </div>
 </div>
 <div id="approvalMonths" class="grid gap-4"></div>
 {% endblock %}
@@ -182,80 +185,74 @@ function renderStepper(group) {
 }
 function actionArea(group) {
   if (group.phase === 'completed') {
-    return `<div class="mt-5 space-y-3">
-      <div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>
-      <div class="flex flex-wrap gap-2">
-        <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
-        <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
-      </div>
-    </div>`;
+    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>`;
   }
   if (group.phase === 'submitted_to_admin') return '';
   if (!group.parent_id && group.can_submit_to_parent) {
-    return '<div class="mt-5 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため承認依頼できません。</div>';
+    return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため承認依頼できません。</div>';
   }
   if (group.phase === 'returned') {
     if (!group.parent_id) {
-      return '<div class="mt-5 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため再依頼できません。</div>';
+      return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため再依頼できません。</div>';
     }
     return `<div class="mt-5 flex flex-wrap items-center gap-3">
-      <button class="rounded bg-blue-600 px-4 py-2 text-white" onclick="resendReturnedReports('${group.assignment_id}')">修正済みの報告書を保護者へ再送信する</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendReturnedReports('${group.assignment_id}')">修正済みの報告書を保護者へ再送信する</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
     </div>`;
   }
   if (group.can_submit_to_parent) {
-    return `<button class="mt-5 rounded bg-blue-600 px-4 py-2 text-white" onclick="submitToParentGroup('${group.assignment_id}')">この生徒分を保護者へ承認依頼する</button>`;
+    return `<button class="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToParentGroup('${group.assignment_id}')">この生徒分を保護者へ承認依頼する</button>`;
   }
   if (group.phase === 'recording') {
-    return '<button class="mt-5 rounded bg-slate-200 px-4 py-2 text-slate-500" disabled>まだ記録中の指導日があります</button>';
+    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>';
   }
   if (group.phase === 'awaiting_parent') {
-    return '<button class="mt-5 rounded bg-slate-200 px-4 py-2 text-slate-500" disabled>保護者の承認を待っています</button>';
+    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>保護者の承認を待っています</button>';
   }
   if (group.phase === 'parent_approved' && group.can_submit_to_admin) {
-    return `<button class="mt-5 rounded bg-blue-600 px-4 py-2 text-white" onclick="submitToAdminGroup('${group.assignment_id}')">この生徒分を運営へ提出する</button>`;
+    return `<button class="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToAdminGroup('${group.assignment_id}')">この生徒分を運営へ提出する</button>`;
   }
   return '';
 }
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 md:grid-cols-4">
-    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">報告完了日</div><div class="font-medium">${timeLabel(group.submitted_to_parent_at, '-')}</div></div>
-    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">保護者へ依頼日時</div><div class="font-medium">${timeLabel(group.first_submitted_to_parent_at || group.submitted_to_parent_at, '-')}</div></div>
-    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">保護者 承認日時</div><div class="font-medium">${group.parent_approved_at ? timeLabel(group.parent_approved_at) : '承認待ち'}</div></div>
-    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">運営 最終承認日時</div><div class="font-medium">${timeLabel(group.admin_approved_at, '')}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">報告完了日</div><div class="font-medium text-slate-800">${timeLabel(group.submitted_to_parent_at, '-')}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_parent_at || group.submitted_to_parent_at, '-')}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者 承認日時</div><div class="font-medium text-slate-800">${group.parent_approved_at ? timeLabel(group.parent_approved_at) : '承認待ち'}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">運営 最終承認日時</div><div class="font-medium text-slate-800">${timeLabel(group.admin_approved_at, '')}</div></div>
   </div>`;
 }
 function detailRows(group) {
-  const rows = group.reports.map(r => `<tr class="border-t">
-    <td class="p-2">${dateLabel(r.lesson_date)}</td>
-    <td class="p-2">${statusLabel(r.status)}</td>
-    <td class="p-2">${timeLabel(r.submitted_to_parent_at, '-')}</td>
-    <td class="p-2">${timeLabel(r.parent_approved_at, '-')}</td>
-    <td class="p-2">${timeLabel(r.submitted_to_admin_at, '-')}</td>
-    <td class="p-2">${timeLabel(r.admin_approved_at, '-')}</td>
-    <td class="p-2 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
+  const rows = group.reports.map(r => `<tr class="border-t border-slate-100 hover:bg-slate-50">
+    <td class="px-4 py-3">${dateLabel(r.lesson_date)}</td>
+    <td class="px-4 py-3">${statusLabel(r.status)}</td>
+    <td class="px-4 py-3">${timeLabel(r.submitted_to_parent_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.parent_approved_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.submitted_to_admin_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.admin_approved_at, '-')}</td>
+    <td class="px-4 py-3 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
   </tr>`).join('');
   return `<div class="mt-5 overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-100"><tr><th class="p-2 text-left">指導日</th><th class="p-2 text-left">状態</th><th class="p-2 text-left">保護者へ依頼</th><th class="p-2 text-left">保護者承認</th><th class="p-2 text-left">運営提出</th><th class="p-2 text-left">最終承認</th><th class="p-2 text-left">差戻し理由</th></tr></thead>
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">保護者へ依頼</th><th class="px-4 py-3 text-left">保護者承認</th><th class="px-4 py-3 text-left">運営提出</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
 }
 function renderApproval() {
   if (!groups.length) {
-    approvalMonths.innerHTML = '<div class="rounded-lg border bg-white p-5 text-sm text-slate-600">当月分の承認対象はありません。</div>';
+    approvalMonths.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">当月分の承認対象はありません。</div>';
     return;
   }
   approvalMonths.innerHTML = groups.map(group => {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
     const parentLabel = group.parent_display_name ? `保護者：${escapeHtml(group.parent_display_name)}` : '保護者：未設定';
-    return `<details class="rounded-lg border bg-white p-5" ${collapsedAttr}>
+    return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" ${collapsedAttr}>
       <summary class="cursor-pointer list-none">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div class="font-semibold">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
+            <div class="font-semibold text-slate-800">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
             <div class="mt-1 text-sm text-slate-500">${parentLabel}</div>
           </div>
           ${completeBadge}
@@ -264,7 +261,7 @@ function renderApproval() {
       ${renderStepper(group)}
       ${summaryGrid(group)}
       ${actionArea(group)}
-      <button class="mt-4 text-sm underline" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
+      <button class="mt-4 text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
       <div id="detail-${group.assignment_id}"></div>
     </details>`;
   }).join('');
