@@ -96,7 +96,7 @@ function returnFormRow(report) {
   </tr>`;
 }
 function renderReportRows(reports) {
-  return reports.map((report, index) => `<tr class="border-t align-top">
+  return reports.map((report, index) => `<tr class="border-t align-top ${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
     <td class="p-2">${index + 1}</td>
     <td class="p-2">${dateLabel(report.lesson_date)}</td>
     <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
@@ -130,13 +130,15 @@ function renderDownloadArea(month, reports) {
     byAssignment[r.assignment_id].reports.push(r);
   }
   const groups = Object.values(byAssignment).filter(g =>
-    g.reports.length > 0 && g.reports.every(r => r.status !== 'awaiting_parent_approval')
+    g.reports.length > 0 && g.reports.every(r =>
+      ['parent_approved', 'submitted_to_admin', 'received', 're_reviewed', 'admin_approved'].includes(r.status)
+    )
   );
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
   </div>`).join('');
   return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
 }

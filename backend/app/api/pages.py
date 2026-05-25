@@ -5,7 +5,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -101,6 +101,21 @@ def _tutor_return_comments(db: Session, current_user: User) -> list[dict[str, st
     return comments
 
 
+def _tutor_returned_to_tutor_count(db: Session, current_user: User) -> int:
+    current_month = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m")
+    return (
+        db.scalar(
+            select(func.count(LessonReport.id))
+            .where(
+                LessonReport.tutor_id == current_user.id,
+                LessonReport.target_month == current_month,
+                LessonReport.status == ReportStatus.returned_to_tutor.value,
+            )
+        )
+        or 0
+    )
+
+
 def _base_context(request: Request, current_user: User) -> dict:
     return {"request": request, "current_user": current_user}
 
@@ -111,6 +126,7 @@ def _tutor_context(request: Request, db: Session, current_user: User) -> dict:
         {
             "tutor_month_total_label": _tutor_month_total_label(db, current_user),
             "return_comments": _tutor_return_comments(db, current_user),
+            "returned_to_tutor_count": _tutor_returned_to_tutor_count(db, current_user),
         }
     )
     return context
