@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<div class="mb-4 flex flex-wrap items-center gap-3">
+  <h1 class="text-xl font-semibold">保護者 報告書</h1>
+  <select id="monthFilter" class="border rounded px-3 py-2 text-sm"></select>
+</div>
+<div id="parentReports" class="grid gap-4"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const currentMonth = new Date().toISOString().slice(0, 7);
+let allReports = [];
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
+let expandedReturnId = null;
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function timeText(value) { return (value || '').slice(0, 5); }
+function dateLabel(value) {
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function monthOptionLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月`;
+}
+function minutesBetween(start, end) {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function sortReportsOldestFirst(reports) {
+  return [...reports].sort((a, b) => {
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+}
+function statusBadge(report) {
+  if (report.status === 'awaiting_parent_approval') return '<span class="font-medium text-blue-700">確認待ち</span>';
+  if (report.status === 'returned_to_tutor') return '<span class="font-medium text-rose-700">差戻し済み</span>';
+  if (report.status === 'parent_approved') return '<span class="font-medium text-emerald-700">承認済み</span>';
+  return '<span class="text-slate-500">対象外</span>';
+}
+function rowAction(report) {
+  if (selectedMonth !== currentMonth) return '';
+  if (report.status === 'awaiting_parent_approval') {
+    return `<button class="rounded border px-3 py-1 text-sm hover:bg-slate-50" onclick="showReturnForm('${report.id}')">差戻す</button>`;
+  }
+  if (report.status === 'returned_to_tutor') {
+    return `<button class="rounded border px-3 py-1 text-sm hover:bg-slate-50" onclick="cancelReturn('${report.id}')">差戻しを取消</button>`;
+  }
+  return '';
+}
+function returnComment(report) {
+  if (report.status !== 'returned_to_tutor' || !report.last_return_comment) return '';
+  return `<div class="mt-1 text-xs text-rose-700">コメント：${escapeHtml(report.last_return_comment)}</div>`;
+}
+function returnFormRow(report) {
+  if (expandedReturnId !== report.id) return '';
+  return `<tr class="border-t bg-rose-50">
+    <td class="p-3" colspan="6">
+      <div class="grid gap-2">
+        <label class="text-sm font-medium text-slate-700" for="returnComment-${report.id}">コメントを入力してください</label>
+        <textarea id="returnComment-${report.id}" class="min-h-24 rounded border px-3 py-2 text-sm" maxlength="2000"></textarea>
+        <div class="flex gap-2">
+          <button class="rounded bg-rose-700 px-3 py-2 text-sm text-white" onclick="confirmReturn('${report.id}')">コメントを送信する</button>
+          <button class="rounded border px-3 py-2 text-sm" onclick="hideReturnForm()">キャンセル</button>
+        </div>
+      </div>
+    </td>
+  </tr>`;
+}
+function renderReportRows(reports) {
+  return reports.map((report, index) => `<tr class="border-t align-top">
+    <td class="p-2">${index + 1}</td>
+    <td class="p-2">${dateLabel(report.lesson_date)}</td>
+    <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
+    <td class="p-2">${escapeHtml(report.subject || '')}</td>
+    <td class="p-2">${statusBadge(report)}${returnComment(report)}</td>
+    <td class="p-2">${rowAction(report)}</td>
+  </tr>${returnFormRow(report)}`).join('');
+}
+function renderActionArea(month, reports) {
+  const pending = reports.filter(report => report.status === 'awaiting_parent_approval');
+  const returned = reports.filter(report => report.status === 'returned_to_tutor');
+  const summary = `<div class="text-sm text-slate-700">差戻し済み：${returned.length}件　未確認：${pending.length}件</div>`;
+  if (month !== currentMonth) {
+    return `${summary}<div class="mt-3 rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">過去月のため差戻しできません。</div>`;
+  }
+  if (returned.length) {
+    return `${summary}<button class="mt-3 rounded bg-slate-200 px-3 py-2 text-sm text-slate-500" disabled>すべての指導日を承認する</button>
+      <div class="mt-2 text-sm text-slate-600">差戻し中の報告書があります。講師の修正をお待ちください。</div>`;
+  }
+  if (pending.length) {
+    return `${summary}<button class="mt-3 rounded bg-emerald-700 px-3 py-2 text-sm text-white" onclick="approvePending('${month}')">すべての指導日を承認する</button>`;
+  }
+  return `${summary}<div class="mt-3 rounded bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>`;
+}
+function renderDownloadArea(month, reports) {
+  const byAssignment = {};
+  for (const r of reports) {
+    if (!byAssignment[r.assignment_id]) {
+      byAssignment[r.assignment_id] = {assignment_id: r.assignment_id, student_name: r.student_name || '生徒', reports: []};
+    }
+    byAssignment[r.assignment_id].reports.push(r);
+  }
+  const groups = Object.values(byAssignment).filter(g =>
+    g.reports.length > 0 && g.reports.every(r => r.status !== 'awaiting_parent_approval')
+  );
+  if (!groups.length) return '';
+  const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
+    ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
+  </div>`).join('');
+  return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
+}
+function renderMonthSection(month, reports) {
+  const sorted = sortReportsOldestFirst(reports);
+  const totalMinutes = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
+  if (!sorted.length) {
+    return '<div class="rounded border bg-white p-4 text-sm text-slate-600">この月の報告書はありません。</div>';
+  }
+  return `<section class="overflow-hidden rounded-lg border bg-white">
+    <div class="border-b bg-slate-50 p-4">
+      <h2 class="font-semibold">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-100">
+          <tr>
+            <th class="p-2 text-left">回</th>
+            <th class="p-2 text-left">指導日</th>
+            <th class="p-2 text-left">在室時間</th>
+            <th class="p-2 text-left">科目</th>
+            <th class="p-2 text-left">状態</th>
+            <th class="p-2 text-left">差戻す</th>
+          </tr>
+        </thead>
+        <tbody>${renderReportRows(sorted)}</tbody>
+      </table>
+    </div>
+    <div class="border-t p-4">${renderActionArea(month, sorted)}${renderDownloadArea(month, sorted)}</div>
+  </section>`;
+}
+function renderMonthFilter(groups) {
+  const months = Object.keys(groups).filter(month => month <= currentMonth).sort().reverse();
+  if (months.length && !months.includes(selectedMonth)) selectedMonth = months.includes(currentMonth) ? currentMonth : months[0];
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+  monthFilter.disabled = !months.length;
+}
+function renderParent() {
+  const groups = allReports.reduce((acc, report) => ((acc[report.target_month] ||= []).push(report), acc), {});
+  renderMonthFilter(groups);
+  parentReports.innerHTML = groups[selectedMonth]
+    ? renderMonthSection(selectedMonth, groups[selectedMonth])
+    : '<div class="rounded border bg-white p-4 text-sm text-slate-600">表示できる報告書はありません。</div>';
+}
+function showReturnForm(reportId) {
+  expandedReturnId = reportId;
+  renderParent();
+}
+function hideReturnForm() {
+  expandedReturnId = null;
+  renderParent();
+}
+async function confirmReturn(reportId) {
+  const input = document.getElementById(`returnComment-${reportId}`);
+  const comment = input.value.trim();
+  if (!comment) {
+    alert('コメントを入力してください。');
+    return;
+  }
+  await api(`/api/reports/${reportId}/parent-return`, {method: 'POST', body: JSON.stringify({comment})});
+  expandedReturnId = null;
+  await loadParent();
+}
+async function cancelReturn(reportId) {
+  await api(`/api/reports/${reportId}/submit-to-parent`, {method: 'POST', body: JSON.stringify({})});
+  await loadParent();
+}
+async function approvePending(month) {
+  const reports = allReports.filter(report => report.target_month === month);
+  const pending = reports.filter(report => report.status === 'awaiting_parent_approval');
+  if (!pending.length) return;
+  if (!confirm(`${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`)) return;
+  await api('/api/reports/parent-approve-bulk', {
+    method: 'POST',
+    body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month})
+  });
+  window.location.href = '/parent/reports';
+}
+async function loadParent() {
+  allReports = sortReportsOldestFirst(await api('/api/reports'));
+  renderParent();
+}
+monthFilter.addEventListener('change', () => {
+  const params = new URLSearchParams(location.search);
+  params.set('month', monthFilter.value);
+  location.href = `${location.pathname}?${params.toString()}`;
+});
+window.authReady.then(user => {
+  if (!user) return;
+  loadParent();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

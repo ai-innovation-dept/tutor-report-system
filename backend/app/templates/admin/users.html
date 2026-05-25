@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: 保護者招待管理 START === -->
+<div class="mb-4">
+  <h1 class="text-xl font-semibold">ユーザー管理</h1>
+</div>
+
+<section class="mb-4 rounded border bg-white p-4">
+  <h2 class="font-semibold">新規生徒保護者の登録</h2>
+  <form id="inviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">担当講師</span>
+      <select name="tutor_id" id="tutorSelect" class="w-full rounded border px-3 py-2" required></select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">生徒名</span>
+      <input name="student_name" class="w-full rounded border px-3 py-2" required maxlength="100">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">保護者メール</span>
+      <input name="email" type="email" class="w-full rounded border px-3 py-2" required>
+    </label>
+    <button class="self-end rounded bg-slate-900 px-4 py-2 text-white">招待メールを送る</button>
+  </form>
+  <p id="inviteMessage" class="mt-3 text-sm"></p>
+</section>
+
+<section class="rounded border bg-white">
+  <div class="border-b bg-slate-50 p-4">
+    <h2 class="font-semibold">招待済み一覧</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-white">
+        <tr>
+          <th class="p-2 text-left">メールアドレス</th>
+          <th class="p-2 text-left">担当講師</th>
+          <th class="p-2 text-left">担当生徒</th>
+          <th class="p-2 text-left">送信日時</th>
+          <th class="p-2 text-left">状態</th>
+          <th class="p-2 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="invitationRows"></tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}
+{% block scripts %}
+<script>
+let invitations = [];
+let tutors = [];
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function formatDateTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function statusText(invitation) {
+  if (invitation.accepted_at) return '登録済み';
+  const expires = new Date(invitation.expires_at);
+  const diffHours = Math.max(0, Math.ceil((expires.getTime() - Date.now()) / 3600000));
+  if (diffHours <= 0) return '期限切れ';
+  return `未登録（残り${diffHours}時間）`;
+}
+function showInviteMessage(text, isError = false) {
+  inviteMessage.textContent = text;
+  inviteMessage.className = `mt-3 text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
+}
+function renderTutorOptions() {
+  tutorSelect.innerHTML = tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}（${escapeHtml(tutor.email)}）</option>`).join('');
+}
+function renderInvitations() {
+  invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
+    const action = invitation.accepted_at
+      ? ''
+      : `<button class="underline" onclick="resendInvitation('${invitation.id}')">再送</button>
+         <button class="ml-2 underline text-rose-700" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
+    return `<tr class="border-t">
+      <td class="p-2">${escapeHtml(invitation.email)}</td>
+      <td class="p-2">${escapeHtml(invitation.tutor_name || '未設定')}</td>
+      <td class="p-2">${escapeHtml(invitation.student_name || '未設定')}</td>
+      <td class="p-2">${formatDateTime(invitation.created_at)}</td>
+      <td class="p-2">${statusText(invitation)}</td>
+      <td class="p-2">${action}</td>
+    </tr>`;
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">招待はありません。</td></tr>';
+}
+async function loadUsersPage() {
+  const [invitationRows, tutorRows] = await Promise.all([
+    api('/api/invitations'),
+    api('/api/users?role=tutor')
+  ]);
+  invitations = invitationRows;
+  tutors = tutorRows;
+  renderTutorOptions();
+  renderInvitations();
+}
+inviteForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(inviteForm));
+  try {
+    await api('/api/invitations', {method: 'POST', body: JSON.stringify(data)});
+    inviteForm.reset();
+    showInviteMessage('招待メールを送信しました。');
+    await loadUsersPage();
+  } catch (error) {
+    showInviteMessage('招待メールを送信できませんでした。', true);
+  }
+});
+async function resendInvitation(id) {
+  const invitation = invitations.find(item => item.id === id);
+  if (!invitation) return;
+  await api('/api/invitations', {method: 'POST', body: JSON.stringify({email: invitation.email, tutor_id: invitation.tutor_id, student_name: invitation.student_name})});
+  showInviteMessage('招待メールを再送しました。');
+  await loadUsersPage();
+}
+async function deleteInvitation(id) {
+  if (!confirm('この招待を取り消しますか。')) return;
+  await api(`/api/invitations/${id}`, {method: 'DELETE'});
+  showInviteMessage('招待を取り消しました。');
+  await loadUsersPage();
+}
+window.authReady.then(user => {
+  if (!user) return;
+  loadUsersPage();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

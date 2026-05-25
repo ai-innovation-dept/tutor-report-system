@@ -1,0 +1,414 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+  <div>
+    <h1 class="text-xl font-semibold" id="pageTitle">講師 報告書</h1>
+    <div id="studentBadge" class="mt-2 inline-block rounded bg-blue-100 px-3 py-1 text-sm font-medium text-blue-800">生徒：すべて</div>
+  </div>
+  <div class="flex flex-wrap items-center gap-2">
+    <label class="text-sm text-slate-700" for="monthFilter">表示月</label>
+    <select id="monthFilter" class="border rounded px-3 py-2 text-sm"></select>
+  </div>
+</div>
+<div class="grid lg:grid-cols-[1fr_380px] gap-4">
+  <section class="bg-white border rounded-lg overflow-hidden">
+    <div id="bulkSubmitPanel" class="hidden p-4 border-b bg-slate-50"></div>
+    <table class="w-full text-sm hidden md:table">
+      <thead class="bg-slate-100">
+        <tr>
+          <th class="p-2 text-left">回数</th>
+          <th class="p-2 text-left">指導日</th>
+          <th class="p-2 text-left">在室時間</th>
+          <th class="p-2 text-left">指導時間数</th>
+          <th class="p-2 text-left">科目</th>
+          <th class="p-2 text-left">アクション</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <div id="cards" class="md:hidden divide-y"></div>
+    <div id="totalTeachingTime" class="border-t bg-slate-50 p-3 text-sm font-semibold"></div>
+  </section>
+  <section class="bg-white border rounded-lg p-4" id="formPanel">
+    <h2 class="font-semibold mb-3" id="formTitle">簡易作成</h2>
+    <div id="formMessage" class="mb-3 hidden rounded px-3 py-2 text-sm"></div>
+    <form id="reportForm" class="space-y-3">
+      <input type="hidden" id="editingId">
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">生徒</span>
+        <select name="assignment_id" id="assignment" class="w-full border rounded px-3 py-2"></select>
+      </label>
+      <label class="hidden text-sm" id="newStudentField">
+        <span class="block mb-1 text-slate-700">生徒名</span>
+        <input id="newStudentName" type="text" placeholder="例：山田 太郎" class="w-full border rounded px-3 py-2">
+      </label>
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">指導日</span>
+        <input name="lesson_date" id="lessonDate" type="date" class="w-full border rounded px-3 py-2" required>
+        <span id="lessonDateLabel" class="block mt-1 text-xs text-slate-500"></span>
+      </label>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="block text-sm">
+          <span class="block mb-1 text-slate-700">開始時刻</span>
+          <input name="start_time" id="startTime" type="time" class="w-full border rounded px-3 py-2" required>
+        </label>
+        <label class="block text-sm">
+          <span class="block mb-1 text-slate-700">終了時刻</span>
+          <input name="end_time" id="endTime" type="time" class="w-full border rounded px-3 py-2" required>
+        </label>
+      </div>
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">休憩等の時間（分）</span>
+        <input name="break_minutes" id="breakMinutes" type="number" min="0" step="1" value="0" class="w-full border rounded px-3 py-2" required>
+      </label>
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">指導時間数</span>
+        <input id="teachingMinutesLabel" type="text" value="0分" class="w-full border rounded px-3 py-2 bg-slate-100" readonly>
+      </label>
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">科目</span>
+        <input name="subject" id="subject" placeholder="科目" class="w-full border rounded px-3 py-2">
+      </label>
+      <label class="block text-sm">
+        <span class="block mb-1 text-slate-700">指導内容</span>
+        <textarea name="content" id="content" placeholder="指導内容" class="w-full border rounded px-3 py-2" required></textarea>
+      </label>
+      <div class="flex gap-2">
+        <button class="flex-1 bg-slate-900 text-white rounded px-3 py-2" id="saveButton">保存</button>
+        <button type="button" class="px-3 py-2 border rounded" onclick="resetReportForm()">取消</button>
+      </div>
+    </form>
+  </section>
+  <section class="hidden rounded-lg border bg-slate-100 p-4 text-sm text-slate-600" id="formUnavailablePanel"></section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/chat.js"></script>
+<script>
+const STATUS_LABELS = {
+  draft: '下書き',
+  awaiting_parent_approval: '保護者承認待ち',
+  parent_approved: '保護者承認済み',
+  returned_to_tutor: '差戻し（要修正）',
+  submitted_to_admin: '運営提出済み',
+  received: '受付済み',
+  re_reviewed: '再鑑済み',
+  admin_approved: '最終承認済み'
+};
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const NEW_ASSIGNMENT_VALUE = '__new_assignment__';
+let currentUserId = '';
+let allReports = [];
+let allAssignments = [];
+const isSubmitPage = location.pathname === '/tutor/submit';
+function getCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+const currentMonth = getCurrentMonth();
+let selectedMonth = currentMonth;
+let selectedAssignmentId = '';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function statusLabel(status) { return STATUS_LABELS[status] || status; }
+function timeText(value) { return (value || '').slice(0, 5); }
+function dateLabel(value) {
+  if (!value) return '';
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function minutesBetween(start, end) {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function rowAction(r) {
+  if (selectedMonth !== currentMonth) return '';
+  const parts = [];
+  if (r.status === 'draft') {
+    parts.push(`<button class="underline" onclick="editReport('${r.id}')">編集</button>`);
+    parts.push(`<button class="underline text-rose-700" onclick="deleteReport('${r.id}')">削除</button>`);
+  } else if (r.status === 'returned_to_tutor') {
+    parts.push(`<button class="underline" onclick="editReport('${r.id}')">編集</button>`);
+  }
+  return parts.length ? parts.join(' / ') : '';
+}
+function selectedAssignment() {
+  return allAssignments.find(a => a.id === selectedAssignmentId);
+}
+function selectedAssignmentApproved() {
+  if (!selectedAssignmentId) return false;
+  return allReports.some(r => r.target_month === currentMonth && r.assignment_id === selectedAssignmentId && r.status === 'admin_approved');
+}
+function isNewAssignmentMode() {
+  return assignment.value === NEW_ASSIGNMENT_VALUE;
+}
+function filteredReports() {
+  if (isNewAssignmentMode()) return [];
+  return allReports.filter(r => {
+    const monthMatches = isSubmitPage || r.target_month === selectedMonth;
+    const assignmentMatches = !selectedAssignmentId || r.assignment_id === selectedAssignmentId;
+    return monthMatches && assignmentMatches;
+  });
+}
+function updateStudentBadge() {
+  if (isNewAssignmentMode()) {
+    studentBadge.textContent = '生徒：新しい生徒';
+    return;
+  }
+  const current = selectedAssignment();
+  studentBadge.textContent = `生徒：${current ? current.student_name : 'すべて'}`;
+}
+function updateNewStudentField() {
+  const newMode = isNewAssignmentMode();
+  newStudentField.classList.toggle('hidden', !newMode);
+  newStudentField.classList.toggle('block', newMode);
+  newStudentName.required = newMode;
+}
+function renderCurrentList() {
+  const visible = isSubmitPage
+    ? allReports.filter(r => r.status === 'parent_approved' && (!selectedAssignmentId || r.assignment_id === selectedAssignmentId))
+    : filteredReports();
+  renderRows(visible);
+}
+function renderFormAvailability() {
+  if (isSubmitPage) {
+    formPanel.classList.add('hidden');
+    formUnavailablePanel.classList.add('hidden');
+    return;
+  }
+  let message = '';
+  if (selectedMonth !== currentMonth) {
+    message = '過去月は参照のみです';
+  } else if (selectedAssignmentApproved()) {
+    message = '当月分は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
+  }
+  formPanel.classList.toggle('hidden', Boolean(message));
+  formUnavailablePanel.classList.toggle('hidden', !message);
+  formUnavailablePanel.textContent = message;
+}
+function showFormMessage(message, isError = false) {
+  formMessage.textContent = message;
+  formMessage.className = `mb-3 rounded px-3 py-2 text-sm ${isError ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`;
+}
+function clearFormMessage() {
+  formMessage.className = 'mb-3 hidden rounded px-3 py-2 text-sm';
+  formMessage.textContent = '';
+}
+function reportSummary(r) {
+  return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
+}
+function renderRows(reports) {
+  const totalMinutes = reports.reduce((sum, r) => sum + teachingMinutes(r), 0);
+  rows.innerHTML = reports.map((r, index) => `<tr class="border-t">
+    <td class="p-2">${index + 1}</td>
+    <td class="p-2">${dateLabel(r.lesson_date)}</td>
+    <td class="p-2">${timeText(r.start_time)} ～ ${timeText(r.end_time)}</td>
+    <td class="p-2">${durationLabel(teachingMinutes(r))}</td>
+    <td class="p-2">${r.subject || ''}</td>
+    <td class="p-2">${rowAction(r)}</td>
+  </tr>`).join('');
+  cards.innerHTML = reports.map((r, index) => `<div class="p-3">
+    <div class="font-medium">${index + 1}回目 ${reportSummary(r)}</div>
+    <div class="mt-2 text-sm">${rowAction(r)}</div>
+  </div>`).join('');
+  totalTeachingTime.textContent = `合計指導時間：${durationLabel(totalMinutes)}`;
+}
+function renderBulkSubmit(reports) {
+  if (!isSubmitPage) {
+    bulkSubmitPanel.classList.add('hidden');
+    return;
+  }
+  const eligible = reports.filter(r => r.target_month === currentMonth && r.status === 'parent_approved');
+  const groups = eligible.reduce((acc, r) => ((acc[r.assignment_id] ||= []).push(r), acc), {});
+  bulkSubmitPanel.classList.remove('hidden');
+  bulkSubmitPanel.innerHTML = Object.keys(groups).length
+    ? Object.entries(groups).map(([assignmentId, items]) => {
+        const assignmentName = allAssignments.find(a => a.id === assignmentId)?.student_name || '生徒未設定';
+        return `<div class="flex items-center justify-between gap-3 py-2">
+        <div class="font-medium">${escapeHtml(assignmentName)} <span class="text-sm text-slate-500">${monthLabel(currentMonth)} ${items.length}件</span></div>
+        <button class="px-3 py-1 bg-slate-900 text-white rounded" onclick="submitAssignment('${assignmentId}')">この生徒分を運営へ提出</button>
+      </div>`;
+      }).join('')
+    : '<div class="text-sm text-slate-600">当月分で運営へ提出できる報告書はありません。</div>';
+}
+async function loadTutor() {
+  const [reports, assignments] = await Promise.all([api('/api/reports'), api('/api/assignments')]);
+  allReports = sortReportsOldestFirst(reports);
+  allAssignments = assignments;
+  renderAssignmentOptions();
+  renderMonthFilter();
+  updateStudentBadge();
+  pageTitle.textContent = isSubmitPage ? '運営へ提出' : '講師 報告書';
+  renderCurrentList();
+  renderBulkSubmit(allReports);
+  renderFormAvailability();
+  if (location.pathname === '/tutor/reports/new') {
+    resetReportForm(false);
+    formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
+  }
+}
+function renderAssignmentOptions() {
+  const options = allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`);
+  options.push(`<option value="${NEW_ASSIGNMENT_VALUE}">＋ 新しい生徒を追加</option>`);
+  assignment.innerHTML = options.join('');
+  if (selectedAssignmentId && allAssignments.some(a => a.id === selectedAssignmentId)) {
+    assignment.value = selectedAssignmentId;
+  } else if (!selectedAssignmentId && allAssignments.length) {
+    selectedAssignmentId = allAssignments[0].id;
+    assignment.value = selectedAssignmentId;
+  } else {
+    assignment.value = NEW_ASSIGNMENT_VALUE;
+    selectedAssignmentId = '';
+  }
+  updateNewStudentField();
+}
+function renderMonthFilter() {
+  const months = [...new Set([...allReports.map(r => r.target_month), currentMonth])]
+    .filter(month => month <= currentMonth)
+    .sort()
+    .reverse();
+  if (!months.includes(selectedMonth)) selectedMonth = months.includes(currentMonth) ? currentMonth : (months[0] || currentMonth);
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+}
+function sortReportsOldestFirst(reports) {
+  return [...reports].sort((a, b) => {
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+}
+function formPayload() {
+  const data = Object.fromEntries(new FormData(reportForm));
+  data.break_minutes = Number(data.break_minutes || 0);
+  return data;
+}
+function updateComputedFields() {
+  lessonDateLabel.textContent = dateLabel(lessonDate.value);
+  const minutes = Math.max(0, minutesBetween(startTime.value, endTime.value) - Number(breakMinutes.value || 0));
+  teachingMinutesLabel.value = durationLabel(minutes);
+}
+function resetReportForm(keepAssignment = false) {
+  const currentAssignment = assignment.value;
+  const currentStudentName = newStudentName.value;
+  reportForm.reset();
+  editingId.value = '';
+  breakMinutes.value = 0;
+  if (keepAssignment) {
+    assignment.value = currentAssignment;
+    if (currentAssignment === NEW_ASSIGNMENT_VALUE) newStudentName.value = currentStudentName;
+  }
+  selectedAssignmentId = assignment.value === NEW_ASSIGNMENT_VALUE ? '' : (assignment.value || selectedAssignmentId);
+  updateNewStudentField();
+  updateStudentBadge();
+  formTitle.textContent = '簡易作成';
+  saveButton.textContent = '保存';
+  updateComputedFields();
+}
+function editReport(id) {
+  const r = allReports.find(item => item.id === id);
+  if (!r) return;
+  editingId.value = r.id;
+  selectedAssignmentId = r.assignment_id;
+  assignment.value = r.assignment_id;
+  updateNewStudentField();
+  lessonDate.value = r.lesson_date;
+  startTime.value = timeText(r.start_time);
+  endTime.value = timeText(r.end_time);
+  breakMinutes.value = r.break_minutes || 0;
+  subject.value = r.subject || '';
+  content.value = r.content || '';
+  formTitle.textContent = `編集中：${dateLabel(r.lesson_date)}`;
+  saveButton.textContent = '保存';
+  updateComputedFields();
+  formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+async function deleteReport(id) {
+  if (!confirm('この下書き報告書を削除しますか。')) return;
+  await api(`/api/reports/${id}`, {method:'DELETE'});
+  await loadTutor();
+}
+async function submitToParent(id) {
+  await api(`/api/reports/${id}/submit-to-parent`, {method:'POST', body:JSON.stringify({})});
+  await loadTutor();
+}
+async function submitToAdmin(id) {
+  await api(`/api/reports/${id}/submit-to-admin`, {method:'POST', body:JSON.stringify({})});
+  await loadTutor();
+}
+async function submitAssignment(assignmentId) {
+  const ids = allReports.filter(r => r.target_month === currentMonth && r.assignment_id === assignmentId && r.status === 'parent_approved').map(r => r.id);
+  await api('/api/reports/submit-to-admin-bulk', {method:'POST', body:JSON.stringify({report_ids: ids, target_month: currentMonth})});
+  await loadTutor();
+}
+reportForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  const payload = formPayload();
+  clearFormMessage();
+  try {
+    if (editingId.value) {
+      delete payload.assignment_id;
+      await api(`/api/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify(payload)});
+      showFormMessage('報告書を更新しました');
+    } else {
+      let successMessage = '報告書を作成しました';
+      if (isNewAssignmentMode()) {
+        const studentName = newStudentName.value.trim();
+        if (!studentName) throw new Error('生徒名を入力してください');
+        const createdAssignment = await api('/api/assignments', {
+          method: 'POST',
+          body: JSON.stringify({tutor_id: currentUserId, parent_id: null, student_name: studentName})
+        });
+        payload.assignment_id = createdAssignment.id;
+        selectedAssignmentId = createdAssignment.id;
+        successMessage = '生徒を登録し、報告書を作成しました';
+      }
+      await api('/api/reports', {method:'POST', body: JSON.stringify(payload)});
+      showFormMessage(successMessage);
+    }
+    await loadTutor();
+    resetReportForm(true);
+  } catch (error) {
+    showFormMessage(`作成に失敗しました：${error.message}`, true);
+  }
+});
+assignment.addEventListener('change', () => {
+  selectedAssignmentId = assignment.value === NEW_ASSIGNMENT_VALUE ? '' : assignment.value;
+  resetReportForm(true);
+  updateStudentBadge();
+  renderCurrentList();
+  renderFormAvailability();
+});
+monthFilter.addEventListener('change', () => {
+  selectedMonth = monthFilter.value;
+  renderCurrentList();
+  renderFormAvailability();
+});
+[lessonDate, startTime, endTime, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
+window.authReady.then(user => {
+  if (!user) return;
+  currentUserId = user.id;
+  loadTutor();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<section class="grid md:grid-cols-3 gap-4">
+  <a class="bg-white border rounded-lg p-5" href="/tutor/reports"><h2 class="font-semibold">講師</h2><p class="text-sm text-slate-600">報告書作成と提出</p></a>
+  <a class="bg-white border rounded-lg p-5" href="/parent/reports"><h2 class="font-semibold">保護者</h2><p class="text-sm text-slate-600">確認と承認</p></a>
+  <a class="bg-white border rounded-lg p-5" href="/admin/dashboard"><h2 class="font-semibold">運営</h2><p class="text-sm text-slate-600">受付、再鑑、承認</p></a>
+</section>
+<!-- # === Phase 9 END === -->
+{% endblock %}
+

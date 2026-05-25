@@ -1,0 +1,347 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<div class="mb-4">
+  <h1 class="text-xl font-semibold" id="pageTitle">運営ダッシュボード</h1>
+</div>
+
+<div class="mb-4 flex flex-wrap items-center gap-3 rounded border bg-white p-4">
+  <label class="text-sm">
+    <span class="mr-2 text-slate-700">月選択</span>
+    <select id="monthFilter" class="border rounded px-3 py-2"></select>
+  </label>
+  <label class="text-sm">
+    <span class="mr-2 text-slate-700">講師選択</span>
+    <select id="tutorFilter" class="border rounded px-3 py-2"></select>
+  </label>
+</div>
+
+<div id="summaryCards" class="mb-4 grid gap-3 md:grid-cols-5"></div>
+<div id="studentCards" class="grid gap-4"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const STATUS_LABELS = {
+  draft: '下書き',
+  awaiting_parent_approval: '保護者承認待ち',
+  parent_approved: '保護者承認済み',
+  returned_to_tutor: '差戻し中',
+  submitted_to_admin: '受付待ち',
+  received: '再鑑待ち',
+  re_reviewed: '最終承認待ち',
+  admin_approved: '最終承認済み'
+};
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+let currentRole = '';
+function getCurrentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+const currentMonth = getCurrentMonth();
+const queueStatusByPath = {
+  '/admin/queue/receive': 'submitted_to_admin',
+  '/admin/queue/review': 'received',
+  '/admin/queue/approve': 're_reviewed'
+};
+const queueStatus = queueStatusByPath[location.pathname] || '';
+const queueTitles = {
+  submitted_to_admin: '受付待ち一覧',
+  received: '再鑑待ち一覧',
+  re_reviewed: '承認待ち一覧'
+};
+const summaryDefinitions = [
+  {key: 'submitted_to_admin', label: '受付待ち'},
+  {key: 'received', label: '再鑑待ち'},
+  {key: 're_reviewed', label: '最終承認待ち'},
+  {key: 'admin_approved', label: '最終承認済み'},
+  {key: 'returned_to_tutor', label: '差戻し中'}
+];
+let allReports = [];
+let allAssignments = [];
+let allTutors = [];
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
+let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function statusLabel(status) { return STATUS_LABELS[status] || status; }
+function timeText(value) { return (value || '').slice(0, 5); }
+function dateLabel(value) {
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function monthOptionLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月`;
+}
+function monthShortLabel(value) {
+  return `${Number(value.slice(5, 7))}月分`;
+}
+function minutesBetween(start, end) {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function tutorName(id) {
+  return allTutors.find(tutor => tutor.id === id)?.display_name || '講師未設定';
+}
+function assignmentName(id) {
+  return allAssignments.find(assignment => assignment.id === id)?.student_name || '生徒未設定';
+}
+function isCurrentMonth() {
+  return selectedMonth === currentMonth;
+}
+function sortReports(reports) {
+  return [...reports].sort((a, b) => {
+    const tutorCompare = tutorName(a.tutor_id).localeCompare(tutorName(b.tutor_id), 'ja');
+    if (tutorCompare !== 0) return tutorCompare;
+    const assignmentCompare = assignmentName(a.assignment_id).localeCompare(assignmentName(b.assignment_id), 'ja');
+    if (assignmentCompare !== 0) return assignmentCompare;
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+}
+function monthTutorReports() {
+  return sortReports(allReports.filter(report =>
+    report.target_month === selectedMonth &&
+    (!selectedTutorId || report.tutor_id === selectedTutorId)
+  ));
+}
+function cardStatus(reports) {
+  if (reports.some(report => report.status === 'returned_to_tutor')) return 'returned_to_tutor';
+  if (reports.some(report => report.status === 'submitted_to_admin')) return 'submitted_to_admin';
+  if (reports.some(report => report.status === 'received')) return 'received';
+  if (reports.some(report => report.status === 're_reviewed')) return 're_reviewed';
+  if (reports.length && reports.every(report => report.status === 'admin_approved')) return 'admin_approved';
+  return reports[0]?.status || '';
+}
+function statusClass(status) {
+  if (status === 'returned_to_tutor') return 'bg-rose-50 text-rose-700';
+  if (status === 'admin_approved') return 'bg-emerald-50 text-emerald-700';
+  return 'bg-slate-100 text-slate-700';
+}
+function groupedByTutorAssignment(reports) {
+  return reports.reduce((groups, report) => {
+    const key = `${report.tutor_id}:${report.assignment_id}`;
+    if (!groups[key]) groups[key] = {tutor_id: report.tutor_id, assignment_id: report.assignment_id, reports: []};
+    groups[key].reports.push(report);
+    return groups;
+  }, {});
+}
+function visibleGroups() {
+  return Object.values(groupedByTutorAssignment(monthTutorReports()))
+    .filter(group => !queueStatus || cardStatus(group.reports) === queueStatus);
+}
+function renderFilters() {
+  const months = [...new Set(allReports.map(report => report.target_month))]
+    .filter(month => month <= currentMonth)
+    .sort()
+    .reverse();
+  if (months.length && !months.includes(selectedMonth)) {
+    selectedMonth = months.includes(currentMonth) ? currentMonth : months[0];
+  }
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+  monthFilter.disabled = !months.length;
+
+  const tutorIds = new Set(allReports.filter(report => report.target_month === selectedMonth).map(report => report.tutor_id));
+  const tutors = allTutors.filter(tutor => tutorIds.has(tutor.id)).sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
+  if (selectedTutorId && !tutorIds.has(selectedTutorId)) selectedTutorId = '';
+  tutorFilter.innerHTML = [
+    '<option value="">すべての講師</option>',
+    ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}</option>`)
+  ].join('');
+  tutorFilter.value = selectedTutorId;
+}
+function renderSummary(groups) {
+  summaryCards.innerHTML = summaryDefinitions.map(item => {
+    const count = groups.filter(group => cardStatus(group.reports) === item.key).length;
+    return `<div class="rounded border bg-white p-3">
+      <div class="text-xs text-slate-500">${item.label}</div>
+      <div class="mt-1 text-2xl font-semibold">${count}<span class="ml-1 text-sm font-normal text-slate-500">セット</span></div>
+    </div>`;
+  }).join('');
+}
+function actionConfig(status) {
+  if (!isCurrentMonth()) return null;
+  if (status === 'submitted_to_admin' && ['admin_receiver', 'admin_master'].includes(currentRole)) {
+    return {targetStatus: 'submitted_to_admin', endpoint: '/api/reports/admin-receive-bulk', label: '受付する', confirm: '受付', returnRole: 'receiver'};
+  }
+  if (status === 'received' && ['admin_reviewer', 'admin_master'].includes(currentRole)) {
+    return {targetStatus: 'received', endpoint: '/api/reports/admin-review-bulk', label: '再鑑する', confirm: '再鑑', returnRole: 'reviewer'};
+  }
+  if (status === 're_reviewed' && currentRole === 'admin_master') {
+    return {targetStatus: 're_reviewed', endpoint: '/api/reports/admin-approve-bulk', label: '最終承認する', confirm: '最終承認', returnRole: 'master'};
+  }
+  if (status === 'admin_approved' && currentRole === 'admin_master') {
+    return {targetStatus: 'admin_approved', endpoint: '', label: '', confirm: '', returnRole: 'master', returnOnly: true};
+  }
+  return null;
+}
+function returnReason(reports) {
+  return reports.find(report => report.last_return_comment)?.last_return_comment || '';
+}
+function cardActions(group, status) {
+  if (!isCurrentMonth()) return '<div class="text-sm text-slate-500">過去月のため操作できません。</div>';
+  if (status === 'returned_to_tutor') {
+    const reason = returnReason(group.reports);
+    return `<div class="text-sm font-medium text-rose-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
+  }
+  const config = actionConfig(status);
+  if (status === 'admin_approved') {
+    if (!config) return '<div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>';
+    return `<div class="flex flex-wrap gap-2">
+      <div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>
+      <button class="rounded bg-rose-700 px-3 py-2 text-white" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+    </div>`;
+  }
+  if (!config) return '<div class="text-sm text-slate-500">現在このロールで操作できる内容はありません。</div>';
+  const targets = group.reports.filter(report => report.status === config.targetStatus);
+  return `<div class="flex flex-wrap gap-2">
+    <button class="rounded bg-slate-900 px-3 py-2 text-white" onclick="bulkAct('${group.tutor_id}','${group.assignment_id}','${config.targetStatus}')">${monthShortLabel(selectedMonth)}を${config.label}</button>
+    <button class="rounded bg-rose-700 px-3 py-2 text-white" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+  </div>`;
+}
+function reportRows(reports) {
+  return sortReports(reports).map((report, index) => {
+    const content = (report.content || '').slice(0, 30);
+    return `<tr class="border-t">
+      <td class="p-2">${index + 1}</td>
+      <td class="p-2">${dateLabel(report.lesson_date)}</td>
+      <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
+      <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
+      <td class="p-2">${escapeHtml(report.subject || '')}</td>
+      <td class="p-2">${escapeHtml(content)}${(report.content || '').length > 30 ? '...' : ''}</td>
+    </tr>`;
+  }).join('');
+}
+function renderStudentCards() {
+  const groups = visibleGroups();
+  renderSummary(Object.values(groupedByTutorAssignment(monthTutorReports())));
+  studentCards.innerHTML = groups.length ? groups.map((group, index) => {
+    const sorted = sortReports(group.reports);
+    const total = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
+    const status = cardStatus(sorted);
+    const detailId = `detail-${index}`;
+    return `<section class="rounded-lg border bg-white">
+      <div class="flex flex-wrap items-start justify-between gap-3 border-b bg-slate-50 p-4">
+        <div>
+          <div class="text-sm text-slate-500">${escapeHtml(tutorName(group.tutor_id))}</div>
+          <h2 class="text-lg font-semibold">${escapeHtml(assignmentName(group.assignment_id))}</h2>
+          <div class="mt-1 text-sm text-slate-600">合計：${durationLabel(total)} / ${sorted.length}件</div>
+          <span class="mt-2 inline-block rounded px-3 py-1 text-sm font-medium ${statusClass(status)}">${statusLabel(status)}</span>
+        </div>
+        ${cardActions(group, status)}
+      </div>
+      <div class="p-4">
+        <button class="text-sm underline" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${selectedMonth}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
+          <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${selectedMonth}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
+        </div>
+      </div>
+      <div id="${detailId}" class="hidden overflow-x-auto border-t">
+        <table class="w-full text-sm">
+          <thead class="bg-white">
+            <tr>
+              <th class="p-2 text-left">回数</th>
+              <th class="p-2 text-left">指導日</th>
+              <th class="p-2 text-left">在室時間</th>
+              <th class="p-2 text-left">指導時間数</th>
+              <th class="p-2 text-left">科目</th>
+              <th class="p-2 text-left">指導内容（先頭30文字）</th>
+            </tr>
+          </thead>
+          <tbody>${reportRows(sorted)}</tbody>
+        </table>
+      </div>
+    </section>`;
+  }).join('') : '<div class="rounded border bg-white p-4 text-sm text-slate-600">表示できる報告書セットはありません。</div>';
+}
+function toggleDetails(id, button) {
+  const panel = document.getElementById(id);
+  panel.classList.toggle('hidden');
+  button.textContent = panel.classList.contains('hidden') ? '指導記録を見る' : '指導記録を閉じる';
+}
+function cardReports(tutorId, assignmentId) {
+  return allReports.filter(report =>
+    report.target_month === selectedMonth &&
+    report.tutor_id === tutorId &&
+    report.assignment_id === assignmentId
+  );
+}
+async function bulkAct(tutorId, assignmentId, status) {
+  const reports = cardReports(tutorId, assignmentId);
+  const config = actionConfig(cardStatus(reports));
+  if (!config) return;
+  const targets = reports.filter(report => report.status === config.targetStatus);
+  if (!targets.length) return;
+  if (!confirm(`${assignmentName(assignmentId)}さんの${monthShortLabel(selectedMonth)}（${targets.length}件）を${config.confirm}します。よろしいですか？`)) return;
+  await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: targets.map(report => report.id), target_month: selectedMonth})});
+  await loadAdmin();
+}
+async function bulkReturn(tutorId, assignmentId, fromRole, status) {
+  const reports = cardReports(tutorId, assignmentId);
+  const targets = reports.filter(report => report.status === status);
+  if (!targets.length) return;
+  const comment = prompt('差戻し理由を入力してください。');
+  if (!comment || !comment.trim()) return;
+  await api('/api/reports/admin-return-bulk', {
+    method: 'POST',
+    body: JSON.stringify({
+      report_ids: targets.map(report => report.id),
+      target_month: selectedMonth,
+      from_role: fromRole,
+      comment: comment.trim()
+    })
+  });
+  await loadAdmin();
+}
+function updateUrl() {
+  const params = new URLSearchParams();
+  if (selectedMonth) params.set('month', selectedMonth);
+  if (selectedTutorId) params.set('tutor_id', selectedTutorId);
+  location.href = `${location.pathname}?${params.toString()}`;
+}
+async function loadAdmin() {
+  const [reports, assignments, tutors] = await Promise.all([
+    api('/api/reports'),
+    api('/api/assignments'),
+    api('/api/users?role=tutor')
+  ]);
+  allReports = sortReports(reports);
+  allAssignments = assignments;
+  allTutors = tutors;
+  pageTitle.textContent = queueStatus ? queueTitles[queueStatus] : '運営ダッシュボード';
+  renderFilters();
+  renderStudentCards();
+}
+monthFilter.addEventListener('change', () => {
+  selectedMonth = monthFilter.value;
+  selectedTutorId = '';
+  updateUrl();
+});
+tutorFilter.addEventListener('change', () => {
+  selectedTutorId = tutorFilter.value;
+  updateUrl();
+});
+window.authReady.then(user => {
+  if (!user) return;
+  currentRole = user.role;
+  loadAdmin();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

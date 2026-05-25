@@ -1,0 +1,325 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+  <h1 class="text-xl font-semibold">承認管理</h1>
+</div>
+<div id="approvalMonths" class="grid gap-4"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const STEPS = [
+  {key: 'self', label: '講師（自分）'},
+  {key: 'request', label: '保護者へ依頼'},
+  {key: 'parent', label: '保護者 承認'},
+  {key: 'adminSubmit', label: '運営へ提出'},
+  {key: 'adminApprove', label: '運営 承認'}
+];
+const PHASE_CURRENT_STEP = {
+  recording: 0,
+  returned: 2,
+  awaiting_parent: 2,
+  parent_approved: 3,
+  submitted_to_admin: 4,
+  completed: 5
+};
+const STATUS_LABELS = {
+  draft: '下書き',
+  awaiting_parent_approval: '保護者承認待ち',
+  parent_approved: '保護者承認済み',
+  returned_to_tutor: '差戻し（要修正）',
+  submitted_to_admin: '運営提出済み',
+  received: '受付済み',
+  re_reviewed: '再鑑済み',
+  admin_approved: '最終承認済み'
+};
+let allReports = [];
+let allAssignments = [];
+let groups = [];
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function dateLabel(value) {
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function timeLabel(value, fallback = '') {
+  if (!value) return fallback;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function statusLabel(status) { return STATUS_LABELS[status] || status; }
+function currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function timeText(value) { return (value || '').slice(0, 5); }
+function minutesBetween(start, end) {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function latest(values) {
+  return values.filter(Boolean).sort().at(-1) || null;
+}
+function earliest(values) {
+  return values.filter(Boolean).sort()[0] || null;
+}
+function reportIds(group, status) {
+  return group.reports.filter(r => r.status === status).map(r => r.id);
+}
+function reportIdsForParentSubmit(group) {
+  return group.reports
+    .filter(r => ['draft', 'returned_to_tutor'].includes(r.status))
+    .map(r => r.id);
+}
+function returnedReportIds(group) {
+  return group.reports.filter(r => r.status === 'returned_to_tutor').map(r => r.id);
+}
+function monthlyPhase(reports) {
+  const statuses = reports.map(report => report.status);
+  const ranks = statuses.map(status => ({
+    draft: 0,
+    returned_to_tutor: 0,
+    awaiting_parent_approval: 1,
+    parent_approved: 2,
+    submitted_to_admin: 3,
+    received: 4,
+    re_reviewed: 5,
+    admin_approved: 6
+  }[status] ?? 0));
+  if (statuses.includes('returned_to_tutor')) return 'returned';
+  if (statuses.length && statuses.every(status => status === 'admin_approved')) return 'completed';
+  if (statuses.length && ranks.every(rank => rank >= 3)) return 'submitted_to_admin';
+  if (statuses.length && ranks.every(rank => rank >= 2)) return 'parent_approved';
+  if (statuses.length && ranks.every(rank => rank >= 1)) return 'awaiting_parent';
+  return 'recording';
+}
+function buildGroup(assignment, reports) {
+  const sorted = [...reports].sort((a, b) => {
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+  return {
+    assignment_id: assignment?.id || sorted[0]?.assignment_id,
+    student_name: assignment?.student_name || '生徒未設定',
+    parent_id: assignment?.parent_id || sorted[0]?.parent_id || null,
+    parent_display_name: assignment?.parent_display_name || '',
+    target_month: currentMonth(),
+    reports: sorted,
+    phase: monthlyPhase(sorted),
+    total_count: sorted.length,
+    total_minutes: sorted.reduce((sum, report) => sum + teachingMinutes(report), 0),
+    submitted_to_parent_at: latest(sorted.map(report => report.submitted_to_parent_at)),
+    first_submitted_to_parent_at: earliest(sorted.map(report => report.submitted_to_parent_at)),
+    parent_approved_at: latest(sorted.map(report => report.parent_approved_at)),
+    submitted_to_admin_at: latest(sorted.map(report => report.submitted_to_admin_at)),
+    admin_approved_at: latest(sorted.map(report => report.admin_approved_at)),
+    can_submit_to_parent: sorted.length > 0 && sorted.every(report => ['draft', 'returned_to_tutor'].includes(report.status)),
+    can_submit_to_admin: sorted.length > 0 && sorted.every(report => report.status === 'parent_approved')
+  };
+}
+function stepTimestamp(group, index) {
+  if (index === 0) return group.submitted_to_parent_at;
+  if (index === 1) return group.first_submitted_to_parent_at || group.submitted_to_parent_at;
+  if (index === 2) return group.parent_approved_at;
+  if (index === 3) return group.submitted_to_admin_at;
+  if (index === 4) return group.admin_approved_at;
+  return null;
+}
+function stepState(group, index) {
+  const current = PHASE_CURRENT_STEP[group.phase] ?? 0;
+  if (group.phase === 'completed') return 'done';
+  if (index < current) return 'done';
+  if (index === current) return 'current';
+  return 'todo';
+}
+function circleClass(state) {
+  if (state === 'done') return 'bg-emerald-600 border-emerald-600 text-white';
+  if (state === 'current') return 'bg-blue-600 border-blue-600 text-white';
+  return 'bg-white border-dashed border-slate-300 text-slate-400';
+}
+function connectorClass(group, index) {
+  const leftDone = stepState(group, index) === 'done';
+  const rightDone = stepState(group, index + 1) === 'done';
+  return leftDone && rightDone ? 'border-emerald-500 text-emerald-600' : 'border-dashed border-slate-300 text-slate-400';
+}
+function renderStepper(group) {
+  return `<div class="mt-5 grid grid-cols-[repeat(9,minmax(0,1fr))] items-start gap-2">
+    ${STEPS.map((step, index) => {
+      const state = stepState(group, index);
+      const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
+      const connector = index < STEPS.length - 1
+        ? `<div class="pt-5 text-center"><div class="border-t-2 ${connectorClass(group, index)}"></div><div class="${connectorClass(group, index)} text-lg leading-none">→</div></div>`
+        : '';
+      return `<div class="text-center">
+          <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold ${circleClass(state)}">${icon}</div>
+          <div class="mt-2 text-sm font-medium">${step.label}</div>
+          <div class="mt-1 min-h-5 text-xs text-slate-500">${timeLabel(stepTimestamp(group, index), state === 'todo' ? '' : '-')}</div>
+          ${state === 'current' ? '<div class="mt-1 inline-block rounded-full bg-blue-100 px-2 py-0.5 text-xs text-blue-700">現在</div>' : ''}
+        </div>${connector}`;
+    }).join('')}
+  </div>`;
+}
+function actionArea(group) {
+  if (group.phase === 'completed') {
+    return `<div class="mt-5 space-y-3">
+      <div class="rounded bg-slate-100 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>
+      <div class="flex flex-wrap gap-2">
+        <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=xlsx" class="rounded bg-emerald-700 px-3 py-2 text-sm text-white">Excelでダウンロード</a>
+        <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=csv" class="rounded border border-emerald-700 px-3 py-2 text-sm text-emerald-700">CSVでダウンロード</a>
+      </div>
+    </div>`;
+  }
+  if (group.phase === 'submitted_to_admin') return '';
+  if (!group.parent_id && group.can_submit_to_parent) {
+    return '<div class="mt-5 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため承認依頼できません。</div>';
+  }
+  if (group.phase === 'returned') {
+    if (!group.parent_id) {
+      return '<div class="mt-5 rounded bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため再依頼できません。</div>';
+    }
+    return `<div class="mt-5 flex flex-wrap items-center gap-3">
+      <button class="rounded bg-blue-600 px-4 py-2 text-white" onclick="resendReturnedReports('${group.assignment_id}')">修正済みの報告書を保護者へ再送信する</button>
+      <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
+    </div>`;
+  }
+  if (group.can_submit_to_parent) {
+    return `<button class="mt-5 rounded bg-blue-600 px-4 py-2 text-white" onclick="submitToParentGroup('${group.assignment_id}')">この生徒分を保護者へ承認依頼する</button>`;
+  }
+  if (group.phase === 'recording') {
+    return '<button class="mt-5 rounded bg-slate-200 px-4 py-2 text-slate-500" disabled>まだ記録中の指導日があります</button>';
+  }
+  if (group.phase === 'awaiting_parent') {
+    return '<button class="mt-5 rounded bg-slate-200 px-4 py-2 text-slate-500" disabled>保護者の承認を待っています</button>';
+  }
+  if (group.phase === 'parent_approved' && group.can_submit_to_admin) {
+    return `<button class="mt-5 rounded bg-blue-600 px-4 py-2 text-white" onclick="submitToAdminGroup('${group.assignment_id}')">この生徒分を運営へ提出する</button>`;
+  }
+  return '';
+}
+function summaryGrid(group) {
+  return `<div class="mt-5 grid gap-3 md:grid-cols-4">
+    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">報告完了日</div><div class="font-medium">${timeLabel(group.submitted_to_parent_at, '-')}</div></div>
+    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">保護者へ依頼日時</div><div class="font-medium">${timeLabel(group.first_submitted_to_parent_at || group.submitted_to_parent_at, '-')}</div></div>
+    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">保護者 承認日時</div><div class="font-medium">${group.parent_approved_at ? timeLabel(group.parent_approved_at) : '承認待ち'}</div></div>
+    <div class="rounded border bg-slate-50 p-3"><div class="text-xs text-slate-500">運営 最終承認日時</div><div class="font-medium">${timeLabel(group.admin_approved_at, '')}</div></div>
+  </div>`;
+}
+function detailRows(group) {
+  const rows = group.reports.map(r => `<tr class="border-t">
+    <td class="p-2">${dateLabel(r.lesson_date)}</td>
+    <td class="p-2">${statusLabel(r.status)}</td>
+    <td class="p-2">${timeLabel(r.submitted_to_parent_at, '-')}</td>
+    <td class="p-2">${timeLabel(r.parent_approved_at, '-')}</td>
+    <td class="p-2">${timeLabel(r.submitted_to_admin_at, '-')}</td>
+    <td class="p-2">${timeLabel(r.admin_approved_at, '-')}</td>
+    <td class="p-2 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
+  </tr>`).join('');
+  return `<div class="mt-5 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-100"><tr><th class="p-2 text-left">指導日</th><th class="p-2 text-left">状態</th><th class="p-2 text-left">保護者へ依頼</th><th class="p-2 text-left">保護者承認</th><th class="p-2 text-left">運営提出</th><th class="p-2 text-left">最終承認</th><th class="p-2 text-left">差戻し理由</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+function renderApproval() {
+  if (!groups.length) {
+    approvalMonths.innerHTML = '<div class="rounded-lg border bg-white p-5 text-sm text-slate-600">当月分の承認対象はありません。</div>';
+    return;
+  }
+  approvalMonths.innerHTML = groups.map(group => {
+    const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
+    const collapsedAttr = group.phase === 'completed' ? '' : 'open';
+    const parentLabel = group.parent_display_name ? `保護者：${escapeHtml(group.parent_display_name)}` : '保護者：未設定';
+    return `<details class="rounded-lg border bg-white p-5" ${collapsedAttr}>
+      <summary class="cursor-pointer list-none">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="font-semibold">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
+            <div class="mt-1 text-sm text-slate-500">${parentLabel}</div>
+          </div>
+          ${completeBadge}
+        </div>
+      </summary>
+      ${renderStepper(group)}
+      ${summaryGrid(group)}
+      ${actionArea(group)}
+      <button class="mt-4 text-sm underline" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
+      <div id="detail-${group.assignment_id}"></div>
+    </details>`;
+  }).join('');
+}
+function toggleDetails(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  const area = document.getElementById(`detail-${assignmentId}`);
+  area.innerHTML = area.innerHTML ? '' : detailRows(group);
+}
+async function submitToParentGroup(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  await api('/api/reports/submit-to-parent-bulk', {
+    method: 'POST',
+    body: JSON.stringify({target_month: group.target_month, report_ids: reportIdsForParentSubmit(group)})
+  });
+  await loadApproval();
+}
+async function resendReturnedReports(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  const ids = returnedReportIds(group);
+  for (const id of ids) {
+    await api(`/api/reports/${id}/submit-to-parent`, {
+      method: 'POST',
+      body: JSON.stringify({})
+    });
+  }
+  await loadApproval();
+}
+async function submitToAdminGroup(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  await api('/api/reports/submit-to-admin-bulk', {
+    method: 'POST',
+    body: JSON.stringify({target_month: group.target_month, report_ids: reportIds(group, 'parent_approved')})
+  });
+  await loadApproval();
+}
+async function loadApproval() {
+  const [reports, assignments] = await Promise.all([
+    api(`/api/reports?target_month=${currentMonth()}`),
+    api('/api/assignments')
+  ]);
+  allReports = reports;
+  allAssignments = assignments;
+  const assignmentMap = new Map(allAssignments.map(assignment => [assignment.id, assignment]));
+  const reportGroups = allReports.reduce((acc, report) => {
+    (acc[report.assignment_id] ||= []).push(report);
+    return acc;
+  }, {});
+  groups = Object.entries(reportGroups).map(([assignmentId, items]) => buildGroup(assignmentMap.get(assignmentId), items));
+  renderApproval();
+}
+window.authReady.then(user => {
+  if (!user) return;
+  loadApproval();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

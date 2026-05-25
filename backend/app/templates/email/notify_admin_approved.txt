@@ -1,0 +1,6 @@
+{name} 様
+{target_month} 分の指導実績報告書の最終承認が完了しました。
+対象生徒：{student_name}
+件数：{count} 件
+合計時間：{total_hours}
+{base_url}/tutor/approval
