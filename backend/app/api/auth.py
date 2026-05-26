@@ -2,7 +2,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import func, select
@@ -89,7 +89,7 @@ def logout():
 
 
 @router.post("/forgot-password")
-async def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+async def forgot_password(payload: ForgotPasswordIn, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = str(payload.email).strip().lower()
     user = db.scalar(select(User).where(func.lower(User.email) == email))
     message = {"message": "パスワードリセットメールを送信しました"}
@@ -102,7 +102,8 @@ async def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_d
     )
     db.add(reset_token)
     db.commit()
-    await send_email_notification(
+    background_tasks.add_task(
+        send_email_notification,
         user.email,
         PASSWORD_RESET_SUBJECT,
         "password_reset.txt",
