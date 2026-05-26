@@ -89,6 +89,18 @@ def _send_invitation_email(invitation: Invitation, request: Request) -> None:
     asyncio.run(EmailChannel().send(invitation.email, subject, _invitation_body(invitation, request)))
 
 
+def generate_tutor_no(db: Session) -> str:
+    tutors = db.scalars(select(User.tutor_no).where(User.role == "tutor", User.tutor_no.is_not(None))).all()
+    invitations = db.scalars(select(Invitation.tutor_no).where(Invitation.role == "tutor", Invitation.tutor_no.is_not(None), Invitation.accepted_at.is_(None))).all()
+    max_no = 0
+    for tutor_no in [*tutors, *invitations]:
+        try:
+            max_no = max(max_no, int(str(tutor_no).replace("T", "")))
+        except ValueError:
+            continue
+    return f"T{max_no + 1:03d}"
+
+
 def _validate_invitation_payload(payload: InvitationCreate) -> None:
     if payload.role not in ALLOWED_INVITATION_ROLES:
         raise HTTPException(status_code=422, detail="role is invalid")
@@ -97,9 +109,6 @@ def _validate_invitation_payload(payload: InvitationCreate) -> None:
             raise HTTPException(status_code=422, detail="tutor_id is required for parent invitations")
         if not payload.student_name or not payload.student_name.strip():
             raise HTTPException(status_code=422, detail="student_name is required")
-    elif payload.role == "tutor":
-        if not payload.tutor_no or not payload.tutor_no.strip():
-            raise HTTPException(status_code=422, detail="tutor_no is required for tutor invitations")
     if payload.role != "parent" and payload.display_name is not None and not payload.display_name.strip():
         raise HTTPException(status_code=422, detail="display_name cannot be blank")
 
@@ -170,7 +179,7 @@ def create_invitation(
     )
     assignment = None
     display_name = payload.display_name.strip() if payload.display_name else None
-    tutor_no = payload.tutor_no.strip() if payload.tutor_no else None
+    tutor_no = generate_tutor_no(db) if payload.role == "tutor" else None
     if invitation:
         if payload.role == "parent":
             if payload.assignment_id:

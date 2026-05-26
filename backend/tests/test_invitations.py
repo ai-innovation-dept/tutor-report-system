@@ -70,10 +70,13 @@ def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
 
     monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
     master_token = token(client, "master@example.com")
+    existing_tutor = db.query(User).filter(User.role == "tutor").first()
+    existing_tutor.tutor_no = "T002"
+    db.commit()
     res = client.post(
         "/api/invitations",
         headers={"Authorization": f"Bearer {master_token}"},
-        json={"email": "tutor3@example.com", "role": "tutor", "display_name": "田中三郎", "tutor_no": "T003"},
+        json={"email": "tutor3@example.com", "role": "tutor", "display_name": "田中三郎"},
     )
     assert res.status_code == 200
     assert res.json()["role"] == "tutor"

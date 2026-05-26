@@ -1,72 +1,48 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- # === Phase 9: 保護者招待管理 START === -->
+<!-- # === Phase 9: ユーザー管理 START === -->
 <div class="mb-6">
   <p class="text-sm font-medium text-blue-600">運営ポータル</p>
   <h1 class="text-2xl font-semibold text-slate-800">ユーザー管理</h1>
 </div>
 
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">講師の新規登録</h2>
-  <form id="tutorInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-    <input type="hidden" name="role" value="tutor">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">氏名</span>
-      <input name="display_name" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="100">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">メールアドレス</span>
-      <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">講師No</span>
-      <input name="tutor_no" placeholder="例：T003" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="20">
-    </label>
-    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
-  </form>
-</section>
-
-<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">運営スタッフの新規登録</h2>
-  <form id="staffInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">氏名</span>
-      <input name="display_name" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="100">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">メールアドレス</span>
-      <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">ロール</span>
-      <select name="role" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
-        <option value="admin_receiver">受付担当</option>
-        <option value="admin_reviewer">再鑑者</option>
-        <option value="admin_master">管理者</option>
-      </select>
-    </label>
-    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
-  </form>
-</section>
-
-<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">保護者の新規登録</h2>
-  <p class="mt-2 text-sm text-slate-600">既存の保護者メールアドレスを入力すると、その保護者に新しい生徒を追加します。</p>
-  <form id="parentInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-    <input type="hidden" name="role" value="parent">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">担当講師</span>
-      <select name="tutor_id" id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></select>
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">生徒名</span>
-      <input name="student_name" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="100">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">保護者メール</span>
-      <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
-    </label>
-    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
+  <h2 class="font-semibold text-slate-800">新規ユーザー登録</h2>
+  <form id="inviteForm" class="mt-4 space-y-3">
+    <div class="grid gap-3 md:grid-cols-[150px_1fr_1.4fr]">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">ロール</span>
+        <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+          <option value="tutor">講師</option>
+          <option value="parent">保護者</option>
+          <option value="admin_receiver">受付担当</option>
+          <option value="admin_reviewer">再鑑者</option>
+          <option value="admin_master">管理者</option>
+        </select>
+      </label>
+      <label id="displayNameField" class="block text-sm">
+        <span class="mb-1 block text-slate-700">氏名</span>
+        <input name="display_name" id="displayNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="100">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">メール</span>
+        <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+      </label>
+    </div>
+    <div id="parentFields" class="hidden grid gap-3 md:grid-cols-[1fr_1fr]">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">担当講師</span>
+        <select name="tutor_id" id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">生徒名</span>
+        <input name="student_name" id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="100">
+      </label>
+    </div>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p id="roleHint" class="text-sm text-slate-500">講師Noは自動で割り当てられます。</p>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
+    </div>
   </form>
   <p id="inviteMessage" class="mt-3 text-sm"></p>
 </section>
@@ -79,7 +55,7 @@
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-4 py-3 text-left">メールアドレス</th>
+          <th class="px-4 py-3 text-left">メール</th>
           <th class="px-4 py-3 text-left">役割</th>
           <th class="px-4 py-3 text-left">担当講師</th>
           <th class="px-4 py-3 text-left">担当生徒</th>
@@ -94,16 +70,20 @@
 </section>
 
 <section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="border-b border-slate-200 bg-slate-50 p-4">
-    <h2 class="font-semibold text-slate-800">登録済みユーザー一覧</h2>
+  <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
+    <label class="text-sm">
+      <span class="mr-2 text-slate-600">検索</span>
+      <input id="userSearch" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="名前・メール">
+    </label>
   </div>
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
+          <th class="px-4 py-3 text-left">ロール</th>
           <th class="px-4 py-3 text-left">名前</th>
           <th class="px-4 py-3 text-left">メール</th>
-          <th class="px-4 py-3 text-left">ロール</th>
           <th class="px-4 py-3 text-left">講師No</th>
           <th class="px-4 py-3 text-left">登録日</th>
           <th class="px-4 py-3 text-left">状態</th>
@@ -121,16 +101,24 @@ let invitations = [];
 let tutors = [];
 let users = [];
 const ROLE_LABELS = {
-  parent: '保護者',
+  admin_master: '管理者',
   tutor: '講師',
   admin_receiver: '受付担当',
   admin_reviewer: '再鑑者',
-  admin_master: '管理者'
+  parent: '保護者'
+};
+const ROLE_ORDER = {
+  admin_master: 0,
+  tutor: 1,
+  admin_receiver: 2,
+  admin_reviewer: 3,
+  parent: 4
 };
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
+function roleLabel(role) { return ROLE_LABELS[role] || role; }
 function formatDateTime(value) {
   if (!value) return '-';
   const d = new Date(value);
@@ -148,15 +136,31 @@ function statusText(invitation) {
   if (diffHours <= 0) return '期限切れ';
   return `未登録（残り${diffHours}時間）`;
 }
-function roleLabel(role) {
-  return ROLE_LABELS[role] || role;
-}
 function showInviteMessage(text, isError = false) {
   inviteMessage.textContent = text;
   inviteMessage.className = `mt-3 text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
 }
 function renderTutorOptions() {
   tutorSelect.innerHTML = tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}（${escapeHtml(tutor.email)}）</option>`).join('');
+}
+function syncRoleFields() {
+  const role = roleSelect.value;
+  const parentMode = role === 'parent';
+  parentFields.classList.toggle('hidden', !parentMode);
+  displayNameField.classList.toggle('hidden', parentMode);
+  displayNameInput.required = !parentMode;
+  displayNameInput.disabled = parentMode;
+  tutorSelect.required = parentMode;
+  tutorSelect.disabled = !parentMode;
+  studentNameInput.required = parentMode;
+  studentNameInput.disabled = !parentMode;
+  if (role === 'tutor') {
+    roleHint.textContent = '講師Noは自動で割り当てられます。';
+  } else if (parentMode) {
+    roleHint.textContent = '保護者は登録URLで本人がパスワードを設定します。既存保護者メールなら生徒を追加します。';
+  } else {
+    roleHint.textContent = '運営スタッフは登録URLで本人がパスワードを設定します。';
+  }
 }
 function renderInvitations() {
   invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
@@ -167,24 +171,36 @@ function renderInvitations() {
     return `<tr class="border-t border-slate-100 hover:bg-slate-50">
       <td class="px-4 py-3">${escapeHtml(invitation.email)}</td>
       <td class="px-4 py-3">${roleLabel(invitation.role)}</td>
-      <td class="px-4 py-3">${escapeHtml(invitation.tutor_name || '未設定')}</td>
-      <td class="px-4 py-3">${escapeHtml(invitation.student_name || '未設定')}</td>
+      <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
+      <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
       <td class="px-4 py-3">${formatDateTime(invitation.created_at)}</td>
       <td class="px-4 py-3">${statusText(invitation)}</td>
       <td class="px-4 py-3">${action}</td>
     </tr>`;
   }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
 }
+function sortedUsers() {
+  const keyword = userSearch.value.trim().toLowerCase();
+  return [...users]
+    .filter(user => !keyword || `${user.display_name} ${user.email}`.toLowerCase().includes(keyword))
+    .sort((a, b) => {
+      const roleCompare = (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99);
+      if (roleCompare !== 0) return roleCompare;
+      return a.display_name.localeCompare(b.display_name, 'ja');
+    });
+}
 function renderUsers() {
-  userRows.innerHTML = users.length ? users.map(user => {
+  const rows = sortedUsers();
+  userRows.innerHTML = rows.length ? rows.map(user => {
     const active = user.is_active ? '有効' : '無効';
+    const rowClass = user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500';
     const action = user.is_active
-      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="disableUser('${user.id}')">無効化</button>`
-      : '';
-    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
+      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="toggleUserActive('${user.id}', false)">無効化</button>`
+      : `<button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100" onclick="toggleUserActive('${user.id}', true)">有効化</button>`;
+    return `<tr class="border-t border-slate-100 ${rowClass}">
+      <td class="px-4 py-3">${roleLabel(user.role)}</td>
       <td class="px-4 py-3">${escapeHtml(user.display_name)}</td>
       <td class="px-4 py-3">${escapeHtml(user.email)}</td>
-      <td class="px-4 py-3">${roleLabel(user.role)}</td>
       <td class="px-4 py-3">${escapeHtml(user.tutor_no || '-')}</td>
       <td class="px-4 py-3">${formatDate(user.created_at)}</td>
       <td class="px-4 py-3">${active}</td>
@@ -204,23 +220,28 @@ async function loadUsersPage() {
   renderTutorOptions();
   renderInvitations();
   renderUsers();
+  syncRoleFields();
 }
-async function submitInvitationForm(event, successMessage) {
+inviteForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const form = event.currentTarget;
-  const data = Object.fromEntries(new FormData(form));
+  const data = Object.fromEntries(new FormData(inviteForm));
+  if (data.role !== 'parent') {
+    delete data.tutor_id;
+    delete data.student_name;
+  } else {
+    delete data.display_name;
+  }
   try {
     const result = await api('/api/invitations', {method: 'POST', body: JSON.stringify(data)});
-    form.reset();
-    showInviteMessage(result.message || successMessage);
+    inviteForm.reset();
+    roleSelect.value = data.role;
+    syncRoleFields();
+    showInviteMessage(result.message || '招待メールを送信しました。');
     await loadUsersPage();
   } catch (error) {
     showInviteMessage('招待メールを送信できませんでした。', true);
   }
-}
-tutorInviteForm.addEventListener('submit', event => submitInvitationForm(event, '講師へ招待メールを送信しました。'));
-staffInviteForm.addEventListener('submit', event => submitInvitationForm(event, '運営スタッフへ招待メールを送信しました。'));
-parentInviteForm.addEventListener('submit', event => submitInvitationForm(event, '招待メールを送信しました。'));
+});
 async function resendInvitation(id) {
   const invitation = invitations.find(item => item.id === id);
   if (!invitation) return;
@@ -228,7 +249,6 @@ async function resendInvitation(id) {
     email: invitation.email,
     role: invitation.role,
     display_name: invitation.display_name,
-    tutor_no: invitation.tutor_no,
     tutor_id: invitation.tutor_id,
     student_name: invitation.student_name
   };
@@ -242,12 +262,15 @@ async function deleteInvitation(id) {
   showInviteMessage('招待を取り消しました。');
   await loadUsersPage();
 }
-async function disableUser(id) {
-  if (!confirm('このユーザーを無効化しますか。')) return;
-  await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({is_active: false})});
-  showInviteMessage('ユーザーを無効化しました。');
+async function toggleUserActive(id, isActive) {
+  const label = isActive ? '有効化' : '無効化';
+  if (!confirm(`このユーザーを${label}しますか。`)) return;
+  await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({is_active: isActive})});
+  showInviteMessage(`ユーザーを${label}しました。`);
   await loadUsersPage();
 }
+roleSelect.addEventListener('change', syncRoleFields);
+userSearch.addEventListener('input', renderUsers);
 window.authReady.then(user => {
   if (!user) return;
   loadUsersPage();
