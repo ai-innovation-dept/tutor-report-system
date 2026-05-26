@@ -21,10 +21,6 @@
   <h2 class="font-semibold text-slate-800">エクスポート</h2>
   <div class="mt-3 flex flex-wrap items-end gap-3">
     <label class="text-sm">
-      <span class="mb-1 block text-slate-700">対象</span>
-      <select id="exportScope" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-    </label>
-    <label class="text-sm">
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
@@ -78,6 +74,8 @@ let allAssignments = [];
 let allTutors = [];
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
+let expandedReturnKey = '';
+let returnErrors = {};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -185,10 +183,6 @@ function renderFilters() {
   exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
   exportMonth.value = selectedMonth;
   exportMonth.disabled = !months.length;
-  exportScope.innerHTML = [
-    '<option value="all">全体</option>',
-    ...tutors.map(tutor => `<option value="tutor:${tutor.id}">講師別：${escapeHtml(tutor.display_name)}</option>`)
-  ].join('');
   renderBulkExportLinks();
 }
 function renderSummary(groups) {
@@ -230,14 +224,14 @@ function cardActions(group, status) {
     if (!config) return '<div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>';
     return `<div class="flex flex-wrap gap-2">
       <div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>
-      <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+      <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="showBulkReturnForm('${group.tutor_id}','${group.assignment_id}')">差戻し</button>
     </div>`;
   }
   if (!config) return '<div class="text-sm text-slate-500">現在このロールで操作できる内容はありません。</div>';
   const targets = group.reports.filter(report => report.status === config.targetStatus);
   return `<div class="flex flex-wrap gap-2">
     <button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="bulkAct('${group.tutor_id}','${group.assignment_id}','${config.targetStatus}')">${monthShortLabel(selectedMonth)}を${config.label}</button>
-    <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="bulkReturn('${group.tutor_id}','${group.assignment_id}','${config.returnRole}','${config.targetStatus}')">差戻し</button>
+    <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="showBulkReturnForm('${group.tutor_id}','${group.assignment_id}')">差戻し</button>
   </div>`;
 }
 function reportRows(reports) {
@@ -262,16 +256,28 @@ function exportButtons(group, month) {
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || selectedMonth;
-  const value = exportScope.value || 'all';
-  const params = new URLSearchParams({target_month: month, format: 'xlsx'});
-  if (value === 'all') {
-    params.set('scope', 'all');
-  } else if (value.startsWith('tutor:')) {
-    params.set('tutor_id', value.slice(6));
-  }
+  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'xlsx'});
   bulkExportXlsx.href = `/api/reports/export?${params.toString()}`;
   params.set('format', 'csv');
   bulkExportCsv.href = `/api/reports/export?${params.toString()}`;
+}
+function returnKey(tutorId, assignmentId) {
+  return `${tutorId}:${assignmentId}`;
+}
+function renderBulkReturnForm(group, status) {
+  const config = actionConfig(status);
+  const key = returnKey(group.tutor_id, group.assignment_id);
+  if (!config || expandedReturnKey !== key) return '';
+  const error = returnErrors[key] || '';
+  return `<div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
+    <label class="text-sm font-medium text-slate-700" for="adminReturnComment-${key}">差戻し理由を入力してください</label>
+    <textarea id="adminReturnComment-${key}" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000"></textarea>
+    ${error ? `<div class="mt-2 text-sm text-red-700">${escapeHtml(error)}</div>` : ''}
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700" onclick="confirmBulkReturn('${group.tutor_id}','${group.assignment_id}')">差戻しを確定する</button>
+      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="hideBulkReturnForm()">キャンセル</button>
+    </div>
+  </div>`;
 }
 function renderStudentCards() {
   const groups = visibleGroups();
@@ -294,6 +300,7 @@ function renderStudentCards() {
       <div class="p-4">
         <button class="text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
         ${exportButtons(group, selectedMonth)}
+        ${renderBulkReturnForm(group, status)}
       </div>
       <div id="${detailId}" class="hidden overflow-x-auto border-t border-slate-200">
         <table class="w-full text-sm">
@@ -335,21 +342,41 @@ async function bulkAct(tutorId, assignmentId, status) {
   await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: targets.map(report => report.id), target_month: selectedMonth})});
   await loadAdmin();
 }
-async function bulkReturn(tutorId, assignmentId, fromRole, status) {
+function showBulkReturnForm(tutorId, assignmentId) {
+  expandedReturnKey = returnKey(tutorId, assignmentId);
+  delete returnErrors[expandedReturnKey];
+  renderStudentCards();
+}
+function hideBulkReturnForm() {
+  expandedReturnKey = '';
+  returnErrors = {};
+  renderStudentCards();
+}
+async function confirmBulkReturn(tutorId, assignmentId) {
   const reports = cardReports(tutorId, assignmentId);
-  const targets = reports.filter(report => report.status === status);
+  const config = actionConfig(cardStatus(reports));
+  if (!config) return;
+  const key = returnKey(tutorId, assignmentId);
+  const input = document.getElementById(`adminReturnComment-${key}`);
+  const comment = input ? input.value.trim() : '';
+  if (!comment) {
+    returnErrors[key] = '差戻し理由を入力してください';
+    renderStudentCards();
+    return;
+  }
+  const targets = reports.filter(report => report.status === config.targetStatus);
   if (!targets.length) return;
-  const comment = prompt('差戻し理由を入力してください。');
-  if (!comment || !comment.trim()) return;
   await api('/api/reports/admin-return-bulk', {
     method: 'POST',
     body: JSON.stringify({
       report_ids: targets.map(report => report.id),
       target_month: selectedMonth,
-      from_role: fromRole,
-      comment: comment.trim()
+      from_role: config.returnRole,
+      comment
     })
   });
+  expandedReturnKey = '';
+  returnErrors = {};
   await loadAdmin();
 }
 function updateUrl() {
@@ -380,7 +407,6 @@ tutorFilter.addEventListener('change', () => {
   selectedTutorId = tutorFilter.value;
   updateUrl();
 });
-exportScope.addEventListener('change', renderBulkExportLinks);
 exportMonth.addEventListener('change', renderBulkExportLinks);
 window.authReady.then(user => {
   if (!user) return;

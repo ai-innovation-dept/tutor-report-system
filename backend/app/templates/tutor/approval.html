@@ -11,10 +11,6 @@
   <h2 class="font-semibold text-slate-800">エクスポート</h2>
   <div class="mt-3 flex flex-wrap items-end gap-3">
     <label class="text-sm">
-      <span class="mb-1 block text-slate-700">対象</span>
-      <select id="exportScope" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-    </label>
-    <label class="text-sm">
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
@@ -212,12 +208,7 @@ function renderBulkExportArea() {
   const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
   exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
   exportMonth.value = currentMonth();
-  exportScope.innerHTML = [
-    '<option value="all">全生徒まとめて</option>',
-    ...groups.map(group => `<option value="assignment:${group.assignment_id}">${escapeHtml(group.student_name)}</option>`)
-  ].join('');
   exportMonth.disabled = !months.length;
-  exportScope.disabled = !groups.length;
   renderBulkExportLinks();
 }
 function setBulkExportEnabled(enabled, message = '') {
@@ -230,16 +221,8 @@ function setBulkExportEnabled(enabled, message = '') {
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || currentMonth();
-  const value = exportScope.value || 'all';
   let targetGroups = groups;
-  const params = new URLSearchParams({target_month: month, format: 'xlsx'});
-  if (value === 'all') {
-    params.set('scope', 'all');
-  } else if (value.startsWith('assignment:')) {
-    const assignmentId = value.slice(11);
-    params.set('assignment_id', assignmentId);
-    targetGroups = groups.filter(group => group.assignment_id === assignmentId);
-  }
+  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'xlsx'});
   const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
   if (!exportable) {
     setBulkExportEnabled(false, '未承認の生徒が含まれています');
@@ -376,7 +359,6 @@ async function loadApproval() {
   renderBulkExportArea();
   renderApproval();
 }
-exportScope.addEventListener('change', renderBulkExportLinks);
 exportMonth.addEventListener('change', renderBulkExportLinks);
 window.authReady.then(user => {
   if (!user) return;
