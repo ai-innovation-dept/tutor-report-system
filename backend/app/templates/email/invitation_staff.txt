@@ -1,0 +1,10 @@
+{display_name} 様
+
+指導実績報告システムへスタッフとして招待されました。
+以下のURLからアカウントを設定してください。
+
+【登録URL】
+{base_url}/register?token={token}
+
+このURLの有効期限は72時間です
+ロール：{role_display}

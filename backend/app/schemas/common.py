@@ -18,6 +18,7 @@ class UserOut(BaseModel):
     tutor_no: str | None = None
     phone: str | None = None
     is_active: bool
+    created_at: datetime | None = None
 
 
 class UserCreate(BaseModel):
@@ -44,11 +45,16 @@ class PasswordChange(BaseModel):
 
 class RegisterInfoOut(BaseModel):
     email: EmailStr
+    role: str = "parent"
+    role_display: str | None = None
+    display_name: str | None = None
+    tutor_no: str | None = None
     student_name: str | None = None
 
 
 class RegisterIn(BaseModel):
     token: str
+    display_name: str | None = None
     password: str = Field(min_length=8)
 
 
@@ -77,8 +83,12 @@ class AssignmentOut(BaseModel):
 
 class InvitationCreate(BaseModel):
     email: EmailStr
-    tutor_id: UUID
-    student_name: str = Field(min_length=1, max_length=100)
+    role: str = "parent"
+    display_name: str | None = Field(default=None, max_length=100)
+    tutor_no: str | None = Field(default=None, max_length=20)
+    assignment_id: UUID | None = None
+    student_name: str | None = Field(default=None, max_length=100)
+    tutor_id: UUID | None = None
 
 
 class InvitationOut(BaseModel):
@@ -89,6 +99,8 @@ class InvitationOut(BaseModel):
     assignment_id: UUID | None = None
     tutor_id: UUID | None = None
     tutor_name: str | None = None
+    display_name: str | None = None
+    tutor_no: str | None = None
     student_name: str | None = None
     expires_at: datetime
     accepted_at: datetime | None = None

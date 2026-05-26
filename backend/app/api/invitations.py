@@ -19,6 +19,16 @@ from app.services.notification_service import EmailChannel
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 
 INVITATION_SUBJECT = "【指導実績報告システム】保護者アカウントのご案内"
+TUTOR_INVITATION_SUBJECT = "【指導実績報告システム】講師アカウントのご案内"
+STAFF_INVITATION_SUBJECT = "【指導実績報告システム】スタッフアカウントのご案内"
+ALLOWED_INVITATION_ROLES = {"parent", "tutor", "admin_receiver", "admin_reviewer", "admin_master"}
+ROLE_LABELS = {
+    "parent": "保護者",
+    "tutor": "講師",
+    "admin_receiver": "受付担当",
+    "admin_reviewer": "再鑑者",
+    "admin_master": "管理者",
+}
 
 
 def _invitation_out(invitation: Invitation, message: str | None = None) -> InvitationOut:
@@ -29,6 +39,8 @@ def _invitation_out(invitation: Invitation, message: str | None = None) -> Invit
         assignment_id=invitation.assignment_id,
         tutor_id=invitation.assignment.tutor_id if invitation.assignment else None,
         tutor_name=invitation.assignment.tutor.display_name if invitation.assignment and invitation.assignment.tutor else None,
+        display_name=invitation.display_name,
+        tutor_no=invitation.tutor_no,
         student_name=invitation.assignment.student_name if invitation.assignment else None,
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
@@ -42,6 +54,22 @@ def _base_url(request: Request) -> str:
 
 
 def _invitation_body(invitation: Invitation, request: Request) -> str:
+    if invitation.role == "tutor":
+        template = Path("app/templates/email/invitation_tutor.txt").read_text(encoding="utf-8")
+        return template.format(
+            display_name=invitation.display_name or invitation.email.split("@", 1)[0],
+            base_url=_base_url(request),
+            token=invitation.token,
+            tutor_no=invitation.tutor_no or "",
+        )
+    if invitation.role.startswith("admin_"):
+        template = Path("app/templates/email/invitation_staff.txt").read_text(encoding="utf-8")
+        return template.format(
+            display_name=invitation.display_name or invitation.email.split("@", 1)[0],
+            base_url=_base_url(request),
+            token=invitation.token,
+            role_display=ROLE_LABELS.get(invitation.role, invitation.role),
+        )
     template = Path("app/templates/email/invitation.txt").read_text(encoding="utf-8")
     return template.format(
         display_name="保護者",
@@ -53,7 +81,48 @@ def _invitation_body(invitation: Invitation, request: Request) -> str:
 
 
 def _send_invitation_email(invitation: Invitation, request: Request) -> None:
-    asyncio.run(EmailChannel().send(invitation.email, INVITATION_SUBJECT, _invitation_body(invitation, request)))
+    subject = INVITATION_SUBJECT
+    if invitation.role == "tutor":
+        subject = TUTOR_INVITATION_SUBJECT
+    elif invitation.role.startswith("admin_"):
+        subject = STAFF_INVITATION_SUBJECT
+    asyncio.run(EmailChannel().send(invitation.email, subject, _invitation_body(invitation, request)))
+
+
+def _validate_invitation_payload(payload: InvitationCreate) -> None:
+    if payload.role not in ALLOWED_INVITATION_ROLES:
+        raise HTTPException(status_code=422, detail="role is invalid")
+    if payload.role == "parent":
+        if not payload.tutor_id:
+            raise HTTPException(status_code=422, detail="tutor_id is required for parent invitations")
+        if not payload.student_name or not payload.student_name.strip():
+            raise HTTPException(status_code=422, detail="student_name is required")
+    elif payload.role == "tutor":
+        if not payload.tutor_no or not payload.tutor_no.strip():
+            raise HTTPException(status_code=422, detail="tutor_no is required for tutor invitations")
+    if payload.role != "parent" and payload.display_name is not None and not payload.display_name.strip():
+        raise HTTPException(status_code=422, detail="display_name cannot be blank")
+
+
+def _assignment_for_parent_payload(payload: InvitationCreate, db: Session) -> Assignment:
+    assert payload.tutor_id is not None
+    assert payload.student_name is not None
+    tutor = db.get(User, payload.tutor_id)
+    if not tutor or tutor.role != "tutor":
+        raise HTTPException(status_code=422, detail="tutor_id must be a tutor user")
+    student_name = payload.student_name.strip()
+    if payload.assignment_id:
+        assignment = db.get(Assignment, payload.assignment_id)
+        if not assignment:
+            raise HTTPException(status_code=404, detail="assignment not found")
+        assignment.tutor_id = payload.tutor_id
+        assignment.student_name = student_name
+        assignment.is_active = True
+        return assignment
+    assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=None, is_active=True)
+    db.add(assignment)
+    db.flush()
+    return assignment
 
 
 @router.post("", response_model=InvitationOut)
@@ -64,20 +133,15 @@ def create_invitation(
     user: User = Depends(require_role("admin_master")),
 ):
     email = str(payload.email).lower()
-    tutor = db.get(User, payload.tutor_id)
-    if not tutor or tutor.role != "tutor":
-        raise HTTPException(status_code=422, detail="tutor_id must be a tutor user")
-    student_name = payload.student_name.strip()
-    if not student_name:
-        raise HTTPException(status_code=422, detail="student_name is required")
+    _validate_invitation_payload(payload)
 
     now = datetime.now(timezone.utc)
     existing_user = db.scalar(select(User).where(User.email == email))
-    if existing_user and existing_user.role != "parent":
-        raise HTTPException(status_code=409, detail="このメールアドレスは別のロールで登録済みです")
+    if existing_user and not (payload.role == "parent" and existing_user.role == "parent"):
+        raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
     if existing_user:
-        assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=existing_user.id, is_active=True)
-        db.add(assignment)
+        assignment = _assignment_for_parent_payload(payload, db)
+        assignment.parent_id = existing_user.id
         db.flush()
         invitation = Invitation(
             email=email,
@@ -105,31 +169,44 @@ def create_invitation(
         .order_by(Invitation.created_at.desc())
     )
     assignment = None
+    display_name = payload.display_name.strip() if payload.display_name else None
+    tutor_no = payload.tutor_no.strip() if payload.tutor_no else None
     if invitation:
-        assignment = invitation.assignment
-        if assignment is None or assignment.parent_id is not None:
-            assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=None, is_active=True)
-            db.add(assignment)
-            db.flush()
+        if payload.role == "parent":
+            if payload.assignment_id:
+                assignment = _assignment_for_parent_payload(payload, db)
+            elif invitation.assignment and invitation.assignment.parent_id is None:
+                assignment = invitation.assignment
+                assert payload.tutor_id is not None
+                assert payload.student_name is not None
+                tutor = db.get(User, payload.tutor_id)
+                if not tutor or tutor.role != "tutor":
+                    raise HTTPException(status_code=422, detail="tutor_id must be a tutor user")
+                assignment.tutor_id = payload.tutor_id
+                assignment.student_name = payload.student_name.strip()
+                assignment.parent_id = None
+                assignment.is_active = True
+            else:
+                assignment = _assignment_for_parent_payload(payload, db)
         else:
-            assignment.tutor_id = payload.tutor_id
-            assignment.student_name = student_name
-            assignment.parent_id = None
-            assignment.is_active = True
-        invitation.assignment_id = assignment.id
-        invitation.role = "parent"
+            assignment = None
+        invitation.assignment_id = assignment.id if assignment else None
+        invitation.role = payload.role
+        invitation.display_name = display_name
+        invitation.tutor_no = tutor_no
         invitation.token = secrets.token_urlsafe(32)
         invitation.invited_by = user.id
         invitation.expires_at = now + timedelta(hours=72)
         invitation.created_at = now
     else:
-        assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=None, is_active=True)
-        db.add(assignment)
-        db.flush()
+        if payload.role == "parent":
+            assignment = _assignment_for_parent_payload(payload, db)
         invitation = Invitation(
             email=email,
-            role="parent",
-            assignment_id=assignment.id,
+            role=payload.role,
+            display_name=display_name,
+            tutor_no=tutor_no,
+            assignment_id=assignment.id if assignment else None,
             token=secrets.token_urlsafe(32),
             invited_by=user.id,
             expires_at=now + timedelta(hours=72),

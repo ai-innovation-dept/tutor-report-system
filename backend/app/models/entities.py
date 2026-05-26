@@ -82,6 +82,8 @@ class Invitation(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(String(255), index=True)
     role: Mapped[str] = mapped_column(String(32), default=UserRole.parent.value)
+    display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tutor_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
     assignment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("assignments.id"), nullable=True, index=True)
     token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
     invited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)

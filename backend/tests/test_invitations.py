@@ -62,6 +62,70 @@ def test_admin_can_add_student_to_existing_parent(client, db, monkeypatch):
     assert invitation.accepted_at is not None
 
 
+def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
+    sent = []
+
+    async def fake_send(self, to, subject, body):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": "tutor3@example.com", "role": "tutor", "display_name": "田中三郎", "tutor_no": "T003"},
+    )
+    assert res.status_code == 200
+    assert res.json()["role"] == "tutor"
+    assert res.json()["tutor_no"] == "T003"
+    assert "講師No：T003" in sent[-1][2]
+
+    invitation = db.query(Invitation).filter(Invitation.email == "tutor3@example.com").one()
+    info = client.get(f"/api/auth/register?token={invitation.token}")
+    assert info.status_code == 200
+    assert info.json()["role"] == "tutor"
+    assert info.json()["display_name"] == "田中三郎"
+
+    registered = client.post("/api/auth/register", json={
+        "token": invitation.token,
+        "display_name": "田中 三郎",
+        "password": "Passw0rd!",
+    })
+    assert registered.status_code == 200
+    user = db.query(User).filter(User.email == "tutor3@example.com").one()
+    assert user.role == "tutor"
+    assert user.display_name == "田中 三郎"
+    assert user.tutor_no == "T003"
+
+
+def test_admin_can_invite_staff_and_register(client, db, monkeypatch):
+    sent = []
+
+    async def fake_send(self, to, subject, body):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": "receiver2@example.com", "role": "admin_receiver", "display_name": "山田受付"},
+    )
+    assert res.status_code == 200
+    assert res.json()["role"] == "admin_receiver"
+    assert "ロール：受付担当" in sent[-1][2]
+
+    invitation = db.query(Invitation).filter(Invitation.email == "receiver2@example.com").one()
+    registered = client.post("/api/auth/register", json={
+        "token": invitation.token,
+        "password": "Passw0rd!",
+    })
+    assert registered.status_code == 200
+    user = db.query(User).filter(User.email == "receiver2@example.com").one()
+    assert user.role == "admin_receiver"
+    assert user.display_name == "山田受付"
+
+
 def test_parent_cannot_create_invitation(client, db):
     parent_token = token(client, "parent@example.com")
     tutor = db.query(User).filter(User.role == "tutor").first()

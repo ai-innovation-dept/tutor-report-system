@@ -13,6 +13,15 @@ from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, User
 from app.schemas import RegisterIn, RegisterInfoOut, TokenOut, UserOut
 
+
+ROLE_LABELS = {
+    "parent": "保護者",
+    "tutor": "講師",
+    "admin_receiver": "受付担当",
+    "admin_reviewer": "再鑑者",
+    "admin_master": "管理者",
+}
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
@@ -65,7 +74,14 @@ def logout():
 def register_info(token: str, db: Session = Depends(get_db)):
     invitation = _valid_invitation(token, db)
     assignment = db.get(Assignment, invitation.assignment_id) if invitation.assignment_id else None
-    return RegisterInfoOut(email=invitation.email, student_name=assignment.student_name if assignment else None)
+    return RegisterInfoOut(
+        email=invitation.email,
+        role=invitation.role,
+        role_display=ROLE_LABELS.get(invitation.role, invitation.role),
+        display_name=invitation.display_name,
+        tutor_no=invitation.tutor_no,
+        student_name=assignment.student_name if assignment else None,
+    )
 
 
 @router.post("/register", response_model=TokenOut)
@@ -74,17 +90,31 @@ def register_parent(payload: RegisterIn, response: Response, db: Session = Depen
     if db.scalar(select(User).where(User.email == invitation.email)):
         raise HTTPException(status_code=409, detail="email already exists")
     assignment = db.get(Assignment, invitation.assignment_id) if invitation.assignment_id else None
-    display_name = f"{assignment.student_name}の保護者" if assignment else invitation.email.split("@", 1)[0]
+    if invitation.role == "parent":
+        display_name = f"{assignment.student_name}の保護者" if assignment else invitation.email.split("@", 1)[0]
+    elif invitation.role == "tutor":
+        if not invitation.tutor_no:
+            raise HTTPException(status_code=422, detail="tutor_no is required")
+        display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
+        if not display_name:
+            raise HTTPException(status_code=422, detail="display_name is required")
+    elif invitation.role in {"admin_receiver", "admin_reviewer", "admin_master"}:
+        display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
+        if not display_name:
+            raise HTTPException(status_code=422, detail="display_name is required")
+    else:
+        raise HTTPException(status_code=422, detail="role is invalid")
     user = User(
         email=invitation.email,
         role=invitation.role,
         display_name=display_name,
+        tutor_no=invitation.tutor_no if invitation.role == "tutor" else None,
         password_hash=hash_password(payload.password),
         is_active=True,
     )
     db.add(user)
     db.flush()
-    if assignment:
+    if invitation.role == "parent" and assignment:
         assignment.parent_id = user.id
         db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": user.id}, synchronize_session=False)
     invitation.accepted_at = datetime.now(timezone.utc)

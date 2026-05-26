@@ -7,9 +7,53 @@
 </div>
 
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">新規生徒保護者の登録</h2>
+  <h2 class="font-semibold text-slate-800">講師の新規登録</h2>
+  <form id="tutorInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <input type="hidden" name="role" value="tutor">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">氏名</span>
+      <input name="display_name" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="100">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">メールアドレス</span>
+      <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">講師No</span>
+      <input name="tutor_no" placeholder="例：T003" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="20">
+    </label>
+    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
+  </form>
+</section>
+
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="font-semibold text-slate-800">運営スタッフの新規登録</h2>
+  <form id="staffInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">氏名</span>
+      <input name="display_name" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required maxlength="100">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">メールアドレス</span>
+      <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">ロール</span>
+      <select name="role" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+        <option value="admin_receiver">受付担当</option>
+        <option value="admin_reviewer">再鑑者</option>
+        <option value="admin_master">管理者</option>
+      </select>
+    </label>
+    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
+  </form>
+</section>
+
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="font-semibold text-slate-800">保護者の新規登録</h2>
   <p class="mt-2 text-sm text-slate-600">既存の保護者メールアドレスを入力すると、その保護者に新しい生徒を追加します。</p>
-  <form id="inviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+  <form id="parentInviteForm" class="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <input type="hidden" name="role" value="parent">
     <label class="block text-sm">
       <span class="mb-1 block text-slate-700">担当講師</span>
       <select name="tutor_id" id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></select>
@@ -36,6 +80,7 @@
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">メールアドレス</th>
+          <th class="px-4 py-3 text-left">役割</th>
           <th class="px-4 py-3 text-left">担当講師</th>
           <th class="px-4 py-3 text-left">担当生徒</th>
           <th class="px-4 py-3 text-left">送信日時</th>
@@ -47,11 +92,41 @@
     </table>
   </div>
 </section>
+
+<section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">登録済みユーザー一覧</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">名前</th>
+          <th class="px-4 py-3 text-left">メール</th>
+          <th class="px-4 py-3 text-left">ロール</th>
+          <th class="px-4 py-3 text-left">講師No</th>
+          <th class="px-4 py-3 text-left">登録日</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="userRows"></tbody>
+    </table>
+  </div>
+</section>
 {% endblock %}
 {% block scripts %}
 <script>
 let invitations = [];
 let tutors = [];
+let users = [];
+const ROLE_LABELS = {
+  parent: '保護者',
+  tutor: '講師',
+  admin_receiver: '受付担当',
+  admin_reviewer: '再鑑者',
+  admin_master: '管理者'
+};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -61,12 +136,20 @@ function formatDateTime(value) {
   const d = new Date(value);
   return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
 function statusText(invitation) {
   if (invitation.accepted_at) return '登録済み';
   const expires = new Date(invitation.expires_at);
   const diffHours = Math.max(0, Math.ceil((expires.getTime() - Date.now()) / 3600000));
   if (diffHours <= 0) return '期限切れ';
   return `未登録（残り${diffHours}時間）`;
+}
+function roleLabel(role) {
+  return ROLE_LABELS[role] || role;
 }
 function showInviteMessage(text, isError = false) {
   inviteMessage.textContent = text;
@@ -83,40 +166,73 @@ function renderInvitations() {
          <button class="ml-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
     return `<tr class="border-t border-slate-100 hover:bg-slate-50">
       <td class="px-4 py-3">${escapeHtml(invitation.email)}</td>
+      <td class="px-4 py-3">${roleLabel(invitation.role)}</td>
       <td class="px-4 py-3">${escapeHtml(invitation.tutor_name || '未設定')}</td>
       <td class="px-4 py-3">${escapeHtml(invitation.student_name || '未設定')}</td>
       <td class="px-4 py-3">${formatDateTime(invitation.created_at)}</td>
       <td class="px-4 py-3">${statusText(invitation)}</td>
       <td class="px-4 py-3">${action}</td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">招待はありません。</td></tr>';
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
+}
+function renderUsers() {
+  userRows.innerHTML = users.length ? users.map(user => {
+    const active = user.is_active ? '有効' : '無効';
+    const action = user.is_active
+      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="disableUser('${user.id}')">無効化</button>`
+      : '';
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="px-4 py-3">${escapeHtml(user.display_name)}</td>
+      <td class="px-4 py-3">${escapeHtml(user.email)}</td>
+      <td class="px-4 py-3">${roleLabel(user.role)}</td>
+      <td class="px-4 py-3">${escapeHtml(user.tutor_no || '-')}</td>
+      <td class="px-4 py-3">${formatDate(user.created_at)}</td>
+      <td class="px-4 py-3">${active}</td>
+      <td class="px-4 py-3">${action}</td>
+    </tr>`;
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">登録済みユーザーはありません。</td></tr>';
 }
 async function loadUsersPage() {
-  const [invitationRows, tutorRows] = await Promise.all([
+  const [invitationRows, tutorRows, userRowsData] = await Promise.all([
     api('/api/invitations'),
-    api('/api/users?role=tutor')
+    api('/api/users?role=tutor'),
+    api('/api/users')
   ]);
   invitations = invitationRows;
   tutors = tutorRows;
+  users = userRowsData;
   renderTutorOptions();
   renderInvitations();
+  renderUsers();
 }
-inviteForm.addEventListener('submit', async event => {
+async function submitInvitationForm(event, successMessage) {
   event.preventDefault();
-  const data = Object.fromEntries(new FormData(inviteForm));
+  const form = event.currentTarget;
+  const data = Object.fromEntries(new FormData(form));
   try {
     const result = await api('/api/invitations', {method: 'POST', body: JSON.stringify(data)});
-    inviteForm.reset();
-    showInviteMessage(result.message || '招待メールを送信しました。');
+    form.reset();
+    showInviteMessage(result.message || successMessage);
     await loadUsersPage();
   } catch (error) {
     showInviteMessage('招待メールを送信できませんでした。', true);
   }
-});
+}
+tutorInviteForm.addEventListener('submit', event => submitInvitationForm(event, '講師へ招待メールを送信しました。'));
+staffInviteForm.addEventListener('submit', event => submitInvitationForm(event, '運営スタッフへ招待メールを送信しました。'));
+parentInviteForm.addEventListener('submit', event => submitInvitationForm(event, '招待メールを送信しました。'));
 async function resendInvitation(id) {
   const invitation = invitations.find(item => item.id === id);
   if (!invitation) return;
-  await api('/api/invitations', {method: 'POST', body: JSON.stringify({email: invitation.email, tutor_id: invitation.tutor_id, student_name: invitation.student_name})});
+  const payload = {
+    email: invitation.email,
+    role: invitation.role,
+    display_name: invitation.display_name,
+    tutor_no: invitation.tutor_no,
+    tutor_id: invitation.tutor_id,
+    student_name: invitation.student_name
+  };
+  await api('/api/invitations', {method: 'POST', body: JSON.stringify(payload)});
   showInviteMessage('招待メールを再送しました。');
   await loadUsersPage();
 }
@@ -124,6 +240,12 @@ async function deleteInvitation(id) {
   if (!confirm('この招待を取り消しますか。')) return;
   await api(`/api/invitations/${id}`, {method: 'DELETE'});
   showInviteMessage('招待を取り消しました。');
+  await loadUsersPage();
+}
+async function disableUser(id) {
+  if (!confirm('このユーザーを無効化しますか。')) return;
+  await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({is_active: false})});
+  showInviteMessage('ユーザーを無効化しました。');
   await loadUsersPage();
 }
 window.authReady.then(user => {

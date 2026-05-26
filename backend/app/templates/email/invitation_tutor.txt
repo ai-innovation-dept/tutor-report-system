@@ -1,0 +1,10 @@
+{display_name} 様
+
+指導実績報告システムへ講師として招待されました。
+以下のURLからアカウントを設定してください。
+
+【登録URL】
+{base_url}/register?token={token}
+
+このURLの有効期限は72時間です
+講師No：{tutor_no}
