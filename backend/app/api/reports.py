@@ -245,7 +245,8 @@ def export_reports(
             raise HTTPException(status_code=403, detail="access denied")
         stmt = stmt.where(LessonReport.parent_id == user.id)
     elif user.role.startswith("admin_"):
-        pass
+        if scope == "all":
+            stmt = stmt.where(LessonReport.status == ReportStatus.admin_approved.value)
     else:
         raise HTTPException(status_code=403, detail="not allowed")
 
