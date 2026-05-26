@@ -92,6 +92,14 @@ def create_assignment(payload: AssignmentCreate, db: Session = Depends(get_db), 
             parent = db.get(User, payload.parent_id)
             if not parent or parent.role != "parent":
                 raise HTTPException(status_code=422, detail="parent_id must be a parent user")
+    duplicate = db.scalar(
+        select(Assignment).where(
+            Assignment.tutor_id == payload.tutor_id,
+            Assignment.student_name == payload.student_name,
+        )
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="assignment already exists")
     assignment = Assignment(**data)
     db.add(assignment)
     db.commit()
@@ -126,9 +134,9 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
 def list_assignments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     stmt = select(Assignment).order_by(Assignment.created_at.desc())
     if user.role == "tutor":
-        stmt = stmt.where(Assignment.tutor_id == user.id)
+        stmt = stmt.where(Assignment.tutor_id == user.id, Assignment.is_active.is_(True))
     elif user.role == "parent":
-        stmt = stmt.where(Assignment.parent_id == user.id)
+        stmt = stmt.where(Assignment.parent_id == user.id, Assignment.is_active.is_(True))
     elif not user.role.startswith("admin_"):
         raise HTTPException(status_code=403, detail="not allowed")
     return db.scalars(stmt).all()

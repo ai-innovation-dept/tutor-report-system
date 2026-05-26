@@ -150,15 +150,9 @@ function rowAction(r) {
     parts.push(`<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>`);
   } else if (r.status === 'returned_to_tutor') {
     parts.push(`<button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700" onclick="editReport('${r.id}')">編集</button>`);
-    parts.push(`<button class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParent('${r.id}')">保護者へ再依頼</button>`);
-  }
-  if (r.last_return_comment) {
-    parts.push(`<button type="button" title="${escapeHtml(r.last_return_comment)}" data-comment="${escapeHtml(r.last_return_comment)}" aria-label="差戻しコメント" class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-rose-200 bg-rose-50 text-rose-700 transition hover:bg-rose-100" onclick="showReturnComment(this)">&#128172;</button>`);
+    parts.push('<span class="text-xs text-slate-500">承認管理から再依頼できます</span>');
   }
   return parts.length ? parts.join(' / ') : '';
-}
-function showReturnComment(button) {
-  alert(button.dataset.comment || '');
 }
 function selectedAssignment() {
   return allAssignments.find(a => a.id === selectedAssignmentId);
