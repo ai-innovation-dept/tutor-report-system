@@ -16,7 +16,6 @@ const STEPS = [
   {key: 'self', label: '講師（自分）'},
   {key: 'request', label: '保護者へ依頼'},
   {key: 'parent', label: '保護者 承認'},
-  {key: 'adminSubmit', label: '運営へ提出'},
   {key: 'adminApprove', label: '運営 承認'}
 ];
 const PHASE_CURRENT_STEP = {
@@ -24,15 +23,17 @@ const PHASE_CURRENT_STEP = {
   returned: 2,
   awaiting_parent: 2,
   parent_approved: 3,
-  submitted_to_admin: 4,
-  completed: 5
+  submitted_to_admin: 3,
+  received: 3,
+  re_reviewed: 3,
+  completed: 4
 };
 const STATUS_LABELS = {
   draft: '下書き',
   awaiting_parent_approval: '保護者承認待ち',
   parent_approved: '保護者承認済み',
   returned_to_tutor: '差戻し（要修正）',
-  submitted_to_admin: '運営提出済み',
+  submitted_to_admin: '受付待ち',
   received: '受付済み',
   re_reviewed: '再鑑済み',
   admin_approved: '最終承認済み'
@@ -111,6 +112,8 @@ function monthlyPhase(reports) {
   }[status] ?? 0));
   if (statuses.includes('returned_to_tutor')) return 'returned';
   if (statuses.length && statuses.every(status => status === 'admin_approved')) return 'completed';
+  if (statuses.length && ranks.every(rank => rank >= 5)) return 're_reviewed';
+  if (statuses.length && ranks.every(rank => rank >= 4)) return 'received';
   if (statuses.length && ranks.every(rank => rank >= 3)) return 'submitted_to_admin';
   if (statuses.length && ranks.every(rank => rank >= 2)) return 'parent_approved';
   if (statuses.length && ranks.every(rank => rank >= 1)) return 'awaiting_parent';
@@ -138,15 +141,13 @@ function buildGroup(assignment, reports) {
     submitted_to_admin_at: latest(sorted.map(report => report.submitted_to_admin_at)),
     admin_approved_at: latest(sorted.map(report => report.admin_approved_at)),
     can_submit_to_parent: sorted.length > 0 && sorted.every(report => ['draft', 'returned_to_tutor'].includes(report.status)),
-    can_submit_to_admin: sorted.length > 0 && sorted.every(report => report.status === 'parent_approved')
   };
 }
 function stepTimestamp(group, index) {
   if (index === 0) return group.submitted_to_parent_at;
   if (index === 1) return group.first_submitted_to_parent_at || group.submitted_to_parent_at;
   if (index === 2) return group.parent_approved_at;
-  if (index === 3) return group.submitted_to_admin_at;
-  if (index === 4) return group.admin_approved_at;
+  if (index === 3) return group.admin_approved_at;
   return null;
 }
 function stepState(group, index) {
@@ -183,17 +184,26 @@ function renderStepper(group) {
     }).join('')}
   </div>`;
 }
-function exportButtons(assignmentId, month) {
+function exportButtons(group) {
+  if (group.phase !== 'completed') return '';
   return `<div class="mt-3 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${assignmentId}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${assignmentId}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
   </div>`;
 }
 function actionArea(group) {
   if (group.phase === 'completed') {
-    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>${exportButtons(group.assignment_id, group.target_month)}`;
+    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>${exportButtons(group)}`;
   }
-  if (group.phase === 'submitted_to_admin') return '';
+  if (['parent_approved', 'submitted_to_admin'].includes(group.phase)) {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">運営確認中</div>';
+  }
+  if (group.phase === 'received') {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">受付済み</div>';
+  }
+  if (group.phase === 're_reviewed') {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">再鑑済み</div>';
+  }
   if (!group.parent_id && group.can_submit_to_parent) {
     return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため承認依頼できません。</div>';
   }
@@ -215,17 +225,13 @@ function actionArea(group) {
   if (group.phase === 'awaiting_parent') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>保護者の承認を待っています</button>';
   }
-  if (group.phase === 'parent_approved' && group.can_submit_to_admin) {
-    return `<button class="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToAdminGroup('${group.assignment_id}')">運営へまとめて提出</button>`;
-  }
   return '';
 }
 function summaryGrid(group) {
-  return `<div class="mt-5 grid gap-3 md:grid-cols-4">
+  return `<div class="mt-5 grid gap-3 md:grid-cols-3">
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">報告完了日</div><div class="font-medium text-slate-800">${timeLabel(group.submitted_to_parent_at, '-')}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_parent_at || group.submitted_to_parent_at, '-')}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者 承認日時</div><div class="font-medium text-slate-800">${group.parent_approved_at ? timeLabel(group.parent_approved_at) : '承認待ち'}</div></div>
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">運営 最終承認日時</div><div class="font-medium text-slate-800">${timeLabel(group.admin_approved_at, '')}</div></div>
   </div>`;
 }
 function detailRows(group) {
@@ -234,13 +240,12 @@ function detailRows(group) {
     <td class="px-4 py-3">${statusLabel(r.status)}</td>
     <td class="px-4 py-3">${timeLabel(r.submitted_to_parent_at, '-')}</td>
     <td class="px-4 py-3">${timeLabel(r.parent_approved_at, '-')}</td>
-    <td class="px-4 py-3">${timeLabel(r.submitted_to_admin_at, '-')}</td>
     <td class="px-4 py-3">${timeLabel(r.admin_approved_at, '-')}</td>
     <td class="px-4 py-3 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
   </tr>`).join('');
   return `<div class="mt-5 overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">保護者へ依頼</th><th class="px-4 py-3 text-left">保護者承認</th><th class="px-4 py-3 text-left">運営提出</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th></tr></thead>
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">保護者へ依頼</th><th class="px-4 py-3 text-left">保護者承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
@@ -294,14 +299,6 @@ async function resendReturnedReports(assignmentId) {
       body: JSON.stringify({})
     });
   }
-  await loadApproval();
-}
-async function submitToAdminGroup(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
-  await api('/api/reports/submit-to-admin-bulk', {
-    method: 'POST',
-    body: JSON.stringify({target_month: group.target_month, report_ids: reportIds(group, 'parent_approved')})
-  });
   await loadApproval();
 }
 async function loadApproval() {

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user_from_cookie
-from app.models import LessonReport, ReportEvent, ReportStatus, User
+from app.models import Assignment, LessonReport, ReportEvent, ReportStatus, User
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(tags=["pages"])
@@ -186,7 +186,21 @@ def parent_pages(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
     if not user or user.role != "parent":
         return _login_redirect()
-    return templates.TemplateResponse(request, "parent/reports.html", context=_base_context(request, user))
+    assignments = db.scalars(
+        select(Assignment)
+        .where(Assignment.parent_id == user.id, Assignment.is_active.is_(True))
+        .order_by(Assignment.student_name)
+    ).all()
+    context = _base_context(request, user)
+    context["assignments"] = [
+        {
+            "id": str(assignment.id),
+            "student_name": assignment.student_name,
+            "tutor_id": str(assignment.tutor_id),
+        }
+        for assignment in assignments
+    ]
+    return templates.TemplateResponse(request, "parent/reports.html", context=context)
 
 
 @router.get("/admin/dashboard", response_class=HTMLResponse)

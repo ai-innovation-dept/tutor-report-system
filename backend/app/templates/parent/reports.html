@@ -7,19 +7,30 @@
     <h1 class="text-2xl font-semibold text-slate-800">報告書一覧</h1>
     <p class="mt-1 text-sm text-slate-500">月ごとの報告書を確認し、承認または差戻しできます。</p>
   </div>
-  <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
-    <span class="text-slate-600">表示月</span>
-    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-  </label>
+  <div class="flex flex-wrap items-center gap-3">
+    <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <span class="text-slate-600">表示月</span>
+      <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+    </label>
+    <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <span class="text-slate-600">講師</span>
+      <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+    </label>
+  </div>
 </div>
+<div id="studentTabs" class="mb-4 hidden flex-wrap gap-2"></div>
+<div id="selectedStudentLabel" class="mb-4 hidden text-sm font-medium text-slate-700"></div>
 <div id="parentReports" class="grid gap-4"></div>
 {% endblock %}
 {% block scripts %}
 <script>
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const currentMonth = new Date().toISOString().slice(0, 7);
+const parentAssignments = {{ assignments | default([]) | tojson }};
 let allReports = [];
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
+let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
+let selectedAssignmentId = new URLSearchParams(location.search).get('assignment_id') || '';
 let expandedReturnId = null;
 
 function escapeHtml(value) {
@@ -60,6 +71,16 @@ function sortReportsOldestFirst(reports) {
     return timeText(a.start_time).localeCompare(timeText(b.start_time));
   });
 }
+function filteredReports() {
+  return allReports.filter(report =>
+    (!selectedAssignmentId || report.assignment_id === selectedAssignmentId) &&
+    (!selectedTutorId || report.tutor_id === selectedTutorId)
+  );
+}
+function tutorLabel(reports) {
+  const names = [...new Set(reports.map(report => report.tutor_name || '講師').filter(Boolean))];
+  return names.length ? `　担当講師：${names.map(escapeHtml).join('、')}` : '';
+}
 function statusBadge(report) {
   if (report.status === 'awaiting_parent_approval') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
   if (report.status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
@@ -83,7 +104,7 @@ function returnComment(report) {
 function returnFormRow(report) {
   if (expandedReturnId !== report.id) return '';
   return `<tr class="border-t bg-red-50/60">
-    <td class="p-3" colspan="6">
+    <td class="p-3" colspan="8">
       <div class="grid gap-2">
         <label class="text-sm font-medium text-slate-700" for="returnComment-${report.id}">コメントを入力してください</label>
         <textarea id="returnComment-${report.id}" class="min-h-24 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000"></textarea>
@@ -100,6 +121,8 @@ function renderReportRows(reports) {
     <td class="p-2">${index + 1}</td>
     <td class="p-2">${dateLabel(report.lesson_date)}</td>
     <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
+    <td class="p-2">${Number(report.break_minutes || 0)}分</td>
+    <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
     <td class="p-2">${escapeHtml(report.subject || '')}</td>
     <td class="p-2">${statusBadge(report)}${returnComment(report)}</td>
     <td class="p-2">${rowAction(report)}</td>
@@ -130,9 +153,7 @@ function renderDownloadArea(month, reports) {
     byAssignment[r.assignment_id].reports.push(r);
   }
   const groups = Object.values(byAssignment).filter(g =>
-    g.reports.length > 0 && g.reports.every(r =>
-      ['parent_approved', 'submitted_to_admin', 'received', 're_reviewed', 'admin_approved'].includes(r.status)
-    )
+    g.reports.length > 0 && g.reports.every(r => r.status === 'admin_approved')
   );
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
@@ -150,7 +171,7 @@ function renderMonthSection(month, reports) {
   }
   return `<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div class="border-b border-slate-200 bg-slate-50 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
+      <h2 class="font-semibold text-slate-800">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}${tutorLabel(sorted)}</h2>
     </div>
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
@@ -159,6 +180,8 @@ function renderMonthSection(month, reports) {
             <th class="px-4 py-3 text-left">回</th>
             <th class="px-4 py-3 text-left">指導日</th>
             <th class="px-4 py-3 text-left">在室時間</th>
+            <th class="px-4 py-3 text-left">休憩（分）</th>
+            <th class="px-4 py-3 text-left">指導時間数</th>
             <th class="px-4 py-3 text-left">科目</th>
             <th class="px-4 py-3 text-left">状態</th>
             <th class="px-4 py-3 text-left">差戻す</th>
@@ -171,18 +194,77 @@ function renderMonthSection(month, reports) {
   </section>`;
 }
 function renderMonthFilter(groups) {
-  const months = Object.keys(groups).filter(month => month <= currentMonth).sort().reverse();
+  const assignmentReports = allReports.filter(report => !selectedAssignmentId || report.assignment_id === selectedAssignmentId);
+  const months = [...new Set(assignmentReports.map(report => report.target_month))].filter(month => month <= currentMonth).sort().reverse();
   if (months.length && !months.includes(selectedMonth)) selectedMonth = months.includes(currentMonth) ? currentMonth : months[0];
   monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
   monthFilter.value = selectedMonth;
   monthFilter.disabled = !months.length;
 }
+function renderTutorFilter() {
+  const assignmentReports = allReports.filter(report => !selectedAssignmentId || report.assignment_id === selectedAssignmentId);
+  const tutors = Object.values(assignmentReports.reduce((acc, report) => {
+    acc[report.tutor_id] ||= {id: report.tutor_id, name: report.tutor_name || '講師'};
+    return acc;
+  }, {})).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  if (selectedTutorId && !tutors.some(tutor => tutor.id === selectedTutorId)) selectedTutorId = '';
+  tutorFilter.innerHTML = [
+    '<option value="">すべての講師</option>',
+    ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.name)}</option>`)
+  ].join('');
+  tutorFilter.value = selectedTutorId;
+  tutorFilter.disabled = !tutors.length;
+}
+function selectedAssignment() {
+  return parentAssignments.find(assignment => assignment.id === selectedAssignmentId) || parentAssignments[0] || null;
+}
+function renderStudentTabs() {
+  if (!parentAssignments.length) {
+    selectedAssignmentId = '';
+    studentTabs.classList.add('hidden');
+    selectedStudentLabel.classList.add('hidden');
+    return;
+  }
+  if (!selectedAssignmentId || !parentAssignments.some(assignment => assignment.id === selectedAssignmentId)) {
+    selectedAssignmentId = parentAssignments[0].id;
+  }
+  if (parentAssignments.length <= 1) {
+    studentTabs.classList.add('hidden');
+    selectedStudentLabel.classList.add('hidden');
+    return;
+  }
+  const current = selectedAssignment();
+  selectedStudentLabel.textContent = `選択中の生徒：${current ? current.student_name : '未設定'}`;
+  selectedStudentLabel.classList.remove('hidden');
+  studentTabs.classList.remove('hidden');
+  studentTabs.classList.add('flex');
+  studentTabs.innerHTML = parentAssignments.map(assignment => {
+    const active = assignment.id === selectedAssignmentId;
+    const classes = active
+      ? 'border-blue-600 bg-blue-600 text-white'
+      : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700';
+    return `<button type="button" class="rounded-lg border px-4 py-2 text-sm font-medium shadow-sm transition ${classes}" onclick="selectStudent('${assignment.id}')">${escapeHtml(assignment.student_name)}</button>`;
+  }).join('');
+}
 function renderParent() {
-  const groups = allReports.reduce((acc, report) => ((acc[report.target_month] ||= []).push(report), acc), {});
+  renderStudentTabs();
+  const reports = filteredReports();
+  const groups = reports.reduce((acc, report) => ((acc[report.target_month] ||= []).push(report), acc), {});
   renderMonthFilter(groups);
+  renderTutorFilter();
   parentReports.innerHTML = groups[selectedMonth]
     ? renderMonthSection(selectedMonth, groups[selectedMonth])
     : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">表示できる報告書はありません。</div>';
+}
+function selectStudent(assignmentId) {
+  selectedAssignmentId = assignmentId;
+  selectedTutorId = '';
+  expandedReturnId = null;
+  const params = new URLSearchParams(location.search);
+  params.set('assignment_id', selectedAssignmentId);
+  params.set('month', selectedMonth);
+  params.delete('tutor_id');
+  location.href = `${location.pathname}?${params.toString()}`;
 }
 function showReturnForm(reportId) {
   expandedReturnId = reportId;
@@ -208,7 +290,7 @@ async function cancelReturn(reportId) {
   await loadParent();
 }
 async function approvePending(month) {
-  const reports = allReports.filter(report => report.target_month === month);
+  const reports = filteredReports().filter(report => report.target_month === month);
   const pending = reports.filter(report => report.status === 'awaiting_parent_approval');
   if (!pending.length) return;
   if (!confirm(`${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`)) return;
@@ -225,6 +307,18 @@ async function loadParent() {
 monthFilter.addEventListener('change', () => {
   const params = new URLSearchParams(location.search);
   params.set('month', monthFilter.value);
+  if (selectedAssignmentId) params.set('assignment_id', selectedAssignmentId);
+  if (selectedTutorId) params.set('tutor_id', selectedTutorId);
+  else params.delete('tutor_id');
+  location.href = `${location.pathname}?${params.toString()}`;
+});
+tutorFilter.addEventListener('change', () => {
+  const params = new URLSearchParams(location.search);
+  selectedTutorId = tutorFilter.value;
+  params.set('month', selectedMonth);
+  if (selectedAssignmentId) params.set('assignment_id', selectedAssignmentId);
+  if (selectedTutorId) params.set('tutor_id', selectedTutorId);
+  else params.delete('tutor_id');
   location.href = `${location.pathname}?${params.toString()}`;
 });
 window.authReady.then(user => {

@@ -60,6 +60,20 @@ def test_page_route_uses_login_cookie_after_reload(client):
     assert "Tutor Reports" in res.text
 
 
+def test_parent_reports_page_includes_all_child_assignments(client, db):
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    tutor = db.query(User).filter(User.email == "tutor@example.com").one()
+    db.add(Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name="Second Student"))
+    db.commit()
+
+    client.post("/api/auth/login", data={"username": "parent@example.com", "password": "Passw0rd!"})
+    res = client.get("/parent/reports")
+    assert res.status_code == 200
+    assert "parentAssignments" in res.text
+    assert "Student" in res.text
+    assert "Second Student" in res.text
+
+
 def test_admin_page_role_mismatch_redirects_to_login(client):
     client.post("/api/auth/login", data={"username": "receiver@example.com", "password": "Passw0rd!"})
     res = client.get("/admin/users", follow_redirects=False)

@@ -8,7 +8,7 @@ from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import LessonReport, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import AdminBulkReturnIn, BulkReturnIn, BulkSubmitIn, CommentIn, ReportOut
-from app.services.workflow_service import send_transition_notifications, transition
+from app.services.workflow_service import auto_submit_to_admin, send_transition_notifications, transition
 
 router = APIRouter(prefix="/api/reports", tags=["workflow"])
 
@@ -22,6 +22,18 @@ def _run(report_id: UUID, action: str, payload: CommentIn, db: Session, user: Us
     return report
 
 
+def _approve_and_submit_reports(reports: list[LessonReport], db: Session, user: User) -> list[LessonReport]:
+    for report in reports:
+        transition(db, report, user, ReportAction.parent_approve.value)
+    auto_submit_to_admin(db, reports, user)
+    db.commit()
+    for report in reports:
+        db.refresh(report)
+    send_transition_notifications(db, ReportAction.parent_approve.value, reports, user)
+    send_transition_notifications(db, ReportAction.submit_to_admin.value, reports, user)
+    return reports
+
+
 @router.post("/{report_id}/submit-to-parent", response_model=ReportOut)
 def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role == "parent":
@@ -31,7 +43,8 @@ def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db: Sess
 
 @router.post("/{report_id}/parent-approve", response_model=ReportOut)
 def parent_approve(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return _run(report_id, ReportAction.parent_approve.value, payload, db, user)
+    report = get_report_for_user(report_id, user, db)
+    return _approve_and_submit_reports([report], db, user)[0]
 
 
 @router.post("/{report_id}/parent-return", response_model=ReportOut)
@@ -85,12 +98,7 @@ def parent_approve_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), us
     reports = _bulk_reports(payload, db, user)
     _validate_bulk(reports, user_id=user.id, owner_attr="parent_id", status=ReportStatus.awaiting_parent_approval.value)
     _validate_target_month(reports, payload.target_month)
-    changed = []
-    for report in reports:
-        transition(db, report, user, ReportAction.parent_approve.value)
-        changed.append(report.id)
-    db.commit()
-    send_transition_notifications(db, ReportAction.parent_approve.value, reports, user)
+    changed = [report.id for report in _approve_and_submit_reports(reports, db, user)]
     return {"updated": changed}
 
 

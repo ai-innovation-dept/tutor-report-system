@@ -93,6 +93,7 @@ class InvitationOut(BaseModel):
     expires_at: datetime
     accepted_at: datetime | None = None
     created_at: datetime
+    message: str | None = None
 
 
 class ReportCreate(BaseModel):
@@ -127,6 +128,7 @@ class ReportOut(BaseModel):
     id: UUID
     assignment_id: UUID
     tutor_id: UUID
+    tutor_name: str | None = None
     parent_id: UUID | None = None
     student_name: str | None = None
     lesson_date: date

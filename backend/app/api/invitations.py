@@ -21,7 +21,7 @@ router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 INVITATION_SUBJECT = "【指導実績報告システム】保護者アカウントのご案内"
 
 
-def _invitation_out(invitation: Invitation) -> InvitationOut:
+def _invitation_out(invitation: Invitation, message: str | None = None) -> InvitationOut:
     return InvitationOut(
         id=invitation.id,
         email=invitation.email,
@@ -33,6 +33,7 @@ def _invitation_out(invitation: Invitation) -> InvitationOut:
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
         created_at=invitation.created_at,
+        message=message,
     )
 
 
@@ -63,8 +64,6 @@ def create_invitation(
     user: User = Depends(require_role("admin_master")),
 ):
     email = str(payload.email).lower()
-    if db.scalar(select(User).where(User.email == email)):
-        raise HTTPException(status_code=409, detail="email already exists")
     tutor = db.get(User, payload.tutor_id)
     if not tutor or tutor.role != "tutor":
         raise HTTPException(status_code=422, detail="tutor_id must be a tutor user")
@@ -73,6 +72,32 @@ def create_invitation(
         raise HTTPException(status_code=422, detail="student_name is required")
 
     now = datetime.now(timezone.utc)
+    existing_user = db.scalar(select(User).where(User.email == email))
+    if existing_user and existing_user.role != "parent":
+        raise HTTPException(status_code=409, detail="このメールアドレスは別のロールで登録済みです")
+    if existing_user:
+        assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=existing_user.id, is_active=True)
+        db.add(assignment)
+        db.flush()
+        invitation = Invitation(
+            email=email,
+            role="parent",
+            assignment_id=assignment.id,
+            token=secrets.token_urlsafe(32),
+            invited_by=user.id,
+            expires_at=now + timedelta(hours=72),
+            accepted_at=now,
+            created_at=now,
+        )
+        db.add(invitation)
+        db.commit()
+        invitation = db.scalar(
+            select(Invitation)
+            .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))
+            .where(Invitation.id == invitation.id)
+        )
+        return _invitation_out(invitation, "既存の保護者アカウントに生徒を紐付けました")
+
     invitation = db.scalar(
         select(Invitation)
         .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))

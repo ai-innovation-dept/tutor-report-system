@@ -58,6 +58,7 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
         out.last_return_at = last_return_event[1]
     out.unread_count = unread
     out.student_name = report.assignment.student_name if report.assignment else None
+    out.tutor_name = report.tutor.display_name if report.tutor else None
     return out
 
 
@@ -130,7 +131,7 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
 
 @router.get("", response_model=list[ReportOut])
 def list_reports(status: str | None = None, target_month: str | None = None, assignment_id: UUID | None = None, tutor_id: UUID | None = None, parent_id: UUID | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    stmt = select(LessonReport).options(selectinload(LessonReport.assignment)).order_by(LessonReport.lesson_date.desc())
+    stmt = select(LessonReport).options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor)).order_by(LessonReport.lesson_date.desc())
     if user.role == "tutor":
         stmt = stmt.where(LessonReport.tutor_id == user.id)
     elif user.role == "parent":
@@ -143,7 +144,7 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
         stmt = stmt.where(LessonReport.target_month == target_month)
     if assignment_id:
         stmt = stmt.where(LessonReport.assignment_id == assignment_id)
-    if tutor_id and user.role.startswith("admin_"):
+    if tutor_id and (user.role == "parent" or user.role.startswith("admin_")):
         stmt = stmt.where(LessonReport.tutor_id == tutor_id)
     if parent_id and user.role.startswith("admin_"):
         stmt = stmt.where(LessonReport.parent_id == parent_id)

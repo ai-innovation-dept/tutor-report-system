@@ -1,6 +1,7 @@
 # === Phase 5: 承認ワークフロー START ===
 from datetime import date, time
-from app.models import Assignment, LessonReport, ReportStatus
+from app.core.security import hash_password
+from app.models import Assignment, LessonReport, ReportStatus, User
 from tests.conftest import token
 
 
@@ -24,8 +25,7 @@ def test_full_workflow(client, db):
     rid = report.json()["id"]
     steps = [
         (tutor_token, "submit-to-parent", "awaiting_parent_approval"),
-        (parent_token, "parent-approve", "parent_approved"),
-        (tutor_token, "submit-to-admin", "submitted_to_admin"),
+        (parent_token, "parent-approve", "submitted_to_admin"),
         (receiver_token, "receive", "received"),
         (reviewer_token, "re-review", "re_reviewed"),
         (master_token, "admin-approve", "admin_approved"),
@@ -34,6 +34,40 @@ def test_full_workflow(client, db):
         res = client.post(f"/api/reports/{rid}/{endpoint}", headers={"Authorization": f"Bearer {tk}"}, json={})
         assert res.status_code == 200
         assert res.json()["status"] == status
+
+
+def test_parent_approve_bulk_auto_submits_to_admin(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report_ids = []
+    for hour in [18, 19]:
+        res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+            "assignment_id": str(assignment.id),
+            "lesson_date": str(today),
+            "start_time": f"{hour:02d}:00",
+            "end_time": f"{hour + 1:02d}:00",
+            "content": f"lesson {hour}",
+        })
+        report_ids.append(res.json()["id"])
+    client.post("/api/reports/submit-to-parent-bulk", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "report_ids": report_ids,
+        "target_month": today.strftime("%Y-%m"),
+    })
+
+    approved = client.post("/api/reports/parent-approve-bulk", headers={"Authorization": f"Bearer {parent_token}"}, json={
+        "report_ids": report_ids,
+        "target_month": today.strftime("%Y-%m"),
+    })
+    assert approved.status_code == 200
+
+    reports = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"}).json()
+    by_id = {report["id"]: report for report in reports}
+    for report_id in report_ids:
+        assert by_id[report_id]["status"] == ReportStatus.submitted_to_admin.value
+        assert by_id[report_id]["parent_approved_at"] is not None
+        assert by_id[report_id]["submitted_to_admin_at"] is not None
 
 
 def test_return_requires_comment(client, db):
@@ -169,6 +203,62 @@ def test_return_comment_is_limited_to_returned_report(client, db):
     assert by_id[returned_id]["last_return_comment"] == "5月6日のみ修正"
     assert by_id[returned_id]["status"] == ReportStatus.returned_to_tutor.value
     assert by_id[report_ids[1]]["last_return_comment"] is None
+
+
+def test_parent_reports_can_filter_by_tutor(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    first_tutor = db.get(User, assignment.tutor_id)
+    first_tutor.display_name = "講師 一郎"
+    second_tutor = User(
+        email="tutor2@example.com",
+        role="tutor",
+        display_name="講師 二郎",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(second_tutor)
+    db.flush()
+    second_assignment = Assignment(tutor_id=second_tutor.id, parent_id=assignment.parent_id, student_name="Student 2")
+    db.add(second_assignment)
+    db.flush()
+    target_month = date.today().strftime("%Y-%m")
+    reports = [
+        LessonReport(
+            assignment_id=assignment.id,
+            tutor_id=assignment.tutor_id,
+            parent_id=assignment.parent_id,
+            lesson_date=date.today(),
+            start_time=time(18, 0),
+            end_time=time(19, 0),
+            break_minutes=0,
+            content="first tutor",
+            target_month=target_month,
+            status=ReportStatus.awaiting_parent_approval.value,
+        ),
+        LessonReport(
+            assignment_id=second_assignment.id,
+            tutor_id=second_tutor.id,
+            parent_id=assignment.parent_id,
+            lesson_date=date.today(),
+            start_time=time(19, 0),
+            end_time=time(20, 0),
+            break_minutes=0,
+            content="second tutor",
+            target_month=target_month,
+            status=ReportStatus.awaiting_parent_approval.value,
+        ),
+    ]
+    db.add_all(reports)
+    db.commit()
+
+    all_reports = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+    assert all_reports.status_code == 200
+    assert {report["tutor_name"] for report in all_reports.json()} == {"講師 一郎", "講師 二郎"}
+
+    filtered = client.get(f"/api/reports?tutor_id={second_tutor.id}", headers={"Authorization": f"Bearer {parent_token}"})
+    assert filtered.status_code == 200
+    assert [report["content"] for report in filtered.json()] == ["second tutor"]
+    assert filtered.json()[0]["tutor_name"] == "講師 二郎"
 
 
 def test_tutor_reports_page_shows_return_comment_badge(client, db):

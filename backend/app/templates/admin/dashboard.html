@@ -228,10 +228,11 @@ function reportRows(reports) {
     </tr>`;
   }).join('');
 }
-function exportButtons(assignmentId, month) {
+function exportButtons(group, month) {
+  if (!group.reports.length || !group.reports.every(report => report.status === 'admin_approved')) return '';
   return `<div class="mt-4 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${assignmentId}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${assignmentId}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
   </div>`;
 }
 function renderStudentCards() {
@@ -254,7 +255,7 @@ function renderStudentCards() {
       </div>
       <div class="p-4">
         <button class="text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
-        ${exportButtons(group.assignment_id, selectedMonth)}
+        ${exportButtons(group, selectedMonth)}
       </div>
       <div id="${detailId}" class="hidden overflow-x-auto border-t border-slate-200">
         <table class="w-full text-sm">

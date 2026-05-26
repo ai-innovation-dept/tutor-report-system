@@ -21,6 +21,7 @@
           <th class="px-4 py-3 text-left">回数</th>
           <th class="px-4 py-3 text-left">指導日</th>
           <th class="px-4 py-3 text-left">在室時間</th>
+          <th class="px-4 py-3 text-left">休憩（分）</th>
           <th class="px-4 py-3 text-left">指導時間数</th>
           <th class="px-4 py-3 text-left">科目</th>
           <th class="px-4 py-3 text-left">アクション</th>
@@ -245,6 +246,7 @@ function renderRows(reports) {
     <td class="px-4 py-3">${index + 1}</td>
     <td class="px-4 py-3">${dateLabel(r.lesson_date)}</td>
     <td class="px-4 py-3">${timeText(r.start_time)} ～ ${timeText(r.end_time)}</td>
+    <td class="px-4 py-3">${Number(r.break_minutes || 0)}分</td>
     <td class="px-4 py-3">${durationLabel(teachingMinutes(r))}</td>
     <td class="px-4 py-3">${r.subject || ''}</td>
     <td class="px-4 py-3">${rowAction(r)}</td>

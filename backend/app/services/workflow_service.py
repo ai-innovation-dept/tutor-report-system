@@ -77,6 +77,34 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
     return report
 
 
+def auto_submit_to_admin(db: Session, reports: list[LessonReport], actor: User) -> None:
+    now = datetime.now(timezone.utc)
+    for report in reports:
+        if report.status != ReportStatus.parent_approved.value:
+            raise HTTPException(status_code=409, detail=f"invalid transition from {report.status}")
+        old_status = report.status
+        report.status = ReportStatus.submitted_to_admin.value
+        report.submitted_to_admin_at = now
+        db.add(
+            ReportEvent(
+                report_id=report.id,
+                actor_id=actor.id,
+                action=ReportAction.submit_to_admin.value,
+                from_status=old_status,
+                to_status=ReportStatus.submitted_to_admin.value,
+            )
+        )
+        for user_id in {report.tutor_id, report.parent_id} - {None}:
+            enqueue(
+                db,
+                user_id,
+                "status_changed",
+                f"Report status changed: {ReportStatus.submitted_to_admin.value}",
+                f"Report {report.id} moved from {old_status} to {ReportStatus.submitted_to_admin.value}.",
+                report.id,
+            )
+
+
 def send_transition_notifications(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:
     grouped_reports = _group_reports(reports)
     for group_reports in grouped_reports.values():
