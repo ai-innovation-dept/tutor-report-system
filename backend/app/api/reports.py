@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
-from app.models import Assignment, ChatMessage, ChatRead, LessonReport, ReportEvent, ReportStatus, User
+from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportEvent, ReportStatus, User
 from app.schemas import ReportCreate, ReportOut, ReportPatch
 
 STATUS_RANK = {
@@ -415,6 +415,7 @@ def delete_report(report_id: UUID, db: Session = Depends(get_db), user: User = D
         db.query(ChatRead).filter(ChatRead.message_id.in_(message_ids)).delete(synchronize_session=False)
     db.query(ChatMessage).filter(ChatMessage.report_id == report.id).delete(synchronize_session=False)
     db.query(ReportEvent).filter(ReportEvent.report_id == report.id).delete(synchronize_session=False)
+    db.query(Notification).filter(Notification.report_id == report.id).delete()
     db.delete(report)
     db.commit()
     return {"status": "ok"}
