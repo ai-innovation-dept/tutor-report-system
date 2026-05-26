@@ -216,6 +216,22 @@ def test_forgot_password_creates_token_and_sends_email(client, db, monkeypatch):
     assert sent[-1][3]["token"] == reset_token.token
 
 
+def test_forgot_password_finds_email_case_insensitively(client, db, monkeypatch):
+    sent = []
+    user = db.query(User).filter(User.email == "tutor@example.com").one()
+    user.email = "Tutor.Mixed@example.com"
+    db.commit()
+
+    def fake_send(to_email, subject, template_name, context):
+        sent.append((to_email, subject, template_name, context))
+
+    monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)
+    res = client.post("/api/auth/forgot-password", json={"email": "tutor.mixed@example.com"})
+    assert res.status_code == 200
+    assert db.query(PasswordResetToken).filter(PasswordResetToken.user_id == user.id).count() == 1
+    assert sent and sent[-1][0] == "Tutor.Mixed@example.com"
+
+
 def test_forgot_password_does_not_reveal_unknown_email(client, db, monkeypatch):
     sent = []
 
