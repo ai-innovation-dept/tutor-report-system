@@ -4,8 +4,8 @@ from datetime import date, datetime, time, timedelta, timezone
 from jose import jwt
 
 from app.config import settings
-from app.core.security import create_access_token
-from app.models import Assignment, Invitation, LessonReport, User
+from app.core.security import create_access_token, verify_password
+from app.models import Assignment, Invitation, LessonReport, PasswordResetToken, User
 
 
 def test_login_success_and_me(client):
@@ -195,4 +195,93 @@ def test_parent_register_without_assignment_uses_email_local_part(client, db):
     assert registered.status_code == 200
     created = db.query(User).filter(User.email == "satoshi@example.com").one()
     assert created.display_name == "satoshi"
+
+
+def test_forgot_password_creates_token_and_sends_email(client, db, monkeypatch):
+    sent = []
+
+    def fake_send(to_email, subject, template_name, context):
+        sent.append((to_email, subject, template_name, context))
+
+    monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)
+    res = client.post("/api/auth/forgot-password", json={"email": "tutor@example.com"})
+    assert res.status_code == 200
+    assert res.json()["message"] == "パスワードリセットメールを送信しました"
+    reset_token = db.query(PasswordResetToken).join(User).filter(User.email == "tutor@example.com").one()
+    assert reset_token.token
+    assert reset_token.used_at is None
+    assert sent
+    assert sent[-1][0] == "tutor@example.com"
+    assert sent[-1][2] == "password_reset.txt"
+    assert sent[-1][3]["token"] == reset_token.token
+
+
+def test_forgot_password_does_not_reveal_unknown_email(client, db, monkeypatch):
+    sent = []
+
+    def fake_send(to_email, subject, template_name, context):
+        sent.append((to_email, subject, template_name, context))
+
+    monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)
+    res = client.post("/api/auth/forgot-password", json={"email": "missing@example.com"})
+    assert res.status_code == 200
+    assert res.json()["message"] == "パスワードリセットメールを送信しました"
+    assert db.query(PasswordResetToken).count() == 0
+    assert sent == []
+
+
+def test_reset_password_token_info_and_update(client, db):
+    user = db.query(User).filter(User.email == "tutor@example.com").one()
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token="reset-token",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db.add(reset_token)
+    db.commit()
+
+    info = client.get("/api/auth/reset-password?token=reset-token")
+    assert info.status_code == 200
+    assert info.json() == {"valid": True, "email": "tutor@example.com", "reason": None}
+
+    changed = client.post("/api/auth/reset-password", json={"token": "reset-token", "new_password": "NewPassw0rd!"})
+    assert changed.status_code == 200
+    assert changed.json()["message"] == "パスワードを変更しました"
+    db.refresh(user)
+    db.refresh(reset_token)
+    assert verify_password("NewPassw0rd!", user.password_hash)
+    assert reset_token.used_at is not None
+    login = client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "NewPassw0rd!"})
+    assert login.status_code == 200
+
+
+def test_reset_password_rejects_expired_used_and_missing_tokens(client, db):
+    user = db.query(User).filter(User.email == "tutor@example.com").one()
+    expired = PasswordResetToken(
+        user_id=user.id,
+        token="expired-token",
+        expires_at=datetime.now(timezone.utc) - timedelta(minutes=1),
+    )
+    used = PasswordResetToken(
+        user_id=user.id,
+        token="used-token",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+        used_at=datetime.now(timezone.utc),
+    )
+    db.add_all([expired, used])
+    db.commit()
+
+    expired_info = client.get("/api/auth/reset-password?token=expired-token")
+    assert expired_info.status_code == 200
+    assert expired_info.json()["reason"] == "expired"
+    used_info = client.get("/api/auth/reset-password?token=used-token")
+    assert used_info.status_code == 200
+    assert used_info.json()["reason"] == "used"
+    missing_info = client.get("/api/auth/reset-password?token=missing-token")
+    assert missing_info.status_code == 200
+    assert missing_info.json()["reason"] == "not_found"
+
+    assert client.post("/api/auth/reset-password", json={"token": "expired-token", "new_password": "NewPassw0rd!"}).status_code == 410
+    assert client.post("/api/auth/reset-password", json={"token": "used-token", "new_password": "NewPassw0rd!"}).status_code == 409
+    assert client.post("/api/auth/reset-password", json={"token": "missing-token", "new_password": "NewPassw0rd!"}).status_code == 404
 # === Phase 2 END ===

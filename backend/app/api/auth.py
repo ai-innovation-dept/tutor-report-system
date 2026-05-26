@@ -1,5 +1,6 @@
 # === Phase 2: 認証・認可 START ===
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -10,8 +11,10 @@ from sqlalchemy.orm import Session
 from app.core.security import authenticate_user, create_access_token, hash_password
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Assignment, Invitation, LessonReport, User
-from app.schemas import RegisterIn, RegisterInfoOut, RegisterOut, TokenOut, UserOut
+from app.config import settings
+from app.models import Assignment, Invitation, LessonReport, PasswordResetToken, User
+from app.schemas import ForgotPasswordIn, RegisterIn, RegisterInfoOut, RegisterOut, ResetPasswordIn, ResetTokenInfoOut, TokenOut, UserOut
+from app.services.notification_service import send_email_notification
 
 
 ROLE_LABELS = {
@@ -23,6 +26,7 @@ ROLE_LABELS = {
 }
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+PASSWORD_RESET_SUBJECT = "【指導実績報告システム】パスワードリセットのご案内"
 
 
 def _valid_invitation(token: str, db: Session) -> Invitation:
@@ -38,6 +42,20 @@ def _valid_invitation(token: str, db: Session) -> Invitation:
     if invitation.accepted_at:
         raise HTTPException(status_code=409, detail="この招待は使用済みです")
     return invitation
+
+
+def _as_aware_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _reset_token_status(reset_token: PasswordResetToken | None) -> str | None:
+    if not reset_token:
+        return "not_found"
+    if reset_token.used_at:
+        return "used"
+    if _as_aware_utc(reset_token.expires_at) < datetime.now(timezone.utc):
+        return "expired"
+    return None
 
 
 @router.post("/login")
@@ -68,6 +86,57 @@ def logout():
     response = JSONResponse(content={"message": "logged out"})
     response.delete_cookie("access_token")
     return response
+
+
+@router.post("/forgot-password")
+def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+    user = db.scalar(select(User).where(User.email == str(payload.email).lower(), User.is_active.is_(True)))
+    message = {"message": "パスワードリセットメールを送信しました"}
+    if not user:
+        return message
+    reset_token = PasswordResetToken(
+        user_id=user.id,
+        token=secrets.token_urlsafe(32),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db.add(reset_token)
+    db.commit()
+    send_email_notification(
+        user.email,
+        PASSWORD_RESET_SUBJECT,
+        "password_reset.txt",
+        {
+            "display_name": user.display_name,
+            "base_url": settings.base_url.rstrip("/"),
+            "token": reset_token.token,
+        },
+    )
+    return message
+
+
+@router.get("/reset-password", response_model=ResetTokenInfoOut)
+def reset_password_info(token: str, db: Session = Depends(get_db)):
+    reset_token = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token == token))
+    reason = _reset_token_status(reset_token)
+    if reason:
+        return ResetTokenInfoOut(valid=False, reason=reason)
+    return ResetTokenInfoOut(valid=True, email=reset_token.user.email)
+
+
+@router.post("/reset-password", response_model=RegisterOut)
+def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    reset_token = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token == payload.token))
+    reason = _reset_token_status(reset_token)
+    if reason == "not_found":
+        raise HTTPException(status_code=404, detail="token not found")
+    if reason == "expired":
+        raise HTTPException(status_code=410, detail="リンクの有効期限が切れています")
+    if reason == "used":
+        raise HTTPException(status_code=409, detail="このリンクは使用済みです")
+    reset_token.user.password_hash = hash_password(payload.new_password)
+    reset_token.used_at = datetime.now(timezone.utc)
+    db.commit()
+    return RegisterOut(message="パスワードを変更しました")
 
 
 @router.get("/register", response_model=RegisterInfoOut)

@@ -62,6 +62,21 @@ class RegisterOut(BaseModel):
     message: str
 
 
+class ForgotPasswordIn(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+class ResetTokenInfoOut(BaseModel):
+    valid: bool
+    email: EmailStr | None = None
+    reason: str | None = None
+
+
 class AssignmentCreate(BaseModel):
     tutor_id: UUID
     parent_id: UUID | None = None
