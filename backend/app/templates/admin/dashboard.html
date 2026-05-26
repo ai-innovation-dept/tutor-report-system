@@ -21,6 +21,10 @@
   <h2 class="font-semibold text-slate-800">エクスポート</h2>
   <div class="mt-3 flex flex-wrap items-end gap-3">
     <label class="text-sm">
+      <span class="mb-1 block text-slate-700">対象</span>
+      <select id="exportScope" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+    </label>
+    <label class="text-sm">
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
@@ -183,6 +187,10 @@ function renderFilters() {
   exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
   exportMonth.value = selectedMonth;
   exportMonth.disabled = !months.length;
+  exportScope.innerHTML = [
+    '<option value="all">全体</option>',
+    ...tutors.map(tutor => `<option value="tutor:${tutor.id}">講師別：${escapeHtml(tutor.display_name)}</option>`)
+  ].join('');
   renderBulkExportLinks();
 }
 function renderSummary(groups) {
@@ -256,7 +264,13 @@ function exportButtons(group, month) {
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || selectedMonth;
-  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'xlsx'});
+  const value = exportScope.value || 'all';
+  const params = new URLSearchParams({target_month: month, format: 'xlsx'});
+  if (value === 'all') {
+    params.set('scope', 'all');
+  } else if (value.startsWith('tutor:')) {
+    params.set('tutor_id', value.slice(6));
+  }
   bulkExportXlsx.href = `/api/reports/export?${params.toString()}`;
   params.set('format', 'csv');
   bulkExportCsv.href = `/api/reports/export?${params.toString()}`;
@@ -407,6 +421,7 @@ tutorFilter.addEventListener('change', () => {
   selectedTutorId = tutorFilter.value;
   updateUrl();
 });
+exportScope.addEventListener('change', renderBulkExportLinks);
 exportMonth.addEventListener('change', renderBulkExportLinks);
 window.authReady.then(user => {
   if (!user) return;
