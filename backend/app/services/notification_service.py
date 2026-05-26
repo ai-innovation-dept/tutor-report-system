@@ -1,5 +1,4 @@
 # === Phase 7: 通知・リマインダー START ===
-import asyncio
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,9 +34,9 @@ def _render_email_template(template_name: str, context: dict) -> str:
     return template.format(**context)
 
 
-def send_email_notification(to_email: str, subject: str, template_name: str, context: dict) -> None:
+async def send_email_notification(to_email: str, subject: str, template_name: str, context: dict) -> None:
     body = _render_email_template(template_name, context)
-    asyncio.run(EmailChannel().send(to_email, subject, body))
+    await EmailChannel().send(to_email, subject, body)
 
 
 # LINE extension point: implement LineChannel(NotificationChannel) and select it by notification.channel.

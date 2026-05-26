@@ -200,7 +200,7 @@ def test_parent_register_without_assignment_uses_email_local_part(client, db):
 def test_forgot_password_creates_token_and_sends_email(client, db, monkeypatch):
     sent = []
 
-    def fake_send(to_email, subject, template_name, context):
+    async def fake_send(to_email, subject, template_name, context):
         sent.append((to_email, subject, template_name, context))
 
     monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)
@@ -222,7 +222,7 @@ def test_forgot_password_finds_email_case_insensitively(client, db, monkeypatch)
     user.email = "Tutor.Mixed@example.com"
     db.commit()
 
-    def fake_send(to_email, subject, template_name, context):
+    async def fake_send(to_email, subject, template_name, context):
         sent.append((to_email, subject, template_name, context))
 
     monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)
@@ -235,7 +235,7 @@ def test_forgot_password_finds_email_case_insensitively(client, db, monkeypatch)
 def test_forgot_password_does_not_reveal_unknown_email(client, db, monkeypatch):
     sent = []
 
-    def fake_send(to_email, subject, template_name, context):
+    async def fake_send(to_email, subject, template_name, context):
         sent.append((to_email, subject, template_name, context))
 
     monkeypatch.setattr("app.api.auth.send_email_notification", fake_send)

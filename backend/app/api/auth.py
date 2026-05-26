@@ -89,7 +89,7 @@ def logout():
 
 
 @router.post("/forgot-password")
-def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
+async def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     email = str(payload.email).strip().lower()
     user = db.scalar(select(User).where(func.lower(User.email) == email))
     message = {"message": "パスワードリセットメールを送信しました"}
@@ -102,7 +102,7 @@ def forgot_password(payload: ForgotPasswordIn, db: Session = Depends(get_db)):
     )
     db.add(reset_token)
     db.commit()
-    send_email_notification(
+    await send_email_notification(
         user.email,
         PASSWORD_RESET_SUBJECT,
         "password_reset.txt",

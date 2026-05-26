@@ -105,10 +105,10 @@ def auto_submit_to_admin(db: Session, reports: list[LessonReport], actor: User) 
             )
 
 
-def send_transition_notifications(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:
+async def send_transition_notifications(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:
     grouped_reports = _group_reports(reports)
     for group_reports in grouped_reports.values():
-        _send_group_notification(db, action, group_reports, actor, comment)
+        await _send_group_notification(db, action, group_reports, actor, comment)
 
 
 def _group_reports(reports: list[LessonReport]) -> dict[tuple[str, str], list[LessonReport]]:
@@ -146,19 +146,19 @@ def _total_minutes(reports: list[LessonReport]) -> int:
     return sum(_report_minutes(report) for report in reports)
 
 
-def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
+async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
     if not to_user:
         return
     try:
-        send_email_notification(to_user.email, subject, template_name, context)
+        await send_email_notification(to_user.email, subject, template_name, context)
     except Exception:
         logger.exception("failed to send workflow notification to %s", to_user.email)
 
 
-def _send_email_to_users(db: Session, users: list[User], subject: str, template_name: str, context: dict) -> None:
+async def _send_email_to_users(db: Session, users: list[User], subject: str, template_name: str, context: dict) -> None:
     for user in users:
         if user.is_active:
-            _send_email(db, user, subject, template_name, context | {"name": user.display_name})
+            await _send_email(db, user, subject, template_name, context | {"name": user.display_name})
 
 
 def _assignment(report: LessonReport):
@@ -179,7 +179,7 @@ def _student_name(report: LessonReport) -> str:
     return assignment.student_name if assignment else "未設定"
 
 
-def _send_group_notification(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:
+async def _send_group_notification(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:
     if not reports:
         return
     report = sorted(reports, key=lambda item: (item.lesson_date, item.start_time))[0]
@@ -195,7 +195,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
 
     if action == ReportAction.submit_to_parent.value:
         parent = _parent(report)
-        _send_email(
+        await _send_email(
             db,
             parent,
             APPROVAL_REQUEST_SUBJECT,
@@ -209,7 +209,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
 
     if action == ReportAction.parent_return.value:
         tutor = _tutor(report)
-        _send_email(
+        await _send_email(
             db,
             tutor,
             RETURNED_SUBJECT,
@@ -225,7 +225,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
 
     if action == ReportAction.parent_approve.value:
         tutor = _tutor(report)
-        _send_email(
+        await _send_email(
             db,
             tutor,
             PARENT_APPROVED_SUBJECT,
@@ -241,7 +241,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
         receivers = db.scalars(
             select(User).where(User.role == "admin_receiver", User.is_active.is_(True))
         ).all()
-        _send_email_to_users(
+        await _send_email_to_users(
             db,
             receivers,
             SUBMITTED_TO_ADMIN_SUBJECT,
@@ -254,7 +254,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
 
     if action in {ReportAction.return_from_receiver.value, ReportAction.return_from_reviewer.value, ReportAction.return_from_master.value}:
         tutor = _tutor(report)
-        _send_email(
+        await _send_email(
             db,
             tutor,
             ADMIN_RETURN_SUBJECT,
@@ -272,7 +272,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
         tutor = _tutor(report)
         parent = _parent(report)
         if tutor:
-            _send_email(
+            await _send_email(
                 db,
                 tutor,
                 ADMIN_APPROVED_SUBJECT,
@@ -282,7 +282,7 @@ def _send_group_notification(db: Session, action: str, reports: list[LessonRepor
                 },
             )
         if parent:
-            _send_email(
+            await _send_email(
                 db,
                 parent,
                 ADMIN_APPROVED_SUBJECT,

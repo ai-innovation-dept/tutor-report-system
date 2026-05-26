@@ -1,5 +1,4 @@
 # === Phase 3: 招待管理 START ===
-import asyncio
 import secrets
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -80,13 +79,13 @@ def _invitation_body(invitation: Invitation, request: Request) -> str:
     )
 
 
-def _send_invitation_email(invitation: Invitation, request: Request) -> None:
+async def _send_invitation_email(invitation: Invitation, request: Request) -> None:
     subject = INVITATION_SUBJECT
     if invitation.role == "tutor":
         subject = TUTOR_INVITATION_SUBJECT
     elif invitation.role.startswith("admin_"):
         subject = STAFF_INVITATION_SUBJECT
-    asyncio.run(EmailChannel().send(invitation.email, subject, _invitation_body(invitation, request)))
+    await EmailChannel().send(invitation.email, subject, _invitation_body(invitation, request))
 
 
 def generate_tutor_no(db: Session) -> str:
@@ -135,7 +134,7 @@ def _assignment_for_parent_payload(payload: InvitationCreate, db: Session) -> As
 
 
 @router.post("", response_model=InvitationOut)
-def create_invitation(
+async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
@@ -228,7 +227,7 @@ def create_invitation(
         .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))
         .where(Invitation.id == invitation.id)
     )
-    _send_invitation_email(invitation, request)
+    await _send_invitation_email(invitation, request)
     return _invitation_out(invitation)
 
 
