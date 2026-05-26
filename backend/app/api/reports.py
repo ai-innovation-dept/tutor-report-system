@@ -407,9 +407,9 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
 def delete_report(report_id: UUID, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report = get_report_for_user(report_id, user, db)
     if user.role != "tutor" or report.tutor_id != user.id:
-        raise HTTPException(status_code=403, detail="only draft reports can be deleted")
-    if report.status != ReportStatus.draft.value:
-        raise HTTPException(status_code=409, detail="only draft reports can be deleted")
+        raise HTTPException(status_code=403, detail="only draft or returned reports can be deleted")
+    if report.status not in {ReportStatus.draft.value, ReportStatus.returned_to_tutor.value}:
+        raise HTTPException(status_code=409, detail="only draft or returned reports can be deleted")
     message_ids = db.scalars(select(ChatMessage.id).where(ChatMessage.report_id == report.id)).all()
     if message_ids:
         db.query(ChatRead).filter(ChatRead.message_id.in_(message_ids)).delete(synchronize_session=False)

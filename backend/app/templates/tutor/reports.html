@@ -150,6 +150,7 @@ function rowAction(r) {
     parts.push(`<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>`);
   } else if (r.status === 'returned_to_tutor') {
     parts.push(`<button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700" onclick="editReport('${r.id}')">編集</button>`);
+    parts.push(`<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>`);
     parts.push('<span class="text-xs text-slate-500">承認管理から再依頼できます</span>');
   }
   return parts.length ? parts.join(' / ') : '';
@@ -359,7 +360,7 @@ function editReport(id) {
   formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 async function deleteReport(id) {
-  if (!confirm('この下書き報告書を削除しますか。')) return;
+  if (!confirm('この報告書を削除しますか。')) return;
   await api(`/api/reports/${id}`, {method:'DELETE'});
   await loadTutor();
 }
