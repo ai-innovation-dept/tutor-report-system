@@ -114,9 +114,6 @@ registerForm.addEventListener('submit', async event => {
     showMessage('登録できませんでした。招待リンクをご確認ください。', true);
     return;
   }
-  const data = await res.json();
-  localStorage.setItem('access_token', data.access_token);
-  localStorage.setItem('token', data.access_token);
   showMessage('登録が完了しました。ログイン画面へ移動します。');
   location.href = '/login';
 });

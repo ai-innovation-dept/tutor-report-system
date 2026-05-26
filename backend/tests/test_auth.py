@@ -118,6 +118,31 @@ def test_parent_register_with_invitation(client, db):
     assert invitation.accepted_at is not None
 
 
+def test_register_does_not_replace_current_admin_session(client, db):
+    client.post("/api/auth/login", data={"username": "master@example.com", "password": "Passw0rd!"})
+    assignment = db.query(Assignment).first()
+    assignment.parent_id = None
+    invitation = Invitation(
+        email="session-parent@example.com",
+        role="parent",
+        assignment_id=assignment.id,
+        token="session-token",
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=72),
+    )
+    db.add(invitation)
+    db.commit()
+
+    registered = client.post("/api/auth/register", json={
+        "token": "session-token",
+        "password": "Passw0rd!",
+    })
+    assert registered.status_code == 200
+    assert "access_token" not in registered.cookies
+
+    admin_page = client.get("/admin/users", follow_redirects=False)
+    assert admin_page.status_code == 200
+
+
 def test_register_updates_existing_assignment_reports(client, db):
     assignment = db.query(Assignment).first()
     report = LessonReport(

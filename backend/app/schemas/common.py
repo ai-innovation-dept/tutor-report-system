@@ -58,6 +58,10 @@ class RegisterIn(BaseModel):
     password: str = Field(min_length=8)
 
 
+class RegisterOut(BaseModel):
+    message: str
+
+
 class AssignmentCreate(BaseModel):
     tutor_id: UUID
     parent_id: UUID | None = None

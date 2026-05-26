@@ -1,5 +1,9 @@
 # === Phase 5: 承認ワークフロー START ===
+import io
 from datetime import date, time
+
+import openpyxl
+
 from app.core.security import hash_password
 from app.models import Assignment, LessonReport, ReportStatus, User
 from tests.conftest import token
@@ -358,4 +362,122 @@ def test_admin_master_can_return_admin_approved_bulk(client, db):
     assert res.status_code == 200
     db.refresh(report)
     assert report.status == ReportStatus.returned_to_tutor.value
+
+
+def test_admin_can_export_all_reports_as_multi_sheet_xlsx(client, db):
+    master_token = token(client, "master@example.com")
+    assignment = db.query(Assignment).first()
+    tutor = db.get(User, assignment.tutor_id)
+    parent = db.get(User, assignment.parent_id)
+    second_assignment = Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name="Student 2")
+    db.add(second_assignment)
+    db.flush()
+    today = date.today()
+    target_month = today.strftime("%Y-%m")
+    db.add_all([
+        LessonReport(
+            assignment_id=assignment.id,
+            tutor_id=tutor.id,
+            parent_id=parent.id,
+            lesson_date=today,
+            start_time=time(18, 0),
+            end_time=time(19, 30),
+            break_minutes=10,
+            subject="math",
+            content="first student",
+            target_month=target_month,
+            status=ReportStatus.admin_approved.value,
+        ),
+        LessonReport(
+            assignment_id=second_assignment.id,
+            tutor_id=tutor.id,
+            parent_id=parent.id,
+            lesson_date=today,
+            start_time=time(20, 0),
+            end_time=time(21, 0),
+            break_minutes=0,
+            subject="english",
+            content="second student",
+            target_month=target_month,
+            status=ReportStatus.admin_approved.value,
+        ),
+    ])
+    db.commit()
+
+    res = client.get(
+        f"/api/reports/export?scope=all&target_month={target_month}&format=xlsx",
+        headers={"Authorization": f"Bearer {master_token}"},
+    )
+    assert res.status_code == 200
+    wb = openpyxl.load_workbook(io.BytesIO(res.content))
+    assert wb.sheetnames == ["全体サマリ", "Student", "Student 2"]
+    assert wb["全体サマリ"]["A1"].value == "生徒名"
+    assert wb["Student"]["E2"].value == 10
+
+
+def test_parent_can_export_all_children_as_csv(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    tutor = db.get(User, assignment.tutor_id)
+    parent = db.get(User, assignment.parent_id)
+    second_assignment = Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name="Student 2")
+    db.add(second_assignment)
+    db.flush()
+    today = date.today()
+    target_month = today.strftime("%Y-%m")
+    db.add_all([
+        LessonReport(
+            assignment_id=assignment.id,
+            tutor_id=tutor.id,
+            parent_id=parent.id,
+            lesson_date=today,
+            start_time=time(18, 0),
+            end_time=time(19, 0),
+            break_minutes=0,
+            content="first child",
+            target_month=target_month,
+            status=ReportStatus.admin_approved.value,
+        ),
+        LessonReport(
+            assignment_id=second_assignment.id,
+            tutor_id=tutor.id,
+            parent_id=parent.id,
+            lesson_date=today,
+            start_time=time(19, 0),
+            end_time=time(20, 0),
+            break_minutes=5,
+            content="second child",
+            target_month=target_month,
+            status=ReportStatus.admin_approved.value,
+        ),
+    ])
+    db.commit()
+
+    res = client.get(
+        f"/api/reports/export?scope=all&target_month={target_month}&format=csv",
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+    assert res.status_code == 200
+    text = res.content.decode("utf-8-sig")
+    assert text.splitlines()[0].startswith("生徒名,回数,指導日")
+    assert "Student 2" in text
+    assert "second child" in text
+
+
+def test_tutor_cannot_export_other_tutor_reports(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    second_tutor = User(
+        email="tutor2@example.com",
+        role="tutor",
+        display_name="Tutor 2",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(second_tutor)
+    db.commit()
+
+    res = client.get(
+        f"/api/reports/export?tutor_id={second_tutor.id}&target_month={date.today().strftime('%Y-%m')}&format=csv",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+    )
+    assert res.status_code == 403
 # === Phase 5 END ===

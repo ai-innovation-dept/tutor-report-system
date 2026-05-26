@@ -1,7 +1,7 @@
 # === Phase 2: 認証・認可 START ===
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from app.core.security import authenticate_user, create_access_token, hash_passw
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, User
-from app.schemas import RegisterIn, RegisterInfoOut, TokenOut, UserOut
+from app.schemas import RegisterIn, RegisterInfoOut, RegisterOut, TokenOut, UserOut
 
 
 ROLE_LABELS = {
@@ -84,8 +84,8 @@ def register_info(token: str, db: Session = Depends(get_db)):
     )
 
 
-@router.post("/register", response_model=TokenOut)
-def register_parent(payload: RegisterIn, response: Response, db: Session = Depends(get_db)):
+@router.post("/register", response_model=RegisterOut)
+def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
     invitation = _valid_invitation(payload.token, db)
     if db.scalar(select(User).where(User.email == invitation.email)):
         raise HTTPException(status_code=409, detail="email already exists")
@@ -119,14 +119,7 @@ def register_parent(payload: RegisterIn, response: Response, db: Session = Depen
         db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": user.id}, synchronize_session=False)
     invitation.accepted_at = datetime.now(timezone.utc)
     db.commit()
-    access_token = create_access_token(str(user.id))
-    response.set_cookie(
-        key="access_token",
-        value=access_token,
-        httponly=True,
-        samesite="lax",
-    )
-    return TokenOut(access_token=access_token)
+    return RegisterOut(message="registered")
 
 
 @router.get("/me", response_model=UserOut)

@@ -68,6 +68,15 @@ def _teaching_minutes(report: LessonReport) -> int:
     return max(0, end - start - (report.break_minutes or 0))
 
 
+def _duration_label(minutes: int) -> str:
+    hours, mins = divmod(minutes, 60)
+    if hours and mins:
+        return f"{hours}時間{mins}分"
+    if hours:
+        return f"{hours}時間"
+    return f"{mins}分"
+
+
 def _latest(values) -> object | None:
     filtered = [value for value in values if value is not None]
     return max(filtered) if filtered else None
@@ -203,79 +212,99 @@ def monthly_summary(tutor_id: UUID | None = None, target_month: str | None = Non
 
 @router.get("/export")
 def export_reports(
-    assignment_id: UUID,
     target_month: str,
+    assignment_id: UUID | None = None,
+    tutor_id: UUID | None = None,
+    scope: str | None = None,
     format: str = "xlsx",
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    assignment = db.get(Assignment, assignment_id)
-    if not assignment:
+    if format not in {"xlsx", "csv"}:
+        raise HTTPException(status_code=422, detail="format must be xlsx or csv")
+    if scope and scope != "all":
+        raise HTTPException(status_code=422, detail="scope must be all")
+
+    stmt = (
+        select(LessonReport)
+        .options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor), selectinload(LessonReport.parent))
+        .where(LessonReport.target_month == target_month)
+    )
+    assignment = db.get(Assignment, assignment_id) if assignment_id else None
+    if assignment_id and not assignment:
         raise HTTPException(status_code=404, detail="assignment not found")
+
     if user.role == "tutor":
-        if assignment.tutor_id != user.id:
+        if tutor_id and tutor_id != user.id:
+            raise HTTPException(status_code=403, detail="cannot export other tutor reports")
+        if assignment and assignment.tutor_id != user.id:
             raise HTTPException(status_code=403, detail="access denied")
+        stmt = stmt.where(LessonReport.tutor_id == user.id)
     elif user.role == "parent":
-        if assignment.parent_id != user.id:
+        if assignment and assignment.parent_id != user.id:
             raise HTTPException(status_code=403, detail="access denied")
-    elif not user.role.startswith("admin_"):
+        stmt = stmt.where(LessonReport.parent_id == user.id)
+    elif user.role.startswith("admin_"):
+        pass
+    else:
         raise HTTPException(status_code=403, detail="not allowed")
 
-    reports = db.scalars(
-        select(LessonReport)
-        .where(LessonReport.assignment_id == assignment_id, LessonReport.target_month == target_month)
-        .order_by(LessonReport.lesson_date, LessonReport.start_time)
-    ).all()
+    if assignment_id:
+        stmt = stmt.where(LessonReport.assignment_id == assignment_id)
+    elif tutor_id:
+        stmt = stmt.where(LessonReport.tutor_id == tutor_id)
+
+    reports = db.scalars(stmt.order_by(LessonReport.assignment_id, LessonReport.lesson_date, LessonReport.start_time)).all()
     if not reports:
         raise HTTPException(status_code=404, detail="no reports found")
 
-    student_name = assignment.student_name
     year, month_str = target_month.split("-")
     month_label = f"{year}年{int(month_str):02d}月"
-    filename_base = f"指導実績_{student_name}_{month_label}"
+    if assignment_id:
+        filename_base = f"指導実績_{assignment.student_name}_{month_label}"
+    elif tutor_id:
+        tutor = db.get(User, tutor_id)
+        filename_base = f"指導実績_{tutor.display_name if tutor else '講師'}_全生徒_{month_label}"
+    elif user.role == "parent":
+        filename_base = f"指導実績_{user.display_name}_全生徒_{month_label}"
+    else:
+        filename_base = f"指導実績_全体_{month_label}"
 
-    _STATUS_JA = {
-        "draft": "下書き",
-        "awaiting_parent_approval": "保護者承認待ち",
-        "parent_approved": "保護者承認済み",
-        "submitted_to_admin": "運営提出済み",
-        "received": "受付済み",
-        "re_reviewed": "再鑑済み",
-        "admin_approved": "最終承認済み",
-        "returned_to_tutor": "差戻し中",
-    }
     _WD = ["日", "月", "火", "水", "木", "金", "土"]
-    headers = ["回数", "指導日", "開始時刻", "終了時刻", "休憩（分）", "指導時間", "科目", "指導内容", "ステータス"]
+    detail_headers = ["回数", "指導日", "開始時刻", "終了時刻", "休憩（分）", "指導時間", "科目", "指導内容"]
+    multi = assignment_id is None
 
-    rows = []
-    total_minutes = 0
-    for i, report in enumerate(reports, 1):
+    def student_name(report: LessonReport) -> str:
+        return report.assignment.student_name if report.assignment else "生徒未設定"
+
+    def detail_row(report: LessonReport, index: int, include_student: bool = False) -> list:
         minutes = _teaching_minutes(report)
-        total_minutes += minutes
-        h, m = divmod(minutes, 60)
-        duration = f"{h}時間{m}分" if h and m else (f"{h}時間" if h else f"{m}分")
         wd = _WD[(report.lesson_date.weekday() + 1) % 7]
-        rows.append([
-            i,
+        row = [
+            index,
             f"{report.lesson_date.month}月{report.lesson_date.day}日（{wd}）",
             report.start_time.strftime("%H:%M"),
             report.end_time.strftime("%H:%M"),
             report.break_minutes or 0,
-            duration,
+            _duration_label(minutes),
             report.subject or "",
             report.content,
-            _STATUS_JA.get(report.status, report.status),
-        ])
+        ]
+        return [student_name(report), *row] if include_student else row
 
-    th, tm = divmod(total_minutes, 60)
-    total_label = f"合計指導時間：" + (f"{th}時間{tm}分" if th and tm else (f"{th}時間" if th else f"{tm}分"))
+    grouped: dict[UUID, list[LessonReport]] = defaultdict(list)
+    for report in reports:
+        grouped[report.assignment_id].append(report)
+    group_items = sorted(grouped.values(), key=lambda items: student_name(items[0]))
 
     if format == "csv":
         buf = io.StringIO()
         writer = csv.writer(buf)
+        headers = ["生徒名", *detail_headers] if multi else detail_headers
         writer.writerow(headers)
-        writer.writerows(rows)
-        writer.writerow([total_label])
+        for items in group_items:
+            for i, report in enumerate(items, 1):
+                writer.writerow(detail_row(report, i, include_student=multi))
         content_bytes = ("﻿" + buf.getvalue()).encode("utf-8")
         return Response(
             content=content_bytes,
@@ -287,33 +316,52 @@ def export_reports(
     from openpyxl.styles import Font, PatternFill
     from openpyxl.utils import get_column_letter
 
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = f"{int(month_str)}月指導実績"
-
     bold = Font(bold=True)
     gray = PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid")
-    for col, h in enumerate(headers, 1):
-        cell = ws.cell(row=1, column=col, value=h)
-        cell.font = bold
-        cell.fill = gray
-
-    for row_idx, row in enumerate(rows, 2):
-        for col_idx, val in enumerate(row, 1):
-            ws.cell(row=row_idx, column=col_idx, value=val)
-
-    total_row_idx = len(rows) + 2
-    total_cell = ws.cell(row=total_row_idx, column=1, value=total_label)
-    total_cell.font = bold
-    ws.merge_cells(start_row=total_row_idx, start_column=1, end_row=total_row_idx, end_column=len(headers))
 
     def _col_width(value) -> float:
         return sum(2 if ord(c) > 127 else 1 for c in str(value)) if value else 0
 
-    for col_idx in range(1, len(headers) + 1):
-        col_letter = get_column_letter(col_idx)
-        max_w = max((_col_width(cell.value) for row in ws.iter_rows(min_col=col_idx, max_col=col_idx) for cell in row), default=0)
-        ws.column_dimensions[col_letter].width = min(max_w + 2, 60)
+    def write_table(ws, headers: list[str], rows: list[list], total_minutes: int | None = None) -> None:
+        for col, h in enumerate(headers, 1):
+            cell = ws.cell(row=1, column=col, value=h)
+            cell.font = bold
+            cell.fill = gray
+        for row_idx, row in enumerate(rows, 2):
+            for col_idx, val in enumerate(row, 1):
+                ws.cell(row=row_idx, column=col_idx, value=val)
+        if total_minutes is not None:
+            total_row_idx = len(rows) + 2
+            total_cell = ws.cell(row=total_row_idx, column=1, value=f"合計指導時間：{_duration_label(total_minutes)}")
+            total_cell.font = bold
+            ws.merge_cells(start_row=total_row_idx, start_column=1, end_row=total_row_idx, end_column=len(headers))
+        for col_idx in range(1, len(headers) + 1):
+            col_letter = get_column_letter(col_idx)
+            max_w = max((_col_width(cell.value) for row in ws.iter_rows(min_col=col_idx, max_col=col_idx) for cell in row), default=0)
+            ws.column_dimensions[col_letter].width = min(max_w + 2, 60)
+
+    def sheet_title(value: str) -> str:
+        for ch in ['\\', '/', '?', '*', '[', ']', ':']:
+            value = value.replace(ch, "")
+        return value[:31] or "Sheet"
+
+    wb = openpyxl.Workbook()
+    if not multi:
+        ws = wb.active
+        ws.title = f"{int(month_str)}月指導実績"
+        rows = [detail_row(report, i) for i, report in enumerate(reports, 1)]
+        write_table(ws, detail_headers, rows, sum(_teaching_minutes(report) for report in reports))
+    else:
+        summary = wb.active
+        summary.title = "全体サマリ"
+        summary_rows = []
+        for items in group_items:
+            summary_rows.append([student_name(items[0]), len(items), _duration_label(sum(_teaching_minutes(report) for report in items))])
+        write_table(summary, ["生徒名", "件数", "合計時間"], summary_rows)
+        for items in group_items:
+            ws = wb.create_sheet(sheet_title(student_name(items[0])))
+            rows = [detail_row(report, i) for i, report in enumerate(items, 1)]
+            write_table(ws, detail_headers, rows, sum(_teaching_minutes(report) for report in items))
 
     buf2 = io.BytesIO()
     wb.save(buf2)
