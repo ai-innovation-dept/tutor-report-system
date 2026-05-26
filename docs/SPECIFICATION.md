@@ -1,7 +1,7 @@
 ﻿# 家庭教師 指導実績報告システム 仕様書
 
 **バージョン**: 1.0.0  
-**最終更新日**: 2026-05-25  
+**最終更新日**: 2026-05-26  
 
 ---
 
@@ -34,9 +34,9 @@
 |----------|-----------|
 | 講師（tutor） | 指導実績を記録し、保護者・運営の承認を取り付ける |
 | 保護者（parent） | 講師の報告書を確認し、承認または差戻しを行う |
-| 受付担当（admin_receiver） | 運営への提出報告書を受け付ける |
-| 再鑑者（admin_reviewer） | 受付済み報告書を内容確認する |
-| 管理者（admin_master） | 最終承認・全操作・ユーザー管理を行う |
+| 受付担当（admin_receiver） | 運営へ提出された報告書を受け付ける |
+| 再鑑者（admin_reviewer） | 受付済み報告書を再確認する |
+| 管理者（admin_master） | 最終承認・運営操作の代行・ユーザー管理を行う |
 
 ### システム構成図（テキストベース）
 
@@ -91,7 +91,7 @@
 | エクスポート（自分の担当分） | O | O | X | X | X |
 | エクスポート（全件） | X | X | O | O | O |
 | ユーザー作成・管理 | X | X | X | X | O |
-| 保護者招待送信 | X | X | X | X | O |
+| ユーザー招待送信 | X | X | X | X | O |
 | 担当紐付け管理 | X | X | X | X | O |
 | チャットメッセージ送受信 | O | O | O | O | O |
 
@@ -108,6 +108,15 @@
 
 ### 3.1 指導実績登録から最終承認までの全フロー
 
+UI 上の承認管理は、講師・保護者・運営の状態を月次単位でまとめて扱う。利用者向けには次の4ステップで表示・運用する。
+
+| ステップ | 担当 | 主な状態 | 実装上のステータス |
+|---------|------|----------|------------------|
+| 1. 記録 | 講師 | 当月の指導実績を登録・修正する | `draft`, `returned_to_tutor` |
+| 2. 保護者依頼 | 講師 | 月内の対象報告書を保護者へまとめて送る | `awaiting_parent_approval` |
+| 3. 保護者承認 | 保護者 | 月次で承認または差戻しする。承認時は運営へ自動提出される | `submitted_to_admin` |
+| 4. 運営承認 | 運営 | 受付、再鑑、最終承認を実施する | `received`, `re_reviewed`, `admin_approved` |
+
 ```
 【講師】                 【保護者】                【運営】
    |                        |                        |
@@ -122,19 +131,19 @@
    | <-- 差戻しの場合 ---------------------------------|
    |  報告書を修正して再送                             |
    |                        |                        |
-   | <-- 承認の場合（parent_approved）                 |
-   | 4. 運営へ提出 ----------------------------> メール通知
-   |    （一括または個別）      |          |           |
+   | <-- 承認の場合 -----------------------------------|
+   |    parent_approve 後、システムが運営へ自動提出      |
+   |                        |          |           |
    |                        |          v            |
-   |                        |  5. 受付担当が受付     |
+   |                        |  4. 受付担当が受付     |
    |                        |     (received)        |
    |                        |          |            |
    |                        |          v            |
-   |                        |  6. 再鑑者が再鑑       |
+   |                        |  5. 再鑑者が再鑑       |
    |                        |     (re_reviewed)     |
    |                        |          |            |
    |                        |          v            |
-   |                        |  7. 管理者が最終承認    |
+   |                        |  6. 管理者が最終承認    |
    | <-- メール通知 -----------------------------------|
    | <-- メール通知（保護者へも）                       |
    |                        |                        |
@@ -143,7 +152,7 @@
 
 ### 3.2 差戻しフロー
 
-差戻しは4種類あり、すべて `returned_to_tutor` ステータスへ遷移する。差戻し時はコメント入力が必須で、チャットにも自動投稿される。
+差戻しは4種類あり、すべて対象月の該当報告書を `returned_to_tutor` ステータスへ遷移させる。UI 操作は月次一括が中心で、差戻し時はコメント入力が必須で、チャットにも自動投稿される。
 
 ```
 【差戻し種別と発生元】
@@ -165,28 +174,30 @@
 returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_approval
 ```
 
-### 3.3 保護者招待フロー
+### 3.3 ユーザー招待・登録フロー
 
 ```
-【管理者】                          【保護者（新規）】
+【管理者】                          【招待されたユーザー】
    |                                      |
-   | 1. 保護者招待作成                     |
-   |    （メールアドレス・講師ID・生徒名を入力）|
-   |    --> Assignment が仮作成される      |
+   | 1. /admin/users で招待作成             |
+   |    （ロール・メール・必要項目を入力）     |
    |    --> 招待メール送信（有効期限: 72時間）|
    |                                      |
    |                              2. メール受信
    |                                      |
    |                              3. /register?token=xxx にアクセス
    |                                      |
-   |                              4. パスワード設定
+   |                              4. 氏名（必要なロールのみ）・パスワード設定
    |                                      |
    |                              5. アカウント作成完了
-   |                                 --> Assignment に parent_id が設定
-   |                                 --> 既存報告書にも parent_id が反映
+   |                                 --> 保護者は Assignment に parent_id が設定
+   |                                 --> 保護者は既存報告書にも parent_id が反映
+   |                                 --> 講師は tutor_no が自動採番済みで登録
    |                                      |
-   |                              6. ログイン --> /parent/reports へ
+   |                              6. ログイン --> ロール別画面へ
 ```
+
+保護者招待では担当講師と生徒名が必須。既存の保護者メールアドレスを指定した場合は、新規ユーザーを作らず既存保護者へ生徒を追加し、招待は受諾済みとして記録する。
 
 ---
 
@@ -201,7 +212,8 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
 | `/tutor/reports` | 報告書一覧 | tutor | 当月の報告書一覧、新規作成、編集、チャット |
 | `/tutor/reports/new` | 報告書新規作成 | tutor | 指導日・時間・科目・内容を入力 |
 | `/tutor/reports/{id}` | 報告書詳細 | tutor | 報告書の内容確認・編集・チャット |
-| `/tutor/approval` | 承認管理 | tutor | 承認依頼送信、運営提出、進捗ステッパー表示、エクスポート |
+| `/tutor/submit` | 報告書一覧（互換ルート） | tutor | `/tutor/reports` と同じテンプレートを表示 |
+| `/tutor/approval` | 承認管理 | tutor | 月次承認状況、保護者への一括依頼、差戻し再依頼、進捗ステッパー表示、エクスポート |
 | `/parent/reports` | 保護者 報告書 | parent | 報告書確認・承認・差戻し・エクスポート |
 | `/parent/reports/{id}` | 保護者 報告書詳細 | parent | 個別報告書確認 |
 | `/admin/dashboard` | 運営ダッシュボード | admin_* | 生徒別カード、月・講師絞り込み、承認操作、エクスポート |
@@ -209,8 +221,8 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
 | `/admin/queue/review` | 再鑑待ち一覧 | admin_reviewer, admin_master | 再鑑待ち報告書の一覧・再鑑操作 |
 | `/admin/queue/approve` | 承認待ち一覧 | admin_master | 最終承認待ちの一覧・承認操作 |
 | `/admin/reports/{id}` | 報告書詳細（運営） | admin_* | 個別報告書の内容確認・操作 |
-| `/admin/users` | ユーザー管理 | admin_master | ユーザー一覧・追加・編集・パスワードリセット |
-| `/admin/assignments` | 紐付け管理 | admin_master | 講師・保護者・生徒の紐付け管理、保護者招待 |
+| `/admin/users` | ユーザー管理 | admin_master | 招待メール送信、招待一覧、ユーザー一覧、ユーザー有効化・無効化 |
+| `/admin/assignments` | 紐付け管理 | admin_master | 既存生徒への講師追加、紐付け一覧、紐付け無効化 |
 
 ---
 
@@ -222,7 +234,7 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
 |------------|---------|------|
 | `draft` | 下書き | 講師が作成・編集中。保護者には未送信 |
 | `awaiting_parent_approval` | 保護者承認待ち | 保護者へ承認依頼送信済み |
-| `parent_approved` | 保護者承認済み | 保護者が承認。運営への提出待ち |
+| `parent_approved` | 保護者承認済み | 保護者が承認した中間状態。現在の API では保護者承認直後に運営提出まで自動実行されるため、通常 UI では短時間のみ発生 |
 | `submitted_to_admin` | 運営提出済み（受付待ち） | 運営へ提出済み。受付担当の処理待ち |
 | `received` | 受付済み（再鑑待ち） | 受付担当が受付。再鑑者の処理待ち |
 | `re_reviewed` | 再鑑済み（最終承認待ち） | 再鑑者が確認済み。管理者の最終承認待ち |
@@ -242,7 +254,7 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
             v                                                           |
     [parent_approved]                                                   |
     保護者承認済み                                                        |
-            | submit_to_admin (tutor)                                  |
+            | submit_to_admin (tutor) / parent_approve後の自動提出       |
             v                                                           |
   [submitted_to_admin]                                                  |
   受付待ち                                                               |
@@ -269,7 +281,7 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
 | draft | submit_to_parent, 編集, 削除 | tutor |
 | awaiting_parent_approval | parent_approve, parent_return | parent |
 | awaiting_parent_approval | return_from_receiver | admin_receiver, admin_master |
-| parent_approved | submit_to_admin | tutor |
+| parent_approved | submit_to_admin | tutor（通常は保護者承認時に自動実行） |
 | submitted_to_admin | receive, return_from_receiver | admin_receiver, admin_master |
 | received | re_review, return_from_reviewer | admin_reviewer, admin_master |
 | received | return_from_receiver | admin_receiver, admin_master |
@@ -292,7 +304,7 @@ returned_to_tutor --> 講師が修正 --> submit_to_parent --> awaiting_parent_a
 | POST | `/api/auth/logout` | 不要 | ログアウト。Cookie を削除 |
 | GET | `/api/auth/me` | ログイン済み | 現在ユーザー情報取得 |
 | GET | `/api/auth/register` | 不要（token 必須） | 招待トークン情報取得（メール・生徒名） |
-| POST | `/api/auth/register` | 不要（token 必須） | 保護者アカウント作成 |
+| POST | `/api/auth/register` | 不要（token 必須） | 招待ロールに応じたアカウント作成 |
 
 **POST /api/auth/login リクエスト（form-data）**
 ```
@@ -314,7 +326,7 @@ password: パスワード
 
 | メソッド | URL | 認可 | 概要 |
 |---------|-----|------|------|
-| POST | `/api/users` | admin_master | ユーザー作成（初期パスワード自動生成） |
+| POST | `/api/users` | admin_master | ユーザー作成（API 直接利用時。UI は招待方式を使用） |
 | GET | `/api/users` | admin_* | ユーザー一覧（`?role=tutor` 等で絞り込み可） |
 | GET | `/api/users/{user_id}` | admin_* | ユーザー取得 |
 | PATCH | `/api/users/{user_id}` | admin_master | ユーザー情報更新 |
@@ -333,9 +345,22 @@ password: パスワード
 
 | メソッド | URL | 認可 | 概要 |
 |---------|-----|------|------|
-| POST | `/api/invitations` | admin_master | 保護者招待作成・メール送信（有効期限72時間） |
+| POST | `/api/invitations` | admin_master | ユーザー招待作成・メール送信（有効期限72時間）。parent / tutor / admin_receiver / admin_reviewer / admin_master に対応 |
 | GET | `/api/invitations` | admin_master | 招待一覧 |
-| DELETE | `/api/invitations/{invitation_id}` | admin_master | 招待削除（受諾済みは削除不可） |
+| DELETE | `/api/invitations/{invitation_id}` | admin_master | 招待取消（受諾済みは取消不可） |
+
+**POST /api/invitations リクエスト**
+```json
+{
+  "email": "new-user@example.com",
+  "role": "parent",
+  "display_name": "山田 太郎",
+  "tutor_id": "uuid",
+  "student_name": "田中 花子"
+}
+```
+
+※ `parent` は `tutor_id` と `student_name` が必須。`tutor` は講師番号を自動採番する。運営スタッフと講師は登録画面で氏名を入力できる。
 
 ### 報告書 API
 
@@ -344,7 +369,7 @@ password: パスワード
 | POST | `/api/reports` | tutor | 報告書作成（当月のみ、最終承認済み月は追加不可） |
 | GET | `/api/reports` | ログイン済み（ロール別フィルタ） | 報告書一覧 |
 | GET | `/api/reports/monthly-summary` | tutor, admin_* | 月次サマリー（フェーズ・合計時間等） |
-| GET | `/api/reports/export` | tutor（担当のみ）, parent（自分の子のみ）, admin_*（全件） | Excel/CSV エクスポート |
+| GET | `/api/reports/export` | tutor（担当のみ）, parent（自分の子のみ）, admin_*（全件） | Excel/CSV エクスポート。`assignment_id` 未指定時は複数生徒の一括出力 |
 | GET | `/api/reports/{report_id}` | ロール別権限チェック | 報告書取得 |
 | PATCH | `/api/reports/{report_id}` | tutor（下書き・差戻しのみ、当月のみ） | 報告書更新 |
 | DELETE | `/api/reports/{report_id}` | tutor（下書きのみ） | 報告書削除 |
@@ -366,6 +391,8 @@ password: パスワード
 | `assignment_id` | O | 担当紐付け UUID |
 | `target_month` | O | 対象月（YYYY-MM 形式） |
 | `format` | X | `xlsx`（デフォルト）または `csv` |
+| `scope` | X | `all` の場合、権限内の全生徒を一括出力 |
+| `tutor_id` | X | 講師単位の一括出力（admin_* または本人 tutor） |
 
 **POST /api/reports リクエスト**
 ```json
@@ -543,7 +570,9 @@ password: パスワード
 |--------|------|------|------|
 | id | UUID | PK, default=uuid4 | 招待ID |
 | email | VARCHAR(255) | INDEX, NOT NULL | 招待先メールアドレス |
-| role | VARCHAR(32) | NOT NULL, default='parent' | ロール（現在は parent のみ） |
+| role | VARCHAR(32) | NOT NULL, default='parent' | 招待ロール（parent / tutor / admin_receiver / admin_reviewer / admin_master） |
+| display_name | VARCHAR(100) | NULL | 招待時の氏名初期値（講師・運営スタッフ用） |
+| tutor_no | VARCHAR(20) | NULL | 招待時に自動採番した講師番号（tutor 用） |
 | assignment_id | UUID | FK(assignments.id), INDEX, NULL | 紐付けID |
 | token | VARCHAR(128) | UNIQUE, INDEX, NOT NULL | 招待トークン（urlsafe 32byte） |
 | invited_by | UUID | FK(users.id), NULL | 招待した管理者ID |
@@ -625,6 +654,10 @@ assignments --(assignment_id)--> invitations
 | `return_from_master` | 【指導実績】運営から差戻しがありました | 講師 | `notify_returned.txt` |
 | `admin_approve` | 【指導実績】最終承認が完了しました | 講師・保護者（両方） | `notify_admin_approved.txt` |
 | 保護者招待作成 | 【指導実績報告システム】保護者アカウントのご案内 | 招待先メールアドレス | `email/invitation.txt` |
+| 講師招待作成 | 【指導実績報告システム】講師アカウントのご案内 | 招待先メールアドレス | `email/invitation_tutor.txt` |
+| 運営スタッフ招待作成 | 【指導実績報告システム】スタッフアカウントのご案内 | 招待先メールアドレス | `email/invitation_staff.txt` |
+
+`transition()` では上記メールとは別に、状態変更時の監査・将来表示用として `notifications` テーブルへ `status_changed` レコードを作成する。
 
 ### 月末リマインダー通知
 
@@ -659,9 +692,9 @@ APScheduler によって毎日 **09:00 JST** に自動実行される。
 
 | ロール | 条件 |
 |--------|------|
-| tutor（講師） | 自分が担当する assignment の報告書が1件以上あること。UI 上は **最終承認済み（admin_approved）** の月のみボタンを表示 |
-| parent（保護者） | 自分の子どもの assignment の報告書が1件以上あり、**保護者承認待ち（awaiting_parent_approval）** の件が0件であること |
-| admin_*（運営） | 対象 assignment の報告書が1件以上あれば **ステータス不問** でダウンロード可能 |
+| tutor（講師） | 自分が担当する assignment の報告書が1件以上あること。UI 上は **最終承認済み（admin_approved）** の生徒・月のみ生徒別ボタンを表示し、全生徒一括は対象月の全生徒が最終承認済みの場合のみ有効 |
+| parent（保護者） | 自分の子どもの assignment の報告書が1件以上あり、**保護者承認待ち（awaiting_parent_approval）** の件が0件であること。生徒別・全生徒一括に対応 |
+| admin_*（運営） | 対象 assignment または対象月の報告書が1件以上あれば **ステータス不問** で生徒別・全体一括ダウンロード可能 |
 
 ### ファイル形式
 
@@ -692,6 +725,8 @@ APScheduler によって毎日 **09:00 JST** に自動実行される。
 | 科目 | 科目名（未設定時は空） | 数学 |
 | 指導内容 | 全文 | 二次方程式の解法を... |
 | ステータス | 日本語ステータス名 | 最終承認済み |
+
+複数生徒を一括出力する場合、CSV は先頭列に「生徒名」を追加する。Excel は「全体サマリ」シートと生徒別シートを作成する。
 
 ### 最終行（合計行）
 
@@ -819,26 +854,17 @@ docker compose exec backend python app/scripts/dev_reset.py
 
 ### 新規ユーザー追加手順
 
-#### 講師・運営ユーザーの追加
+#### ユーザー追加（招待方式）
 
 1. admin_master アカウントで `/admin/users` にアクセス
-2. 「ユーザーを追加」から役割・氏名・メールアドレスを入力
-3. 作成完了後に表示される **初期パスワードを安全な方法でユーザーに伝達**（再表示不可）
-4. ユーザーは初回ログイン後にパスワードを変更する
+2. 新規ユーザー登録フォームでロールを選択
+3. 講師・運営スタッフは氏名とメールアドレスを入力
+4. 保護者はメールアドレス・担当講師・生徒名を入力
+5. 招待メールを送信（**有効期限: 72時間**）
+6. 招待されたユーザーが `{BASE_URL}/register?token=xxx` でパスワードを設定
+7. 保護者の場合は担当紐付け（assignment）の parent_id が自動確定し、既存報告書にも反映される
 
-#### 保護者招待フロー
-
-1. admin_master アカウントで `/admin/assignments` にアクセス
-2. 「保護者を招待」ボタンから招待先メールアドレス・担当講師・生徒名を入力
-3. 招待メールが送信される（**有効期限: 72時間**）
-4. 保護者が `{BASE_URL}/register?token=xxx` でパスワードを設定
-5. 担当紐付け（assignment）の parent_id が自動確定する
-
-#### パスワードリセット
-
-1. admin_master で `/admin/users` にアクセス
-2. 対象ユーザーの「パスワードリセット」をクリック
-3. 表示された一時パスワードをユーザーに伝達
+未受諾の招待は `/admin/users` から再送または取消できる。受諾済み招待は取消不可。登録済みユーザーは同画面で有効化・無効化できる。
 
 ### マイグレーション手順
 
