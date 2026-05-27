@@ -14,8 +14,7 @@
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
-    <a id="bulkExportXlsx" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">Excelでダウンロード</a>
-    <a id="bulkExportCsv" class="inline-flex items-center rounded-lg bg-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700" href="#">CSVでダウンロード</a>
+    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
     <span id="exportWarning" class="text-sm text-rose-700"></span>
   </div>
   <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
@@ -200,8 +199,7 @@ function renderStepper(group) {
 function exportButtons(group) {
   if (group.phase !== 'completed') return '';
   return `<div class="mt-3 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
   </div>`;
 }
 function renderBulkExportArea() {
@@ -212,26 +210,22 @@ function renderBulkExportArea() {
   renderBulkExportLinks();
 }
 function setBulkExportEnabled(enabled, message = '') {
-  [bulkExportXlsx, bulkExportCsv].forEach(link => {
-    link.classList.toggle('pointer-events-none', !enabled);
-    link.classList.toggle('opacity-50', !enabled);
-    if (!enabled) link.removeAttribute('href');
-  });
+  bulkExportPdf.classList.toggle('pointer-events-none', !enabled);
+  bulkExportPdf.classList.toggle('opacity-50', !enabled);
+  if (!enabled) bulkExportPdf.removeAttribute('href');
   exportWarning.textContent = message;
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || currentMonth();
   let targetGroups = groups;
-  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'xlsx'});
+  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
   const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
   if (!exportable) {
     setBulkExportEnabled(false, '未承認の生徒が含まれています');
     return;
   }
   setBulkExportEnabled(true);
-  bulkExportXlsx.href = `/api/reports/export?${params.toString()}`;
-  params.set('format', 'csv');
-  bulkExportCsv.href = `/api/reports/export?${params.toString()}`;
+  bulkExportPdf.href = `/api/reports/export?${params.toString()}`;
 }
 function actionArea(group) {
   if (group.phase === 'completed') {

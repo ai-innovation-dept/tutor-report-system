@@ -1,9 +1,7 @@
 # === Phase 5: 承認ワークフロー START ===
-import io
 from datetime import date, time
 
-import openpyxl
-
+from app.api import reports as reports_api
 from app.core.security import hash_password
 from app.models import Assignment, LessonReport, ReportStatus, User
 from tests.conftest import token
@@ -393,7 +391,8 @@ def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
     assert received.json()["status"] == ReportStatus.received.value
 
 
-def test_admin_can_export_all_reports_as_multi_sheet_xlsx(client, db):
+def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", lambda db, reports, target_month: b"%PDF-1.4\nadmin\n")
     master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
     tutor = db.get(User, assignment.tutor_id)
@@ -434,17 +433,17 @@ def test_admin_can_export_all_reports_as_multi_sheet_xlsx(client, db):
     db.commit()
 
     res = client.get(
-        f"/api/reports/export?scope=all&target_month={target_month}&format=xlsx",
+        f"/api/reports/export?scope=all&target_month={target_month}&format=pdf",
         headers={"Authorization": f"Bearer {master_token}"},
     )
     assert res.status_code == 200
-    wb = openpyxl.load_workbook(io.BytesIO(res.content))
-    assert wb.sheetnames == ["全体サマリ", "Student", "Student 2"]
-    assert wb["全体サマリ"]["A1"].value == "生徒名"
-    assert wb["Student"]["E2"].value == 10
+    assert res.headers["content-type"] == "application/pdf"
+    assert res.content.startswith(b"%PDF")
+    assert ".pdf" in res.headers["content-disposition"]
 
 
-def test_parent_can_export_all_children_as_csv(client, db):
+def test_parent_can_export_all_children_as_pdf(client, db, monkeypatch):
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", lambda db, reports, target_month: b"%PDF-1.4\nparent\n")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
     tutor = db.get(User, assignment.tutor_id)
@@ -483,14 +482,22 @@ def test_parent_can_export_all_children_as_csv(client, db):
     db.commit()
 
     res = client.get(
-        f"/api/reports/export?scope=all&target_month={target_month}&format=csv",
+        f"/api/reports/export?scope=all&target_month={target_month}&format=pdf",
         headers={"Authorization": f"Bearer {parent_token}"},
     )
     assert res.status_code == 200
-    text = res.content.decode("utf-8-sig")
-    assert text.splitlines()[0].startswith("生徒名,回数,指導日")
-    assert "Student 2" in text
-    assert "second child" in text
+    assert res.headers["content-type"] == "application/pdf"
+    assert res.content.startswith(b"%PDF")
+
+
+def test_export_rejects_non_pdf_format(client, db):
+    parent_token = token(client, "parent@example.com")
+    res = client.get(
+        f"/api/reports/export?scope=all&target_month={date.today().strftime('%Y-%m')}&format=csv",
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+    assert res.status_code == 422
+    assert res.json()["detail"] == "format must be pdf"
 
 
 def test_tutor_cannot_export_other_tutor_reports(client, db):
@@ -505,7 +512,7 @@ def test_tutor_cannot_export_other_tutor_reports(client, db):
     db.commit()
 
     res = client.get(
-        f"/api/reports/export?tutor_id={second_tutor.id}&target_month={date.today().strftime('%Y-%m')}&format=csv",
+        f"/api/reports/export?tutor_id={second_tutor.id}&target_month={date.today().strftime('%Y-%m')}&format=pdf",
         headers={"Authorization": f"Bearer {tutor_token}"},
     )
     assert res.status_code == 403

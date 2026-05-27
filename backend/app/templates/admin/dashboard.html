@@ -24,8 +24,7 @@
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
-    <a id="bulkExportXlsx" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">Excelでダウンロード</a>
-    <a id="bulkExportCsv" class="inline-flex items-center rounded-lg bg-slate-600 px-3 py-2 text-sm text-white hover:bg-slate-700" href="#">CSVでダウンロード</a>
+    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
     <span id="bulkExportWarning" class="text-sm text-amber-700">未承認のレポートが含まれています</span>
   </div>
 </section>
@@ -251,22 +250,17 @@ function reportRows(reports) {
 function exportButtons(group, month) {
   if (!group.reports.length || !group.reports.every(report => report.status === 'admin_approved')) return '';
   return `<div class="mt-4 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
   </div>`;
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || selectedMonth;
   const reportsInMonth = allReports.filter(r => r.target_month === month);
   const allApproved = reportsInMonth.length > 0 && reportsInMonth.every(r => r.status === 'admin_approved');
-  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'xlsx'});
-  bulkExportXlsx.href = allApproved ? `/api/reports/export?${params.toString()}` : '#';
-  bulkExportXlsx.classList.toggle('opacity-50', !allApproved);
-  bulkExportXlsx.classList.toggle('pointer-events-none', !allApproved);
-  params.set('format', 'csv');
-  bulkExportCsv.href = allApproved ? `/api/reports/export?${params.toString()}` : '#';
-  bulkExportCsv.classList.toggle('opacity-50', !allApproved);
-  bulkExportCsv.classList.toggle('pointer-events-none', !allApproved);
+  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
+  bulkExportPdf.href = allApproved ? `/api/reports/export?${params.toString()}` : '#';
+  bulkExportPdf.classList.toggle('opacity-50', !allApproved);
+  bulkExportPdf.classList.toggle('pointer-events-none', !allApproved);
   const warning = document.getElementById('bulkExportWarning');
   if (warning) warning.style.display = allApproved ? 'none' : '';
 }

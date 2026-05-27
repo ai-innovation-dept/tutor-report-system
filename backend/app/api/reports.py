@@ -1,6 +1,6 @@
 # === Phase 4: 指導報告書 CRUD START ===
-import csv
 import io
+import os
 from collections import defaultdict
 from datetime import date
 from urllib.parse import quote
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
-from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportEvent, ReportStatus, User
+from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import ReportCreate, ReportOut, ReportPatch
 
 STATUS_RANK = {
@@ -216,12 +216,12 @@ def export_reports(
     assignment_id: UUID | None = None,
     tutor_id: UUID | None = None,
     scope: str | None = None,
-    format: str = "xlsx",
+    format: str = "pdf",
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if format not in {"xlsx", "csv"}:
-        raise HTTPException(status_code=422, detail="format must be xlsx or csv")
+    if format != "pdf":
+        raise HTTPException(status_code=422, detail="format must be pdf")
     if scope and scope != "all":
         raise HTTPException(status_code=422, detail="scope must be all")
 
@@ -271,107 +271,195 @@ def export_reports(
     else:
         filename_base = f"指導実績_全体_{month_label}"
 
-    _WD = ["日", "月", "火", "水", "木", "金", "土"]
-    detail_headers = ["回数", "指導日", "開始時刻", "終了時刻", "休憩（分）", "指導時間", "科目", "指導内容"]
-    multi = assignment_id is None
+    content = _build_reports_pdf(db, reports, target_month)
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_base + '.pdf')}"},
+    )
 
-    def student_name(report: LessonReport) -> str:
-        return report.assignment.student_name if report.assignment else "生徒未設定"
 
-    def detail_row(report: LessonReport, index: int, include_student: bool = False) -> list:
-        minutes = _teaching_minutes(report)
-        wd = _WD[(report.lesson_date.weekday() + 1) % 7]
-        row = [
-            index,
-            f"{report.lesson_date.month}月{report.lesson_date.day}日（{wd}）",
-            report.start_time.strftime("%H:%M"),
-            report.end_time.strftime("%H:%M"),
-            report.break_minutes or 0,
-            _duration_label(minutes),
-            report.subject or "",
-            report.content,
-        ]
-        return [student_name(report), *row] if include_student else row
+_WD = ["日", "月", "火", "水", "木", "金", "土"]
+_PDF_FONT_NAME = "JapaneseReportFont"
+_PDF_FONT_REGISTERED = False
+
+
+def _student_name(report: LessonReport) -> str:
+    return report.assignment.student_name if report.assignment else "生徒未設定"
+
+
+def _tutor_name(report: LessonReport) -> str:
+    return report.tutor.display_name if report.tutor else "講師未設定"
+
+
+def _month_label(target_month: str) -> str:
+    year, month_str = target_month.split("-")
+    return f"{year}年{int(month_str):02d}月"
+
+
+def _report_date_label(report: LessonReport) -> str:
+    wd = _WD[(report.lesson_date.weekday() + 1) % 7]
+    return f"{report.lesson_date.month}月{report.lesson_date.day}日（{wd}）"
+
+
+def _pdf_font_paths() -> list[str]:
+    return [
+        os.environ.get("PDF_JP_FONT_PATH", ""),
+        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
+        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+        "C:/Windows/Fonts/NotoSansJP-VF.ttf",
+        "C:/Windows/Fonts/msgothic.ttc",
+        "C:/Windows/Fonts/meiryo.ttc",
+    ]
+
+
+def _register_pdf_font() -> str:
+    global _PDF_FONT_REGISTERED
+    if _PDF_FONT_REGISTERED:
+        return _PDF_FONT_NAME
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+    except ModuleNotFoundError as exc:
+        raise HTTPException(status_code=500, detail="reportlab is not installed") from exc
+
+    for path in _pdf_font_paths():
+        if path and os.path.exists(path):
+            try:
+                pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, path))
+                _PDF_FONT_REGISTERED = True
+                return _PDF_FONT_NAME
+            except Exception:
+                continue
+    raise HTTPException(status_code=500, detail="Japanese PDF font is not installed")
+
+
+def _final_approver(db: Session, reports: list[LessonReport]) -> tuple[str, str, object] | None:
+    approved_report_ids = [report.id for report in reports if report.status == ReportStatus.admin_approved.value]
+    if not approved_report_ids:
+        return None
+    row = db.execute(
+        select(ReportEvent, User)
+        .join(User, ReportEvent.actor_id == User.id)
+        .where(
+            ReportEvent.report_id.in_(approved_report_ids),
+            ReportEvent.action == ReportAction.admin_approve.value,
+            User.role == "admin_master",
+        )
+        .order_by(ReportEvent.created_at.desc())
+        .limit(1)
+    ).first()
+    if not row:
+        return None
+    event, actor = row
+    return actor.display_name, "管理者", event.created_at
+
+
+def _draw_approval_stamp(canvas, doc, approver: tuple[str, str, object] | None, font_name: str) -> None:
+    if not approver:
+        return
+    approver_name, role_label, approved_at = approver
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+
+    x = doc.pagesize[0] - doc.rightMargin - 23 * mm
+    y = doc.bottomMargin + 21 * mm
+    radius = 17 * mm
+    stamp_color = colors.HexColor("#c81e1e")
+    canvas.saveState()
+    canvas.setStrokeColor(stamp_color)
+    canvas.setFillColor(stamp_color)
+    canvas.setLineWidth(1.4)
+    canvas.circle(x, y, radius, stroke=1, fill=0)
+    canvas.circle(x, y, radius - 3 * mm, stroke=1, fill=0)
+    canvas.setFont(font_name, 9)
+    canvas.drawCentredString(x, y + 7 * mm, role_label)
+    canvas.setFont(font_name, 12)
+    canvas.drawCentredString(x, y, approver_name[:8])
+    canvas.setFont(font_name, 7)
+    approved_label = approved_at.strftime("%Y/%m/%d %H:%M") if approved_at else ""
+    canvas.drawCentredString(x, y - 8 * mm, approved_label)
+    canvas.restoreState()
+
+
+def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: str) -> bytes:
+    font_name = _register_pdf_font()
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ModuleNotFoundError as exc:
+        raise HTTPException(status_code=500, detail="reportlab is not installed") from exc
+
+    styles = getSampleStyleSheet()
+    for style in styles.byName.values():
+        style.fontName = font_name
+    styles["Title"].fontSize = 15
+    styles["Heading2"].fontSize = 11
+    styles["Normal"].fontSize = 9
 
     grouped: dict[UUID, list[LessonReport]] = defaultdict(list)
     for report in reports:
         grouped[report.assignment_id].append(report)
-    group_items = sorted(grouped.values(), key=lambda items: student_name(items[0]))
+    group_items = sorted(grouped.values(), key=lambda items: (_student_name(items[0]), _tutor_name(items[0])))
+    approver = _final_approver(db, reports)
 
-    if format == "csv":
-        buf = io.StringIO()
-        writer = csv.writer(buf)
-        headers = ["生徒名", *detail_headers] if multi else detail_headers
-        writer.writerow(headers)
-        for items in group_items:
-            for i, report in enumerate(items, 1):
-                writer.writerow(detail_row(report, i, include_student=multi))
-        content_bytes = ("﻿" + buf.getvalue()).encode("utf-8")
-        return Response(
-            content=content_bytes,
-            media_type="text/csv; charset=utf-8-sig",
-            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_base + '.csv')}"},
-        )
-
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill
-    from openpyxl.utils import get_column_letter
-
-    bold = Font(bold=True)
-    gray = PatternFill(start_color="EEEEEE", end_color="EEEEEE", fill_type="solid")
-
-    def _col_width(value) -> float:
-        return sum(2 if ord(c) > 127 else 1 for c in str(value)) if value else 0
-
-    def write_table(ws, headers: list[str], rows: list[list], total_minutes: int | None = None) -> None:
-        for col, h in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col, value=h)
-            cell.font = bold
-            cell.fill = gray
-        for row_idx, row in enumerate(rows, 2):
-            for col_idx, val in enumerate(row, 1):
-                ws.cell(row=row_idx, column=col_idx, value=val)
-        if total_minutes is not None:
-            total_row_idx = len(rows) + 2
-            total_cell = ws.cell(row=total_row_idx, column=1, value=f"合計指導時間：{_duration_label(total_minutes)}")
-            total_cell.font = bold
-            ws.merge_cells(start_row=total_row_idx, start_column=1, end_row=total_row_idx, end_column=len(headers))
-        for col_idx in range(1, len(headers) + 1):
-            col_letter = get_column_letter(col_idx)
-            max_w = max((_col_width(cell.value) for row in ws.iter_rows(min_col=col_idx, max_col=col_idx) for cell in row), default=0)
-            ws.column_dimensions[col_letter].width = min(max_w + 2, 60)
-
-    def sheet_title(value: str) -> str:
-        for ch in ['\\', '/', '?', '*', '[', ']', ':']:
-            value = value.replace(ch, "")
-        return value[:31] or "Sheet"
-
-    wb = openpyxl.Workbook()
-    if not multi:
-        ws = wb.active
-        ws.title = f"{int(month_str)}月指導実績"
-        rows = [detail_row(report, i) for i, report in enumerate(reports, 1)]
-        write_table(ws, detail_headers, rows, sum(_teaching_minutes(report) for report in reports))
-    else:
-        summary = wb.active
-        summary.title = "全体サマリ"
-        summary_rows = []
-        for items in group_items:
-            summary_rows.append([student_name(items[0]), len(items), _duration_label(sum(_teaching_minutes(report) for report in items))])
-        write_table(summary, ["生徒名", "件数", "合計時間"], summary_rows)
-        for items in group_items:
-            ws = wb.create_sheet(sheet_title(student_name(items[0])))
-            rows = [detail_row(report, i) for i, report in enumerate(items, 1)]
-            write_table(ws, detail_headers, rows, sum(_teaching_minutes(report) for report in items))
-
-    buf2 = io.BytesIO()
-    wb.save(buf2)
-    buf2.seek(0)
-    return Response(
-        content=buf2.read(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_base + '.xlsx')}"},
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=14 * mm,
+        bottomMargin=22 * mm,
+        title="指導実績",
     )
+    story = []
+    headers = ["指導日", "在室時間", "休憩", "指導時間数", "科目"]
+    for group_index, items in enumerate(group_items):
+        if group_index:
+            story.append(PageBreak())
+        first = items[0]
+        story.append(Paragraph("指導実績", styles["Title"]))
+        story.append(Spacer(1, 4 * mm))
+        story.append(Paragraph(f"生徒名：{_student_name(first)}　講師名：{_tutor_name(first)}　対象月：{_month_label(target_month)}", styles["Normal"]))
+        story.append(Spacer(1, 5 * mm))
+        rows = [headers]
+        for report in items:
+            rows.append(
+                [
+                    _report_date_label(report),
+                    f"{report.start_time.strftime('%H:%M')} - {report.end_time.strftime('%H:%M')}",
+                    f"{report.break_minutes or 0}分",
+                    _duration_label(_teaching_minutes(report)),
+                    report.subject or "",
+                ]
+            )
+        rows.append(["合計", "", "", _duration_label(sum(_teaching_minutes(report) for report in items)), ""])
+        table = Table(rows, colWidths=[34 * mm, 35 * mm, 24 * mm, 32 * mm, 45 * mm], repeatRows=1)
+        table.setStyle(
+            TableStyle(
+                [
+                    ("FONTNAME", (0, 0), (-1, -1), font_name),
+                    ("FONTSIZE", (0, 0), (-1, -1), 9),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#222222")),
+                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (2, 1), (3, -1), "RIGHT"),
+                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
+                ]
+            )
+        )
+        story.append(table)
+    doc.build(
+        story,
+        onFirstPage=lambda canvas, doc: _draw_approval_stamp(canvas, doc, approver, font_name),
+    )
+    return buf.getvalue()
 
 
 @router.get("/{report_id}", response_model=ReportOut)

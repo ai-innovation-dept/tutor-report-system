@@ -157,8 +157,7 @@ function renderDownloadArea(month, reports) {
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=xlsx" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg mr-2">Excelでダウンロード</a>
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=csv" class="inline-flex items-center px-3 py-2 bg-slate-600 hover:bg-slate-700 text-white text-sm rounded-lg">CSVでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
   </div>`).join('');
   return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
 }
@@ -176,8 +175,7 @@ function renderBulkExportLinks() {
     return;
   }
   bulkExportButtons.innerHTML = `
-    <a href="/api/reports/export?scope=all&target_month=${month}&format=xlsx" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700">Excelでダウンロード</a>
-    <a href="/api/reports/export?scope=all&target_month=${month}&format=csv" class="inline-flex items-center rounded-lg bg-slate-600 px-3 py-2 text-sm text-white transition hover:bg-slate-700">CSVでダウンロード</a>
+    <a href="/api/reports/export?scope=all&target_month=${month}&format=pdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700">PDFでダウンロード</a>
   `;
 }
 function renderBulkExportArea() {
