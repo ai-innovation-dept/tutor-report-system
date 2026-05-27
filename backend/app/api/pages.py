@@ -137,11 +137,22 @@ def _approval_event(events: list[ReportEvent], action: str, latest: bool = True)
     return sorted(matched, key=lambda event: event.created_at, reverse=latest)[0]
 
 
-def _approval_step(label: str, event: ReportEvent | None) -> dict:
+RETURN_ACTION_BY_STEP = {
+    "保護者": ReportAction.parent_return.value,
+    "受付": ReportAction.return_from_receiver.value,
+    "再鑑": ReportAction.return_from_reviewer.value,
+    "管理者": ReportAction.return_from_master.value,
+}
+
+
+def _approval_step(label: str, event: ReportEvent | None, return_event: ReportEvent | None = None) -> dict:
     return {
         "label": label,
         "actor_name": event.actor.display_name if event and event.actor else "",
         "created_at": _format_dt(event.created_at) if event else "",
+        "returned": return_event is not None,
+        "return_actor_name": return_event.actor.display_name if return_event and return_event.actor else "",
+        "return_at": _format_dt(return_event.created_at) if return_event else "",
     }
 
 
@@ -156,7 +167,11 @@ def _approval_groups(reports: list[LessonReport], events_by_report: dict, step_s
         events = [event for report in items for event in events_by_report.get(report.id, [])]
         first = items[0]
         steps = [
-            _approval_step(label, _approval_event(events, action, latest=latest))
+            _approval_step(
+                label,
+                _approval_event(events, action, latest=latest),
+                _approval_event(events, RETURN_ACTION_BY_STEP[label], latest=True) if label in RETURN_ACTION_BY_STEP else None,
+            )
             for label, action, latest in step_specs
         ]
         groups.append(
