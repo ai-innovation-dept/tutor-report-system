@@ -30,6 +30,7 @@ class ReportStatus(str, enum.Enum):
     re_reviewed = "re_reviewed"
     admin_approved = "admin_approved"
     returned_to_tutor = "returned_to_tutor"
+    returned_to_receiver = "returned_to_receiver"
 
 
 class ReportAction(str, enum.Enum):

@@ -361,7 +361,36 @@ def test_admin_master_can_return_admin_approved_bulk(client, db):
     })
     assert res.status_code == 200
     db.refresh(report)
-    assert report.status == ReportStatus.returned_to_tutor.value
+    assert report.status == ReportStatus.returned_to_receiver.value
+
+
+def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
+    receiver_token = token(client, "receiver@example.com")
+    reviewer_token = token(client, "reviewer@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="received",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.re_reviewed.value,
+    )
+    db.add(report)
+    db.commit()
+
+    returned = client.post(f"/api/reports/{report.id}/return-from-reviewer", headers={"Authorization": f"Bearer {reviewer_token}"}, json={"comment": "受付で確認"})
+    assert returned.status_code == 200
+    assert returned.json()["status"] == ReportStatus.returned_to_receiver.value
+
+    received = client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {receiver_token}"}, json={})
+    assert received.status_code == 200
+    assert received.json()["status"] == ReportStatus.received.value
 
 
 def test_admin_can_export_all_reports_as_multi_sheet_xlsx(client, db):

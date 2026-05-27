@@ -25,12 +25,12 @@ TRANSITIONS = {
     ReportAction.parent_approve.value: ("parent", [ReportStatus.awaiting_parent_approval.value], ReportStatus.parent_approved.value, "parent_approved_at"),
     ReportAction.parent_return.value: ("parent", [ReportStatus.awaiting_parent_approval.value], ReportStatus.returned_to_tutor.value, None),
     ReportAction.submit_to_admin.value: ("tutor", [ReportStatus.parent_approved.value], ReportStatus.submitted_to_admin.value, "submitted_to_admin_at"),
-    ReportAction.receive.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value], ReportStatus.received.value, "received_at"),
-    ReportAction.return_from_receiver.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value, ReportStatus.received.value], ReportStatus.returned_to_tutor.value, None),
+    ReportAction.receive.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value], ReportStatus.received.value, "received_at"),
+    ReportAction.return_from_receiver.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value, ReportStatus.received.value, ReportStatus.returned_to_receiver.value], ReportStatus.returned_to_tutor.value, None),
     ReportAction.re_review.value: ("admin_reviewer", [ReportStatus.received.value], ReportStatus.re_reviewed.value, "re_reviewed_at"),
-    ReportAction.return_from_reviewer.value: ("admin_reviewer", [ReportStatus.received.value, ReportStatus.re_reviewed.value], ReportStatus.returned_to_tutor.value, None),
+    ReportAction.return_from_reviewer.value: ("admin_reviewer", [ReportStatus.received.value, ReportStatus.re_reviewed.value], ReportStatus.returned_to_receiver.value, None),
     ReportAction.admin_approve.value: ("admin_master", [ReportStatus.re_reviewed.value], ReportStatus.admin_approved.value, "admin_approved_at"),
-    ReportAction.return_from_master.value: ("admin_master", [ReportStatus.re_reviewed.value, ReportStatus.admin_approved.value], ReportStatus.returned_to_tutor.value, None),
+    ReportAction.return_from_master.value: ("admin_master", [ReportStatus.re_reviewed.value, ReportStatus.admin_approved.value], ReportStatus.returned_to_receiver.value, None),
 }
 
 RETURN_ACTIONS = {
