@@ -1,6 +1,6 @@
 """add_returned_to_receiver_status
 
-Revision ID: 0008_add_returned_to_receiver_status
+Revision ID: 0008
 Revises: 0007_add_password_reset_tokens
 Create Date: 2026-05-27
 """
@@ -8,7 +8,7 @@ Create Date: 2026-05-27
 from alembic import op
 
 
-revision = "0008_add_returned_to_receiver_status"
+revision = "0008"
 down_revision = "0007_add_password_reset_tokens"
 branch_labels = None
 depends_on = None
