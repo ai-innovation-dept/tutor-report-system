@@ -214,12 +214,13 @@
       const assignmentMap = new Map(assignments.map(assignment => [assignment.id, assignment]));
       const returned = reports.filter(report => report.status === 'returned_to_tutor' && report.last_return_comment);
       if (!returned.length) return;
-      returnCommentsList.innerHTML = returned.map(report => {
+      returnCommentsList.innerHTML = latestMonthlyReturnComments(returned).map(report => {
         const assignment = assignmentMap.get(report.assignment_id);
-        const actorLabel = report.last_event === 'parent_return' ? '保護者' : '運営';
+        const actorLabel = returnActorLabel(report);
+        const month = report.target_month || currentMonth;
         return `<div class="border-b border-slate-200 py-4 last:border-b-0 first:pt-0 last:pb-0">
-          <div class="font-semibold text-slate-800">【${navEscape(assignment?.student_name || '生徒未設定')}】${returnCommentDateLabel(report.lesson_date)}</div>
-          <div class="mt-2 text-slate-700">差戻し者：${actorLabel}</div>
+          <div class="font-semibold text-slate-800">【${navEscape(assignment?.student_name || '生徒未設定')}】${Number(month.slice(5, 7))}月分差戻し</div>
+          <div class="mt-2 text-slate-700">差戻し者：${navEscape(actorLabel)}</div>
           <div class="mt-1 text-slate-700">日時：${navEscape(formatReturnDateTime(report.last_return_at))}</div>
           <div class="mt-1 whitespace-pre-wrap text-slate-900">コメント：${navEscape(report.last_return_comment)}</div>
         </div>`;
@@ -228,18 +229,35 @@
       document.getElementById('returnCommentBadgeTop')?.classList.remove('hidden');
     }
 
-    function returnCommentDateLabel(value) {
-      const weekdays = ['日', '月', '火', '水', '木', '金', '土'];
-      const d = new Date(`${value}T00:00:00`);
-      if (Number.isNaN(d.getTime())) return value || '';
-      return `${d.getMonth() + 1}月${d.getDate()}日（${weekdays[d.getDay()]}）`;
+    function latestMonthlyReturnComments(reports) {
+      const latestByMonth = new Map();
+      reports.forEach(report => {
+        const month = report.target_month || (report.lesson_date || '').slice(0, 7);
+        const current = latestByMonth.get(month);
+        if (!current || compareReturnReports(report, current) > 0) {
+          latestByMonth.set(month, report);
+        }
+      });
+      return [...latestByMonth.values()].sort(compareReturnReports).reverse();
+    }
+
+    function compareReturnReports(a, b) {
+      const dateCompare = String(a.lesson_date || '').localeCompare(String(b.lesson_date || ''));
+      if (dateCompare !== 0) return dateCompare;
+      return new Date(a.last_return_at || a.updated_at || 0).getTime() - new Date(b.last_return_at || b.updated_at || 0).getTime();
+    }
+
+    function returnActorLabel(report) {
+      const role = report.last_return_by || report.returned_by_role;
+      if (role) return roleDisplayName(role);
+      return report.last_event === 'parent_return' ? '保護者' : '運営';
     }
 
     function formatReturnDateTime(value) {
       if (!value) return '-';
       const d = new Date(value);
       if (Number.isNaN(d.getTime())) return '-';
-      return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
     }
 
     function openReturnCommentsModal() {
