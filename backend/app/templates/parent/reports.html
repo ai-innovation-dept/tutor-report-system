@@ -271,14 +271,13 @@ function renderStudentTabs() {
   studentTabs.classList.add('flex');
   studentTabs.innerHTML = parentAssignments.map(assignment => {
     const active = assignment.id === selectedAssignmentId;
-    const cardClasses = active
-      ? 'border-blue-600 bg-blue-50 shadow-md'
-      : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md';
-    const tutorBadge = assignment.tutor_name
-      ? `<span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">${escapeHtml(assignment.tutor_name)}</span>`
-      : '';
-    const studentBadge = `<span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${active ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}">${escapeHtml(assignment.student_name)}</span>`;
-    return `<button type="button" class="flex flex-col items-start gap-1 rounded-xl border px-4 py-3 text-sm shadow-sm transition ${cardClasses}" onclick="selectStudent('${assignment.id}')">${tutorBadge}${studentBadge}</button>`;
+    const cardClass = active
+      ? 'border border-blue-600 bg-blue-50 shadow-md'
+      : 'border border-slate-200 bg-white hover:border-blue-300 hover:shadow-md';
+    return `<button type="button" class="rounded-xl ${cardClass} px-4 py-3 text-left shadow-sm transition min-w-36" onclick="selectStudent('${assignment.id}')">
+  <div class="text-sm text-slate-600">講師：<span class="font-medium text-slate-800">${escapeHtml(assignment.tutor_name || '講師')}</span></div>
+  <div class="text-sm text-slate-600">生徒：<span class="font-medium text-slate-800">${escapeHtml(assignment.student_name)}</span></div>
+</button>`;
   }).join('');
 }
 function renderParent() {
