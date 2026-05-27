@@ -126,12 +126,6 @@ function monthLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月分`;
 }
-function dateTimeLabel(value) {
-  if (!value) return '';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '';
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
 function minutesBetween(start, end) {
   if (!start || !end) return 0;
   const [sh, sm] = start.split(':').map(Number);
@@ -241,30 +235,6 @@ function setReportInputsDisabled(disabled) {
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
 }
-function latestReturnCommentReport(reports) {
-  const withComments = reports.filter(r => r.status === 'returned_to_tutor' && r.last_return_comment);
-  if (!withComments.length) return null;
-  return [...withComments].sort((a, b) => {
-    const aTime = new Date(a.last_return_at || a.updated_at || 0).getTime() || 0;
-    const bTime = new Date(b.last_return_at || b.updated_at || 0).getTime() || 0;
-    return bTime - aTime;
-  })[0];
-}
-function monthlyReturnComment(reports) {
-  const report = latestReturnCommentReport(reports);
-  if (!report) return '';
-  const assignment = allAssignments.find(a => a.id === report.assignment_id) || selectedAssignment();
-  const studentName = assignment?.student_name || report.student_name || '生徒未設定';
-  const month = report.target_month || selectedMonth;
-  const actorLabel = report.last_event === 'parent_return' ? '保護者' : '運営';
-  const returnedAt = dateTimeLabel(report.last_return_at || report.updated_at);
-  return `<div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-    <div class="font-semibold">【${escapeHtml(studentName)}】${Number(month.slice(5, 7))}月分差戻し</div>
-    <div class="mt-1">差戻し者：${actorLabel}</div>
-    ${returnedAt ? `<div>日時：${returnedAt}</div>` : ''}
-    <div>コメント：${escapeHtml(report.last_return_comment)}</div>
-  </div>`;
-}
 function renderRows(reports) {
   const totalMinutes = reports.reduce((sum, r) => sum + teachingMinutes(r), 0);
   rows.innerHTML = reports.map((r, index) => `<tr class="border-t border-slate-100 hover:bg-slate-50">
@@ -280,7 +250,7 @@ function renderRows(reports) {
     <div class="font-medium text-slate-800">${index + 1}回目 ${reportSummary(r)}</div>
     <div class="mt-3 text-sm">${rowAction(r)}</div>
   </div>`).join('');
-  totalTeachingTime.innerHTML = `<div>合計指導時間：${durationLabel(totalMinutes)}</div>${monthlyReturnComment(reports)}`;
+  totalTeachingTime.textContent = `合計指導時間：${durationLabel(totalMinutes)}`;
 }
 function renderBulkSubmit(reports) {
   if (!isSubmitPage) {
