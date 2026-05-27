@@ -169,17 +169,21 @@
       } else if (user.role === 'parent') {
         navHome.href = '/parent/reports';
         items.push(navLink('/parent/reports', '報告書一覧'));
+        items.push(navLink('/parent/approval', '承認管理'));
       } else if (user.role === 'admin_receiver') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
+        items.push(navLink('/admin/approval', '承認管理'));
         items.push(navLink('/admin/queue/receive', '受付待ち一覧'));
       } else if (user.role === 'admin_reviewer') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
+        items.push(navLink('/admin/approval', '承認管理'));
         items.push(navLink('/admin/queue/review', '再鑑待ち一覧'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
+        items.push(navLink('/admin/approval', '承認管理'));
         items.push(navLink('/admin/queue/receive', '受付待ち一覧'));
         items.push(navLink('/admin/queue/review', '再鑑待ち一覧'));
         items.push(navLink('/admin/queue/approve', '承認待ち一覧'));

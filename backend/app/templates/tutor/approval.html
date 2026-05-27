@@ -25,20 +25,19 @@
 <script>
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const STEPS = [
-  {key: 'self', label: '講師（自分）'},
   {key: 'request', label: '保護者へ依頼'},
   {key: 'parent', label: '保護者 承認'},
   {key: 'adminApprove', label: '運営 承認'}
 ];
 const PHASE_CURRENT_STEP = {
   recording: 0,
-  returned: 2,
-  awaiting_parent: 2,
-  parent_approved: 3,
-  submitted_to_admin: 3,
-  received: 3,
-  re_reviewed: 3,
-  completed: 4
+  returned: 1,
+  awaiting_parent: 1,
+  parent_approved: 2,
+  submitted_to_admin: 2,
+  received: 2,
+  re_reviewed: 2,
+  completed: 3
 };
 const STATUS_LABELS = {
   draft: '下書き',
@@ -156,10 +155,9 @@ function buildGroup(assignment, reports) {
   };
 }
 function stepTimestamp(group, index) {
-  if (index === 0) return group.submitted_to_parent_at;
-  if (index === 1) return group.first_submitted_to_parent_at || group.submitted_to_parent_at;
-  if (index === 2) return group.parent_approved_at;
-  if (index === 3) return group.admin_approved_at;
+  if (index === 0) return group.first_submitted_to_parent_at || group.submitted_to_parent_at;
+  if (index === 1) return group.parent_approved_at;
+  if (index === 2) return group.admin_approved_at;
   return null;
 }
 function stepState(group, index) {
@@ -180,7 +178,7 @@ function connectorClass(group, index) {
   return leftDone && rightDone ? 'border-emerald-500 text-emerald-600' : 'border-dashed border-slate-300 text-slate-400';
 }
 function renderStepper(group) {
-  return `<div class="mt-5 grid grid-cols-[repeat(9,minmax(0,1fr))] items-start gap-2">
+  return `<div class="mt-5 grid grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
     ${STEPS.map((step, index) => {
       const state = stepState(group, index);
       const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
@@ -265,9 +263,9 @@ function actionArea(group) {
 }
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 md:grid-cols-3">
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">報告完了日</div><div class="font-medium text-slate-800">${timeLabel(group.submitted_to_parent_at, '-')}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_parent_at || group.submitted_to_parent_at, '-')}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">保護者 承認日時</div><div class="font-medium text-slate-800">${group.parent_approved_at ? timeLabel(group.parent_approved_at) : '承認待ち'}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">運営 承認日時</div><div class="font-medium text-slate-800">${group.admin_approved_at ? timeLabel(group.admin_approved_at) : '-'}</div></div>
   </div>`;
 }
 function detailRows(group) {

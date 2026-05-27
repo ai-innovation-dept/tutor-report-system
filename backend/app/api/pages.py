@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.database import get_db
 from app.deps import get_current_user_from_cookie
-from app.models import Assignment, LessonReport, ReportEvent, ReportStatus, User
+from app.models import Assignment, LessonReport, ReportAction, ReportEvent, ReportStatus, User
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(tags=["pages"])
@@ -120,6 +120,141 @@ def _base_context(request: Request, current_user: User) -> dict:
     return {"request": request, "current_user": current_user}
 
 
+def _teaching_minutes(report: LessonReport) -> int:
+    start = report.start_time.hour * 60 + report.start_time.minute
+    end = report.end_time.hour * 60 + report.end_time.minute
+    return max(0, end - start - (report.break_minutes or 0))
+
+
+def _group_key(report: LessonReport) -> tuple[str, str]:
+    return (str(report.assignment_id), report.target_month)
+
+
+def _approval_event(events: list[ReportEvent], action: str, latest: bool = True) -> ReportEvent | None:
+    matched = [event for event in events if event.action == action]
+    if not matched:
+        return None
+    return sorted(matched, key=lambda event: event.created_at, reverse=latest)[0]
+
+
+def _approval_step(label: str, event: ReportEvent | None) -> dict:
+    return {
+        "label": label,
+        "actor_name": event.actor.display_name if event and event.actor else "",
+        "created_at": _format_dt(event.created_at) if event else "",
+    }
+
+
+def _approval_groups(reports: list[LessonReport], events_by_report: dict, step_specs: list[tuple[str, str, bool]]) -> list[dict]:
+    grouped: dict[tuple[str, str], list[LessonReport]] = {}
+    for report in reports:
+        grouped.setdefault(_group_key(report), []).append(report)
+
+    groups = []
+    for (_, target_month), items in grouped.items():
+        items = sorted(items, key=lambda report: (report.lesson_date, report.start_time))
+        events = [event for report in items for event in events_by_report.get(report.id, [])]
+        first = items[0]
+        groups.append(
+            {
+                "assignment_id": str(first.assignment_id),
+                "target_month": target_month,
+                "student_name": first.assignment.student_name if first.assignment else "生徒未設定",
+                "tutor_name": first.tutor.display_name if first.tutor else "講師未設定",
+                "parent_name": first.parent.display_name if first.parent else "",
+                "total_count": len(items),
+                "total_minutes_label": _duration_label(sum(_teaching_minutes(report) for report in items)),
+                "steps": [
+                    _approval_step(label, _approval_event(events, action, latest=latest))
+                    for label, action, latest in step_specs
+                ],
+            }
+        )
+    return sorted(groups, key=lambda group: (group["target_month"], group["student_name"]), reverse=True)
+
+
+def _events_by_report(db: Session, reports: list[LessonReport]) -> dict:
+    report_ids = [report.id for report in reports]
+    if not report_ids:
+        return {}
+    events = db.scalars(
+        select(ReportEvent)
+        .options(selectinload(ReportEvent.actor))
+        .where(ReportEvent.report_id.in_(report_ids))
+        .order_by(ReportEvent.created_at)
+    ).all()
+    grouped: dict = {}
+    for event in events:
+        grouped.setdefault(event.report_id, []).append(event)
+    return grouped
+
+
+def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
+    reports = db.scalars(
+        select(LessonReport)
+        .options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor), selectinload(LessonReport.parent))
+        .where(LessonReport.parent_id == current_user.id)
+        .order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
+    ).all()
+    return _approval_groups(
+        reports,
+        _events_by_report(db, reports),
+        [
+            ("講師から依頼", ReportAction.submit_to_parent.value, False),
+            ("保護者 承認", ReportAction.parent_approve.value, True),
+        ],
+    )
+
+
+def _admin_approval_groups(db: Session, current_user: User) -> list[dict]:
+    actions_by_role = {
+        "admin_receiver": [ReportAction.receive.value],
+        "admin_reviewer": [ReportAction.re_review.value],
+        "admin_master": [
+            ReportAction.submit_to_parent.value,
+            ReportAction.parent_approve.value,
+            ReportAction.receive.value,
+            ReportAction.re_review.value,
+            ReportAction.admin_approve.value,
+        ],
+    }
+    actions = actions_by_role.get(current_user.role, [])
+    event_stmt = select(ReportEvent.report_id).where(ReportEvent.action.in_(actions))
+    if current_user.role in {"admin_receiver", "admin_reviewer"}:
+        event_stmt = event_stmt.where(ReportEvent.actor_id == current_user.id)
+    report_ids = db.scalars(event_stmt).all()
+    if not report_ids:
+        return []
+    reports = db.scalars(
+        select(LessonReport)
+        .options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor), selectinload(LessonReport.parent))
+        .where(LessonReport.id.in_(set(report_ids)))
+        .order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
+    ).all()
+    step_specs = [
+        ("講師", ReportAction.submit_to_parent.value, False),
+        ("保護者", ReportAction.parent_approve.value, True),
+    ]
+    if current_user.role in {"admin_receiver", "admin_master"}:
+        step_specs.append(("受付", ReportAction.receive.value, True))
+    if current_user.role in {"admin_reviewer", "admin_master"}:
+        step_specs.extend(
+            [
+                ("受付", ReportAction.receive.value, True),
+                ("再鑑", ReportAction.re_review.value, True),
+            ]
+        )
+    if current_user.role == "admin_master":
+        step_specs.append(("管理者", ReportAction.admin_approve.value, True))
+    deduped_specs = []
+    seen_actions = set()
+    for spec in step_specs:
+        if spec[1] not in seen_actions:
+            deduped_specs.append(spec)
+            seen_actions.add(spec[1])
+    return _approval_groups(reports, _events_by_report(db, reports), deduped_specs)
+
+
 def _tutor_context(request: Request, db: Session, current_user: User) -> dict:
     context = _base_context(request, current_user)
     context.update(
@@ -214,11 +349,22 @@ def parent_pages(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "parent/reports.html", context=context)
 
 
+@router.get("/parent/approval", response_class=HTMLResponse)
+def parent_approval_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user or user.role != "parent":
+        return _login_redirect()
+    context = _base_context(request, user)
+    context["approval_groups"] = _parent_approval_groups(db, user)
+    return templates.TemplateResponse(request, "parent/approval.html", context=context)
+
+
 @router.get("/admin/dashboard", response_class=HTMLResponse)
 @router.get("/admin/queue/receive", response_class=HTMLResponse)
 @router.get("/admin/queue/review", response_class=HTMLResponse)
 @router.get("/admin/queue/approve", response_class=HTMLResponse)
 @router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
+@router.get("/admin/approval", response_class=HTMLResponse)
 @router.get("/admin/users", response_class=HTMLResponse)
 @router.get("/admin/assignments", response_class=HTMLResponse)
 def admin_pages(request: Request, db: Session = Depends(get_db)):
@@ -227,10 +373,11 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
         return _login_redirect()
     path = request.url.path
     allowed_paths = {
-        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive"},
-        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review"},
+        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive", "/admin/approval"},
+        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review", "/admin/approval"},
         "admin_master": {
             "/admin/dashboard",
+            "/admin/approval",
             "/admin/queue/receive",
             "/admin/queue/review",
             "/admin/queue/approve",
@@ -241,6 +388,9 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     if not (path.startswith("/admin/reports/") or path in allowed_paths.get(user.role, set())):
         return _login_redirect()
     context = _base_context(request, user)
+    if path == "/admin/approval":
+        context["approval_groups"] = _admin_approval_groups(db, user)
+        return templates.TemplateResponse(request, "admin/approval.html", context=context)
     if path == "/admin/users":
         return templates.TemplateResponse(request, "admin/users.html", context=context)
     if path == "/admin/assignments":
