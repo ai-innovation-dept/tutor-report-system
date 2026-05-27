@@ -155,6 +155,10 @@ def _approval_groups(reports: list[LessonReport], events_by_report: dict, step_s
         items = sorted(items, key=lambda report: (report.lesson_date, report.start_time))
         events = [event for report in items for event in events_by_report.get(report.id, [])]
         first = items[0]
+        steps = [
+            _approval_step(label, _approval_event(events, action, latest=latest))
+            for label, action, latest in step_specs
+        ]
         groups.append(
             {
                 "assignment_id": str(first.assignment_id),
@@ -164,10 +168,9 @@ def _approval_groups(reports: list[LessonReport], events_by_report: dict, step_s
                 "parent_name": first.parent.display_name if first.parent else "",
                 "total_count": len(items),
                 "total_minutes_label": _duration_label(sum(_teaching_minutes(report) for report in items)),
-                "steps": [
-                    _approval_step(label, _approval_event(events, action, latest=latest))
-                    for label, action, latest in step_specs
-                ],
+                "current_status": _current_group_status(items),
+                "steps": steps,
+                "step_map": {step["label"]: step for step in steps},
             }
         )
     return sorted(groups, key=lambda group: (group["target_month"], group["student_name"]), reverse=True)
@@ -187,6 +190,22 @@ def _events_by_report(db: Session, reports: list[LessonReport]) -> dict:
     for event in events:
         grouped.setdefault(event.report_id, []).append(event)
     return grouped
+
+
+def _current_group_status(reports: list[LessonReport]) -> str:
+    priority = [
+        ReportStatus.admin_approved.value,
+        ReportStatus.returned_to_tutor.value,
+        ReportStatus.returned_to_receiver.value,
+        ReportStatus.submitted_to_admin.value,
+        ReportStatus.received.value,
+        ReportStatus.re_reviewed.value,
+    ]
+    statuses = {report.status for report in reports}
+    for status in priority:
+        if status in statuses:
+            return status
+    return reports[0].status if reports else ""
 
 
 def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
@@ -217,7 +236,7 @@ def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
     )
 
 
-def _admin_approval_groups(db: Session, current_user: User) -> list[dict]:
+def _admin_approval_report_ids(db: Session, current_user: User) -> set:
     actions_by_role = {
         "admin_receiver": [ReportAction.receive.value],
         "admin_reviewer": [ReportAction.re_review.value],
@@ -233,40 +252,43 @@ def _admin_approval_groups(db: Session, current_user: User) -> list[dict]:
     event_stmt = select(ReportEvent.report_id).where(ReportEvent.action.in_(actions))
     if current_user.role in {"admin_receiver", "admin_reviewer"}:
         event_stmt = event_stmt.where(ReportEvent.actor_id == current_user.id)
-    report_ids = db.scalars(event_stmt).all()
+    return set(db.scalars(event_stmt).all())
+
+
+def _admin_approval_months(db: Session, current_user: User) -> list[str]:
+    report_ids = _admin_approval_report_ids(db, current_user)
     if not report_ids:
         return []
-    reports = db.scalars(
+    return db.scalars(
+        select(LessonReport.target_month)
+        .where(LessonReport.id.in_(report_ids))
+        .distinct()
+        .order_by(LessonReport.target_month.desc())
+    ).all()
+
+
+def _admin_approval_groups(db: Session, current_user: User, target_month: str | None = None) -> list[dict]:
+    report_ids = _admin_approval_report_ids(db, current_user)
+    if not report_ids:
+        return []
+    stmt = (
         select(LessonReport)
         .options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor), selectinload(LessonReport.parent))
-        .where(
-            LessonReport.id.in_(set(report_ids)),
-            LessonReport.status == ReportStatus.admin_approved.value,
-        )
-        .order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
+        .where(LessonReport.id.in_(report_ids))
+    )
+    if target_month:
+        stmt = stmt.where(LessonReport.target_month == target_month)
+    reports = db.scalars(
+        stmt.order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
     ).all()
     step_specs = [
         ("講師", ReportAction.submit_to_parent.value, False),
         ("保護者", ReportAction.parent_approve.value, True),
+        ("受付", ReportAction.receive.value, True),
+        ("再鑑", ReportAction.re_review.value, True),
+        ("管理者", ReportAction.admin_approve.value, True),
     ]
-    if current_user.role in {"admin_receiver", "admin_master"}:
-        step_specs.append(("受付", ReportAction.receive.value, True))
-    if current_user.role in {"admin_reviewer", "admin_master"}:
-        step_specs.extend(
-            [
-                ("受付", ReportAction.receive.value, True),
-                ("再鑑", ReportAction.re_review.value, True),
-            ]
-        )
-    if current_user.role == "admin_master":
-        step_specs.append(("管理者", ReportAction.admin_approve.value, True))
-    deduped_specs = []
-    seen_actions = set()
-    for spec in step_specs:
-        if spec[1] not in seen_actions:
-            deduped_specs.append(spec)
-            seen_actions.add(spec[1])
-    return _approval_groups(reports, _events_by_report(db, reports), deduped_specs)
+    return _approval_groups(reports, _events_by_report(db, reports), step_specs)
 
 
 def _tutor_context(request: Request, db: Session, current_user: User) -> dict:
@@ -403,7 +425,11 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
         return _login_redirect()
     context = _base_context(request, user)
     if path == "/admin/approval":
-        context["approval_groups"] = _admin_approval_groups(db, user)
+        months = _admin_approval_months(db, user)
+        selected_month = request.query_params.get("month") or (months[0] if months else "")
+        context["approval_months"] = months
+        context["selected_month"] = selected_month
+        context["approval_groups"] = _admin_approval_groups(db, user, selected_month or None)
         return templates.TemplateResponse(request, "admin/approval.html", context=context)
     if path == "/admin/users":
         return templates.TemplateResponse(request, "admin/users.html", context=context)
