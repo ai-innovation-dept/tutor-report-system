@@ -29,7 +29,7 @@
   </div>
 </section>
 
-<div id="summaryCards" class="mb-4 grid gap-3 md:grid-cols-6"></div>
+<div id="summaryCards" class="mb-4 grid gap-3 md:grid-cols-7"></div>
 <div id="studentCards" class="grid gap-4"></div>
 {% endblock %}
 {% block scripts %}
@@ -52,23 +52,13 @@ function getCurrentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 const currentMonth = getCurrentMonth();
-const queueStatusByPath = {
-  '/admin/queue/receive': ['submitted_to_admin', 'returned_to_receiver'],
-  '/admin/queue/review': ['received'],
-  '/admin/queue/approve': ['re_reviewed']
-};
-const queueStatuses = queueStatusByPath[location.pathname] || [];
-const queueTitles = {
-  submitted_to_admin: '受付待ち一覧',
-  received: '再鑑待ち一覧',
-  re_reviewed: '承認待ち一覧'
-};
 const summaryDefinitions = [
+  {key: 'awaiting_parent_approval', label: '保護者承認待ち'},
   {key: 'submitted_to_admin', label: '受付待ち'},
   {key: 'received', label: '再鑑待ち'},
   {key: 're_reviewed', label: '最終承認待ち'},
   {key: 'admin_approved', label: '最終承認済み'},
-  {key: 'returned_to_tutor', label: '差戻し中'},
+  {key: 'returned_to_tutor', label: '講師へ差戻し中'},
   {key: 'returned_to_receiver', label: '受付へ差戻し中'}
 ];
 let allReports = [];
@@ -137,12 +127,12 @@ function monthTutorReports() {
   ));
 }
 function cardStatus(reports) {
+  if (reports.length && reports.every(report => report.status === 'admin_approved')) return 'admin_approved';
   if (reports.some(report => report.status === 'returned_to_tutor')) return 'returned_to_tutor';
   if (reports.some(report => report.status === 'returned_to_receiver')) return 'returned_to_receiver';
   if (reports.some(report => report.status === 'submitted_to_admin')) return 'submitted_to_admin';
   if (reports.some(report => report.status === 'received')) return 'received';
   if (reports.some(report => report.status === 're_reviewed')) return 're_reviewed';
-  if (reports.length && reports.every(report => report.status === 'admin_approved')) return 'admin_approved';
   return reports[0]?.status || '';
 }
 function statusClass(status) {
@@ -159,8 +149,7 @@ function groupedByTutorAssignment(reports) {
   }, {});
 }
 function visibleGroups() {
-  return Object.values(groupedByTutorAssignment(monthTutorReports()))
-    .filter(group => !queueStatuses.length || queueStatuses.includes(cardStatus(group.reports)));
+  return Object.values(groupedByTutorAssignment(monthTutorReports()));
 }
 function renderFilters() {
   const months = [...new Set(allReports.map(report => report.target_month))]
@@ -224,11 +213,7 @@ function cardActions(group, status) {
   }
   if (status === 'returned_to_receiver') {
     const reason = returnReason(group.reports);
-    const canReceive = ['admin_receiver', 'admin_master'].includes(currentRole);
-    return `<div class="grid gap-2">
-      <div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>
-      ${canReceive ? `<button class="justify-self-start rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="receiveReturnedReports('${group.tutor_id}','${group.assignment_id}')">再受付する</button>` : ''}
-    </div>`;
+    return `<div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
   }
   const config = actionConfig(status);
   if (status === 'admin_approved') {
@@ -356,15 +341,6 @@ async function bulkAct(tutorId, assignmentId, status) {
   await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: targets.map(report => report.id), target_month: selectedMonth})});
   await loadAdmin();
 }
-async function receiveReturnedReports(tutorId, assignmentId) {
-  const targets = cardReports(tutorId, assignmentId).filter(report => report.status === 'returned_to_receiver');
-  if (!targets.length) return;
-  if (!confirm(`${assignmentName(assignmentId)}さんの${monthShortLabel(selectedMonth)}（${targets.length}件）を再受付します。よろしいですか？`)) return;
-  for (const report of targets) {
-    await api(`/api/reports/${report.id}/receive`, {method: 'POST', body: JSON.stringify({})});
-  }
-  await loadAdmin();
-}
 function showBulkReturnForm(tutorId, assignmentId) {
   expandedReturnKey = returnKey(tutorId, assignmentId);
   delete returnErrors[expandedReturnKey];
@@ -417,7 +393,7 @@ async function loadAdmin() {
   allReports = sortReports(reports);
   allAssignments = assignments;
   allTutors = tutors;
-  pageTitle.textContent = queueStatuses.length ? queueTitles[queueStatuses[0]] : '運営ダッシュボード';
+  pageTitle.textContent = '運営ダッシュボード';
   renderFilters();
   renderStudentCards();
 }

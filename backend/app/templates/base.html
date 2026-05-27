@@ -174,19 +174,14 @@
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/approval', '承認管理'));
-        items.push(navLink('/admin/queue/receive', '受付待ち一覧'));
       } else if (user.role === 'admin_reviewer') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/approval', '承認管理'));
-        items.push(navLink('/admin/queue/review', '再鑑待ち一覧'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/approval', '承認管理'));
-        items.push(navLink('/admin/queue/receive', '受付待ち一覧'));
-        items.push(navLink('/admin/queue/review', '再鑑待ち一覧'));
-        items.push(navLink('/admin/queue/approve', '承認待ち一覧'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '紐付け管理'));
       }
