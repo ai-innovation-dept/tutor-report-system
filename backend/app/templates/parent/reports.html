@@ -262,16 +262,23 @@ function renderStudentTabs() {
     return;
   }
   const current = selectedAssignment();
-  selectedStudentLabel.textContent = `選択中の生徒：${current ? current.student_name : '未設定'}`;
+  const currentTutorName = current ? (current.tutor_name || '') : '';
+  selectedStudentLabel.textContent = currentTutorName
+    ? `選択中：${current.student_name}（担当講師：${currentTutorName}）`
+    : `選択中：${current ? current.student_name : '未設定'}`;
   selectedStudentLabel.classList.remove('hidden');
   studentTabs.classList.remove('hidden');
   studentTabs.classList.add('flex');
   studentTabs.innerHTML = parentAssignments.map(assignment => {
     const active = assignment.id === selectedAssignmentId;
-    const classes = active
-      ? 'border-blue-600 bg-blue-600 text-white'
-      : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700';
-    return `<button type="button" class="rounded-lg border px-4 py-2 text-sm font-medium shadow-sm transition ${classes}" onclick="selectStudent('${assignment.id}')">${escapeHtml(assignment.student_name)}</button>`;
+    const cardClasses = active
+      ? 'border-blue-600 bg-blue-50 shadow-md'
+      : 'border-slate-200 bg-white hover:border-blue-300 hover:shadow-md';
+    const tutorBadge = assignment.tutor_name
+      ? `<span class="inline-flex rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">${escapeHtml(assignment.tutor_name)}</span>`
+      : '';
+    const studentBadge = `<span class="inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${active ? 'bg-blue-600 text-white' : 'bg-blue-100 text-blue-700'}">${escapeHtml(assignment.student_name)}</span>`;
+    return `<button type="button" class="flex flex-col items-start gap-1 rounded-xl border px-4 py-3 text-sm shadow-sm transition ${cardClasses}" onclick="selectStudent('${assignment.id}')">${tutorBadge}${studentBadge}</button>`;
   }).join('');
 }
 function renderParent() {

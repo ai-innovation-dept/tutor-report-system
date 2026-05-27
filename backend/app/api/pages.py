@@ -207,6 +207,7 @@ def parent_pages(request: Request, db: Session = Depends(get_db)):
             "id": str(assignment.id),
             "student_name": assignment.student_name,
             "tutor_id": str(assignment.tutor_id),
+            "tutor_name": assignment.tutor.display_name if assignment.tutor else "",
         }
         for assignment in assignments
     ]
