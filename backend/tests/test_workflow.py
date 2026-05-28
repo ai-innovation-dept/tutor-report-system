@@ -37,6 +37,23 @@ def test_full_workflow(client, db):
         assert res.status_code == 200
         assert res.json()["status"] == status
 
+    listed = client.get("/api/reports", headers={"Authorization": f"Bearer {master_token}"})
+    assert listed.status_code == 200
+    report = next(item for item in listed.json() if item["id"] == rid)
+    assert [event["action"] for event in report["events"]] == [
+        "create",
+        "submit_to_parent",
+        "parent_approve",
+        "submit_to_admin",
+        "receive",
+        "re_review",
+        "admin_approve",
+    ]
+    assert report["events"][-1]["actor_name"] == "Master"
+    assert report["events"][-1]["actor_role"] == "admin_master"
+    assert report["events"][-1]["created_at"]
+    assert "comment" in report["events"][-1]
+
 
 def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     tutor_token = token(client, "tutor@example.com")

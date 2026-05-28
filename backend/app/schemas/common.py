@@ -154,6 +154,15 @@ class ReportPatch(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
+class ReportEventOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    action: str
+    actor_name: str | None = None
+    actor_role: str | None = None
+    created_at: datetime
+    comment: str | None = None
+
+
 class ReportOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
@@ -182,6 +191,7 @@ class ReportOut(BaseModel):
     last_return_comment: str | None = None
     last_return_at: datetime | None = None
     unread_count: int = 0
+    events: list[ReportEventOut] = Field(default_factory=list)
 
 
 class CommentIn(BaseModel):

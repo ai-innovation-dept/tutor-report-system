@@ -2,7 +2,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -451,4 +451,15 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     if path == "/admin/assignments":
         return templates.TemplateResponse(request, "admin/assignments.html", context=context)
     return templates.TemplateResponse(request, "admin/dashboard.html", context=context)
+
+
+@router.get("/admin/progress", response_class=HTMLResponse)
+def progress_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user:
+        return _login_redirect()
+    # 将来 admin_receiver / admin_reviewer も追加可能。現状は admin_master のみ進捗管理を許可する。
+    if user.role != "admin_master":
+        raise HTTPException(status_code=403, detail="progress page is only available to admin_master")
+    return templates.TemplateResponse(request, "admin/progress.html", context=_base_context(request, user))
 # === Phase 9 END ===

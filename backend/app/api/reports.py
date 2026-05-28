@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
-from app.schemas import ReportCreate, ReportOut, ReportPatch
+from app.schemas import ReportCreate, ReportEventOut, ReportOut, ReportPatch
 
 STATUS_RANK = {
     ReportStatus.draft.value: 0,
@@ -34,17 +34,25 @@ def _current_month() -> str:
 
 
 def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
-    last = db.scalar(select(ReportEvent.action).where(ReportEvent.report_id == report.id).order_by(ReportEvent.created_at.desc()).limit(1))
-    last_return_event = db.execute(
-        select(ReportEvent.comment, ReportEvent.created_at)
+    events = db.scalars(
+        select(ReportEvent)
+        .options(selectinload(ReportEvent.actor))
         .where(
             ReportEvent.report_id == report.id,
-            ReportEvent.comment.is_not(None),
-            ReportEvent.action.in_(["parent_return", "return_from_receiver", "return_from_reviewer", "return_from_master"]),
         )
-        .order_by(ReportEvent.created_at.desc())
-        .limit(1)
-    ).first()
+        .order_by(ReportEvent.created_at)
+    ).all()
+    last = events[-1].action if events else None
+    last_return_event = next(
+        (
+            event
+            for event in reversed(events)
+            if event.comment
+            and event.action
+            in {"parent_return", "return_from_receiver", "return_from_reviewer", "return_from_master"}
+        ),
+        None,
+    )
     unread = db.scalar(
         select(func.count(ChatMessage.id))
         .where(ChatMessage.report_id == report.id, ChatMessage.sender_id != user.id)
@@ -54,11 +62,21 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
     out = ReportOut.model_validate(report)
     out.last_event = last
     if last_return_event:
-        out.last_return_comment = last_return_event[0]
-        out.last_return_at = last_return_event[1]
+        out.last_return_comment = last_return_event.comment
+        out.last_return_at = last_return_event.created_at
     out.unread_count = unread
     out.student_name = report.assignment.student_name if report.assignment else None
     out.tutor_name = report.tutor.display_name if report.tutor else None
+    out.events = [
+        ReportEventOut(
+            action=event.action,
+            actor_name=event.actor.display_name if event.actor else None,
+            actor_role=event.actor.role if event.actor else None,
+            created_at=event.created_at,
+            comment=event.comment,
+        )
+        for event in events
+    ]
     return out
 
 

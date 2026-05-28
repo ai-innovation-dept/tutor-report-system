@@ -30,6 +30,7 @@
 </section>
 
 <div id="summaryCards" class="mb-4 grid gap-3 md:grid-cols-7"></div>
+<div id="summaryDetails" class="mb-4"></div>
 <div id="studentCards" class="grid gap-4"></div>
 {% endblock %}
 {% block scripts %}
@@ -44,6 +45,30 @@ const STATUS_LABELS = {
   received: '再鑑待ち',
   re_reviewed: '最終承認待ち',
   admin_approved: '最終承認済み'
+};
+const ROLE_LABELS = {
+  tutor: '講師',
+  parent: '保護者',
+  admin_receiver: '受付',
+  admin_reviewer: '再鑑',
+  admin_master: '管理者'
+};
+const ACTION_LABELS = {
+  submit_to_parent: '承認依頼',
+  parent_approve: '承認',
+  parent_return: '差戻',
+  receive: '受付承認',
+  return_from_receiver: '差戻',
+  re_review: '再鑑承認',
+  return_from_reviewer: '差戻',
+  admin_approve: '承認',
+  return_from_master: '差戻'
+};
+const APPROVAL_HISTORY_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
+const RETURN_HISTORY_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
+const RETURN_WAIT_LABELS = {
+  returned_to_tutor: '講師の対応待ち',
+  returned_to_receiver: '受付の対応待ち'
 };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 let currentRole = '';
@@ -68,11 +93,14 @@ let selectedMonth = new URLSearchParams(location.search).get('month') || current
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
 let expandedReturnKey = '';
 let returnErrors = {};
+let activeSummaryStatus = '';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
 function statusLabel(status) { return STATUS_LABELS[status] || status; }
+function roleLabel(role) { return ROLE_LABELS[role] || role || '-'; }
+function actionLabel(action) { return ACTION_LABELS[action] || action || '-'; }
 function timeText(value) { return (value || '').slice(0, 5); }
 function dateLabel(value) {
   const d = new Date(`${value}T00:00:00`);
@@ -84,6 +112,18 @@ function monthOptionLabel(value) {
 }
 function monthShortLabel(value) {
   return `${Number(value.slice(5, 7))}月分`;
+}
+function eventDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function eventTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function minutesBetween(start, end) {
   const [sh, sm] = start.split(':').map(Number);
@@ -180,11 +220,88 @@ function renderFilters() {
 function renderSummary(groups) {
   summaryCards.innerHTML = summaryDefinitions.map(item => {
     const count = groups.filter(group => cardStatus(group.reports) === item.key).length;
-    return `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    const active = activeSummaryStatus === item.key;
+    return `<button type="button" class="rounded-xl border p-4 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50/40 ${active ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-100' : 'border-slate-200 bg-white'}" onclick="toggleSummaryDetails('${item.key}')">
       <div class="text-xs font-medium uppercase tracking-wide text-slate-500">${item.label}</div>
       <div class="mt-2 text-2xl font-semibold text-slate-800">${count}<span class="ml-1 text-sm font-normal text-slate-500">セット</span></div>
-    </div>`;
+    </button>`;
   }).join('');
+  renderSummaryDetails(groups);
+}
+function toggleSummaryDetails(status) {
+  activeSummaryStatus = activeSummaryStatus === status ? '' : status;
+  renderStudentCards();
+}
+function historyEventsForGroup(group, status) {
+  const allowed = ['returned_to_tutor', 'returned_to_receiver'].includes(status) ? RETURN_HISTORY_ACTIONS : APPROVAL_HISTORY_ACTIONS;
+  const seen = new Set();
+  const rows = [];
+  sortReports(group.reports).forEach(report => {
+    (report.events || []).forEach(event => {
+      if (!allowed.has(event.action)) return;
+      const key = `${event.action}:${event.actor_role || ''}:${event.actor_name || ''}:${String(event.created_at).slice(0, 19)}:${event.comment || ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      rows.push(event);
+    });
+  });
+  rows.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  return rows;
+}
+function summaryHistoryRows(group, status) {
+  const rows = historyEventsForGroup(group, status).map(event => `<tr class="border-t border-slate-100">
+    <td class="px-4 py-3">${eventDate(event.created_at)}</td>
+    <td class="px-4 py-3">${eventTime(event.created_at)}</td>
+    <td class="px-4 py-3">${escapeHtml(roleLabel(event.actor_role))}</td>
+    <td class="px-4 py-3">${escapeHtml(event.actor_name || '-')}</td>
+    <td class="px-4 py-3">${escapeHtml(actionLabel(event.action))}${event.comment ? `<div class="mt-1 whitespace-pre-wrap text-xs text-slate-500">${escapeHtml(event.comment)}</div>` : ''}</td>
+  </tr>`);
+  if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) {
+    rows.push(`<tr class="border-t border-slate-100 bg-amber-50/70">
+      <td class="px-4 py-3">-</td>
+      <td class="px-4 py-3">-</td>
+      <td class="px-4 py-3">-</td>
+      <td class="px-4 py-3">-</td>
+      <td class="px-4 py-3 font-medium text-amber-800">${RETURN_WAIT_LABELS[status] || '対応待ち'}</td>
+    </tr>`);
+  }
+  return rows.join('') || `<tr><td colspan="5" class="px-4 py-4 text-sm text-slate-500">履歴はありません。</td></tr>`;
+}
+function renderSummaryDetails(groups) {
+  if (!activeSummaryStatus) {
+    summaryDetails.innerHTML = '';
+    return;
+  }
+  const definition = summaryDefinitions.find(item => item.key === activeSummaryStatus);
+  const targets = groups.filter(group => cardStatus(group.reports) === activeSummaryStatus);
+  summaryDetails.innerHTML = `<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
+      <h2 class="font-semibold text-slate-800">${escapeHtml(definition?.label || statusLabel(activeSummaryStatus))}の履歴詳細</h2>
+      <p class="mt-1 text-sm text-slate-500">${targets.length}セット</p>
+    </div>
+    <div class="space-y-4 p-4">
+      ${targets.length ? targets.map(group => `<div class="rounded-lg border border-slate-200">
+        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
+          <div class="font-medium text-slate-800">${escapeHtml(assignmentName(group.assignment_id))}</div>
+          <div class="text-sm text-slate-500">${escapeHtml(tutorName(group.tutor_id))} / ${escapeHtml(monthOptionLabel(selectedMonth))}</div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+              <tr>
+                <th class="px-4 py-3 text-left">日付</th>
+                <th class="px-4 py-3 text-left">時間</th>
+                <th class="px-4 py-3 text-left">ロール</th>
+                <th class="px-4 py-3 text-left">氏名</th>
+                <th class="px-4 py-3 text-left">アクション</th>
+              </tr>
+            </thead>
+            <tbody>${summaryHistoryRows(group, activeSummaryStatus)}</tbody>
+          </table>
+        </div>
+      </div>`).join('') : '<div class="text-sm text-slate-600">該当する報告書セットはありません。</div>'}
+    </div>
+  </section>`;
 }
 function actionConfig(status) {
   if (!isCurrentMonth()) return null;
@@ -280,7 +397,7 @@ function renderBulkReturnForm(group, status) {
 }
 function renderStudentCards() {
   const groups = visibleGroups();
-  renderSummary(Object.values(groupedByTutorAssignment(monthTutorReports())));
+  renderSummary(groups);
   studentCards.innerHTML = groups.length ? groups.map((group, index) => {
     const sorted = sortReports(group.reports);
     const total = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
