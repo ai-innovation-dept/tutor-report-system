@@ -409,6 +409,36 @@ def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
     assert received.json()["status"] == ReportStatus.received.value
 
 
+def test_admin_receiver_can_receive_returned_to_receiver_bulk(client, db):
+    receiver_token = token(client, "receiver@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="returned to receiver",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.returned_to_receiver.value,
+    )
+    db.add(report)
+    db.commit()
+
+    received = client.post(
+        "/api/reports/admin-receive-bulk",
+        headers={"Authorization": f"Bearer {receiver_token}"},
+        json={"report_ids": [str(report.id)], "target_month": today.strftime("%Y-%m")},
+    )
+
+    assert received.status_code == 200
+    db.refresh(report)
+    assert report.status == ReportStatus.received.value
+
+
 def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
     exported = {}
 

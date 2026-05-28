@@ -140,7 +140,7 @@ async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db
     if user.role not in {"admin_receiver", "admin_master"}:
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
-    _validate_bulk_status(reports, ReportStatus.submitted_to_admin.value)
+    _validate_bulk_status(reports, ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value)
     _validate_target_month(reports, payload.target_month)
     changed = []
     for report in reports:
@@ -230,10 +230,10 @@ def _validate_bulk_statuses(reports: list[LessonReport], user_id, owner_attr: st
         raise HTTPException(status_code=409, detail=f"bulk reports must all be one of: {allowed}")
 
 
-def _validate_bulk_status(reports: list[LessonReport], status: str) -> None:
-    statuses = {report.status for report in reports}
-    if statuses != {status}:
-        raise HTTPException(status_code=409, detail=f"bulk reports must all be {status}")
+def _validate_bulk_status(reports: list[LessonReport], *allowed_statuses: str) -> None:
+    for report in reports:
+        if report.status not in allowed_statuses:
+            raise HTTPException(status_code=409, detail=f"bulk reports must all be one of {allowed_statuses}")
 
 
 def _validate_target_month(reports: list[LessonReport], target_month: str | None) -> None:
