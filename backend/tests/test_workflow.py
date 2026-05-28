@@ -409,6 +409,36 @@ def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
     assert received.json()["status"] == ReportStatus.received.value
 
 
+def test_admin_receiver_can_receive_submitted_to_admin_bulk(client, db):
+    receiver_token = token(client, "receiver@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="submitted to admin",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.submitted_to_admin.value,
+    )
+    db.add(report)
+    db.commit()
+
+    received = client.post(
+        "/api/reports/admin-receive-bulk",
+        headers={"Authorization": f"Bearer {receiver_token}"},
+        json={"report_ids": [str(report.id)], "target_month": today.strftime("%Y-%m")},
+    )
+
+    assert received.status_code == 200
+    db.refresh(report)
+    assert report.status == ReportStatus.received.value
+
+
 def test_admin_receiver_can_receive_returned_to_receiver_bulk(client, db):
     receiver_token = token(client, "receiver@example.com")
     assignment = db.query(Assignment).first()
@@ -437,6 +467,102 @@ def test_admin_receiver_can_receive_returned_to_receiver_bulk(client, db):
     assert received.status_code == 200
     db.refresh(report)
     assert report.status == ReportStatus.received.value
+
+
+def test_return_from_reviewer_notifies_receiver(client, db, monkeypatch):
+    sent = []
+
+    async def fake_send(to_email, subject, template_name, context):
+        sent.append((to_email, subject, template_name, context))
+
+    monkeypatch.setattr("app.services.workflow_service.send_email_notification", fake_send)
+    reviewer_token = token(client, "reviewer@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="received",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.received.value,
+    )
+    db.add(report)
+    db.commit()
+
+    returned = client.post(
+        f"/api/reports/{report.id}/return-from-reviewer",
+        headers={"Authorization": f"Bearer {reviewer_token}"},
+        json={"comment": "受付で確認してください"},
+    )
+
+    assert returned.status_code == 200
+    assert [call[0] for call in sent] == ["receiver@example.com"]
+
+
+def test_return_from_master_notifies_receiver(client, db, monkeypatch):
+    sent = []
+
+    async def fake_send(to_email, subject, template_name, context):
+        sent.append((to_email, subject, template_name, context))
+
+    monkeypatch.setattr("app.services.workflow_service.send_email_notification", fake_send)
+    master_token = token(client, "master@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="re reviewed",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.re_reviewed.value,
+    )
+    db.add(report)
+    db.commit()
+
+    returned = client.post(
+        "/api/reports/admin-return-bulk",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={
+            "report_ids": [str(report.id)],
+            "target_month": today.strftime("%Y-%m"),
+            "from_role": "master",
+            "comment": "受付で確認してください",
+        },
+    )
+
+    assert returned.status_code == 200
+    assert [call[0] for call in sent] == ["receiver@example.com"]
+
+
+def test_selected_role_cookie_is_respected(client, db):
+    multi_role_user = User(
+        email="multi-admin@example.com",
+        role="admin_receiver",
+        roles=["admin_receiver", "admin_reviewer"],
+        display_name="Multi Admin",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(multi_role_user)
+    db.commit()
+    access_token = token(client, "multi-admin@example.com")
+    client.cookies.set("selected_role", "admin_reviewer")
+
+    reports = client.get("/api/reports", headers={"Authorization": f"Bearer {access_token}"})
+    me = client.get("/api/auth/me", headers={"Authorization": f"Bearer {access_token}"})
+
+    assert reports.status_code == 200
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin_reviewer"
 
 
 def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
