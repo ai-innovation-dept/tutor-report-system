@@ -143,6 +143,9 @@ function renderActionArea(month, reports) {
   }
   return `${summary}<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>`;
 }
+function hasApprovedReports(reports) {
+  return reports.length > 0 && reports.every(report => report.status === 'admin_approved');
+}
 function renderDownloadArea(month, reports) {
   const byAssignment = {};
   for (const r of reports) {
@@ -151,9 +154,7 @@ function renderDownloadArea(month, reports) {
     }
     byAssignment[r.assignment_id].reports.push(r);
   }
-  const groups = Object.values(byAssignment).filter(g =>
-    g.reports.length > 0 && g.reports.every(r => r.status === 'admin_approved')
-  );
+  const groups = Object.values(byAssignment).filter(g => hasApprovedReports(g.reports));
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
@@ -169,8 +170,7 @@ function exportTargetReports(month) {
 function renderBulkExportLinks() {
   const month = bulkExportMonth.value || selectedMonth;
   const reports = exportTargetReports(month);
-  const approved = reports.length > 0 && reports.every(report => report.status === 'admin_approved');
-  if (!approved) {
+  if (!hasApprovedReports(reports)) {
     bulkExportButtons.innerHTML = '';
     return;
   }

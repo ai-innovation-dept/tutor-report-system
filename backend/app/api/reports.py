@@ -10,6 +10,7 @@ from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.rbac import has_role, is_admin
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
@@ -252,17 +253,23 @@ def export_reports(
     if assignment_id and not assignment:
         raise HTTPException(status_code=404, detail="assignment not found")
 
-    if user.role == "tutor":
+    if has_role(user, "tutor"):
         if tutor_id and tutor_id != user.id:
             raise HTTPException(status_code=403, detail="cannot export other tutor reports")
         if assignment and assignment.tutor_id != user.id:
             raise HTTPException(status_code=403, detail="access denied")
-        stmt = stmt.where(LessonReport.tutor_id == user.id)
-    elif user.role == "parent":
+        stmt = stmt.where(
+            LessonReport.tutor_id == user.id,
+            LessonReport.status == ReportStatus.admin_approved.value,
+        )
+    elif has_role(user, "parent"):
         if assignment and assignment.parent_id != user.id:
             raise HTTPException(status_code=403, detail="access denied")
-        stmt = stmt.where(LessonReport.parent_id == user.id)
-    elif user.role.startswith("admin_"):
+        stmt = stmt.where(
+            LessonReport.parent_id == user.id,
+            LessonReport.status == ReportStatus.admin_approved.value,
+        )
+    elif is_admin(user):
         if scope in {"all", "approved_only"}:
             stmt = stmt.where(LessonReport.status == ReportStatus.admin_approved.value)
     else:
@@ -284,7 +291,7 @@ def export_reports(
     elif tutor_id:
         tutor = db.get(User, tutor_id)
         filename_base = f"指導実績_{tutor.display_name if tutor else '講師'}_全生徒_{month_label}"
-    elif user.role == "parent":
+    elif has_role(user, "parent"):
         filename_base = f"指導実績_{user.display_name}_全生徒_{month_label}"
     else:
         filename_base = f"指導実績_全体_{month_label}"

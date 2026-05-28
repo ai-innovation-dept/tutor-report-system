@@ -130,7 +130,7 @@ let allAssignments = [];
 let allTutors = [];
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonthValue();
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
-let selectedGroupKey = '';
+let openCardKey = null;
 let returnTargetKey = '';
 
 function currentMonthValue() {
@@ -385,7 +385,7 @@ function renderPipeline(groups) {
       <div class="space-y-2 p-2">
         ${items.length ? items.map(group => {
           const status = currentGroupStatus(group.reports);
-          return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${selectedGroupKey === group.key ? 'ring-2 ring-blue-200' : ''}" onclick="showDetails('${group.key}')">
+          return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${openCardKey === group.key ? 'ring-2 ring-blue-200' : ''}" onclick="toggleDetails('${group.key}')">
             <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.student_name)}</div>
             <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(statusLabel(status))}</div>
           </button>`;
@@ -445,8 +445,21 @@ function currentTimelineRow(status) {
     </div>
   </div>`;
 }
+function closeDetails() {
+  openCardKey = null;
+  detailDrawer.classList.add('hidden');
+  detailDrawer.innerHTML = '';
+  renderPipeline(currentGroups());
+}
+function toggleDetails(key) {
+  if (openCardKey === key) {
+    closeDetails();
+    return;
+  }
+  showDetails(key);
+}
 function showDetails(key) {
-  selectedGroupKey = key;
+  openCardKey = key;
   const group = currentGroups().find(item => item.key === key);
   if (!group) return;
   const status = currentGroupStatus(group.reports);
@@ -515,10 +528,10 @@ function renderDashboard() {
   renderKpis();
   renderTasks(groups);
   renderPipeline(groups);
-  if (selectedGroupKey && groups.some(group => group.key === selectedGroupKey)) {
-    showDetails(selectedGroupKey);
+  if (openCardKey && groups.some(group => group.key === openCardKey)) {
+    showDetails(openCardKey);
   } else {
-    selectedGroupKey = '';
+    openCardKey = null;
     detailDrawer.classList.add('hidden');
     detailDrawer.innerHTML = '';
   }
@@ -538,12 +551,12 @@ async function loadAdmin() {
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;
   selectedTutorId = '';
-  selectedGroupKey = '';
+  openCardKey = null;
   updateUrl();
 });
 tutorFilter.addEventListener('change', () => {
   selectedTutorId = tutorFilter.value;
-  selectedGroupKey = '';
+  openCardKey = null;
   updateUrl();
 });
 window.authReady.then(user => {
