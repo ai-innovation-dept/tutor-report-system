@@ -34,9 +34,8 @@ def decode_access_token(token: str) -> str | None:
 
 def authenticate_user(db: Session, email: str, password: str) -> User | None:
     # SSO extension point: add SsoAuthenticator and dispatch here or from api/auth.py.
-    user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True)))
+    user = db.scalar(select(User).where(User.email == email, User.is_active.is_(True), User.deleted_at.is_(None)))
     if not user or not verify_password(password, user.password_hash):
         return None
     return user
 # === Phase 2 END ===
-

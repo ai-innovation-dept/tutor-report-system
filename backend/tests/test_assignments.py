@@ -39,6 +39,7 @@ def test_admin_can_add_existing_student_to_another_tutor(client, db):
     second_tutor = User(
         email="tutor2@example.com",
         role="tutor",
+        roles=["tutor"],
         display_name="Tutor 2",
         password_hash=hash_password("Passw0rd!"),
     )

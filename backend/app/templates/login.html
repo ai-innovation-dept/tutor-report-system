@@ -44,6 +44,10 @@
       const json = await res.json();
       localStorage.setItem('access_token', json.access_token);
       localStorage.setItem('token', json.access_token);
+      if (json.requires_role_selection) {
+        location.href = '/select-role';
+        return;
+      }
       if (json.role === 'tutor') location.href = '/tutor/reports';
       else if (json.role === 'parent') location.href = '/parent/reports';
       else location.href = '/admin/dashboard';

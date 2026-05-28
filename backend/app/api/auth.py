@@ -5,9 +5,11 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.rbac import normalize_roles, sync_user_roles, user_roles
 from app.core.security import authenticate_user, create_access_token, hash_password
 from app.database import get_db
 from app.deps import get_current_user
@@ -27,6 +29,18 @@ ROLE_LABELS = {
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 PASSWORD_RESET_SUBJECT = "【指導実績報告システム】パスワードリセットのご案内"
+
+
+class RoleSelectIn(BaseModel):
+    role: str
+
+
+def _dashboard_for_role(role: str) -> str:
+    if role == "tutor":
+        return "/tutor/reports"
+    if role == "parent":
+        return "/parent/reports"
+    return "/admin/dashboard"
 
 
 def _valid_invitation(token: str, db: Session) -> Invitation:
@@ -63,13 +77,21 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     user = authenticate_user(db, form.username, form.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="メールアドレスまたはパスワードが違います")
+    if not user.roles:
+        sync_user_roles(user, [user.role])
+        db.commit()
+        db.refresh(user)
+    roles = user_roles(user)
     access_token = create_access_token(str(user.id))
     response = JSONResponse(
         content={
             "access_token": access_token,
             "token_type": "bearer",
-            "role": user.role,
+            "role": user.role if len(roles) == 1 else None,
+            "roles": roles,
+            "requires_role_selection": len(roles) > 1,
             "display_name": user.display_name,
+            "redirect_url": _dashboard_for_role(user.role) if len(roles) == 1 else "/select-role",
         }
     )
     response.set_cookie(
@@ -78,6 +100,20 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
         httponly=True,
         samesite="lax",
     )
+    if len(roles) == 1:
+        response.set_cookie(key="selected_role", value=roles[0], httponly=True, samesite="lax")
+    else:
+        response.delete_cookie("selected_role")
+    return response
+
+
+@router.post("/select-role")
+def select_role(payload: RoleSelectIn, user: User = Depends(get_current_user)):
+    roles = normalize_roles(user_roles(user))
+    if payload.role not in roles:
+        raise HTTPException(status_code=403, detail="role is not assigned to this user")
+    response = JSONResponse(content={"role": payload.role, "redirect_url": _dashboard_for_role(payload.role)})
+    response.set_cookie(key="selected_role", value=payload.role, httponly=True, samesite="lax")
     return response
 
 
@@ -85,6 +121,7 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
 def logout():
     response = JSONResponse(content={"message": "logged out"})
     response.delete_cookie("access_token")
+    response.delete_cookie("selected_role")
     return response
 
 
@@ -178,6 +215,7 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
     user = User(
         email=invitation.email,
         role=invitation.role,
+        roles=[invitation.role],
         display_name=display_name,
         tutor_no=invitation.tutor_no if invitation.role == "tutor" else None,
         password_hash=hash_password(payload.password),

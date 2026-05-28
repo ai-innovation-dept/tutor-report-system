@@ -232,6 +232,7 @@ def test_parent_reports_can_filter_by_tutor(client, db):
     second_tutor = User(
         email="tutor2@example.com",
         role="tutor",
+        roles=["tutor"],
         display_name="講師 二郎",
         password_hash=hash_password("Passw0rd!"),
     )
@@ -522,6 +523,7 @@ def test_tutor_cannot_export_other_tutor_reports(client, db):
     second_tutor = User(
         email="tutor2@example.com",
         role="tutor",
+        roles=["tutor"],
         display_name="Tutor 2",
         password_hash=hash_password("Passw0rd!"),
     )

@@ -96,7 +96,7 @@ def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
     })
     assert registered.status_code == 200
     user = db.query(User).filter(User.email == "tutor3@example.com").one()
-    assert user.role == "tutor"
+    assert user.roles == ["tutor"]
     assert user.display_name == "田中 三郎"
     assert user.tutor_no == "T003"
 
@@ -125,7 +125,7 @@ def test_admin_can_invite_staff_and_register(client, db, monkeypatch):
     })
     assert registered.status_code == 200
     user = db.query(User).filter(User.email == "receiver2@example.com").one()
-    assert user.role == "admin_receiver"
+    assert user.roles == ["admin_receiver"]
     assert user.display_name == "山田受付"
 
 

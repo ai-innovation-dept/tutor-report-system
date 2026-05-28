@@ -343,6 +343,14 @@ def reset_password_page(request: Request):
     return templates.TemplateResponse(request, "reset_password.html", context={"request": request})
 
 
+@router.get("/select-role", response_class=HTMLResponse)
+def select_role_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "select_role.html", context=_base_context(request, user))
+
+
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)

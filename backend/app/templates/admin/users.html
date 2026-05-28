@@ -184,27 +184,54 @@ function sortedUsers() {
   return [...users]
     .filter(user => !keyword || `${user.display_name} ${user.email}`.toLowerCase().includes(keyword))
     .sort((a, b) => {
-      const roleCompare = (ROLE_ORDER[a.role] ?? 99) - (ROLE_ORDER[b.role] ?? 99);
+      const roleCompare = (ROLE_ORDER[primaryRole(a)] ?? 99) - (ROLE_ORDER[primaryRole(b)] ?? 99);
       if (roleCompare !== 0) return roleCompare;
       return a.display_name.localeCompare(b.display_name, 'ja');
     });
+}
+function userRoles(user) {
+  return user.roles && user.roles.length ? user.roles : [user.role];
+}
+function primaryRole(user) {
+  return userRoles(user)[0] || user.role;
+}
+function canEditAdminRoles(user) {
+  const roles = userRoles(user);
+  return roles.every(role => ['admin_receiver', 'admin_reviewer'].includes(role));
+}
+function roleCheckboxes(user) {
+  const roles = new Set(userRoles(user));
+  const editable = canEditAdminRoles(user);
+  return ['tutor', 'parent', 'admin_receiver', 'admin_reviewer', 'admin_master'].map(role => {
+    const enabled = editable && ['admin_receiver', 'admin_reviewer'].includes(role);
+    return `<label class="mr-3 inline-flex items-center gap-1 whitespace-nowrap text-xs ${enabled ? 'text-slate-700' : 'text-slate-400'}">
+      <input type="checkbox" data-role-user="${user.id}" value="${role}" ${roles.has(role) ? 'checked' : ''} ${enabled ? '' : 'disabled'} class="rounded border-slate-300">
+      <span>${roleLabel(role)}</span>
+    </label>`;
+  }).join('');
 }
 function renderUsers() {
   const rows = sortedUsers();
   userRows.innerHTML = rows.length ? rows.map(user => {
     const active = user.is_active ? '有効' : '無効';
     const rowClass = user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500';
-    const action = user.is_active
+    const activeAction = user.is_active
       ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="toggleUserActive('${user.id}', false)">無効化</button>`
       : `<button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100" onclick="toggleUserActive('${user.id}', true)">有効化</button>`;
+    const roleAction = canEditAdminRoles(user)
+      ? `<button class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100" onclick="updateUserRoles('${user.id}')">更新</button>`
+      : '';
+    const deleteAction = userRoles(user).includes('admin_master')
+      ? ''
+      : `<button class="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50" onclick="deleteUser('${user.id}')">削除</button>`;
     return `<tr class="border-t border-slate-100 ${rowClass}">
-      <td class="px-4 py-3">${roleLabel(user.role)}</td>
+      <td class="px-4 py-3 min-w-72">${roleCheckboxes(user)}</td>
       <td class="px-4 py-3">${escapeHtml(user.display_name)}</td>
       <td class="px-4 py-3">${escapeHtml(user.email)}</td>
       <td class="px-4 py-3">${escapeHtml(user.tutor_no || '-')}</td>
       <td class="px-4 py-3">${formatDate(user.created_at)}</td>
       <td class="px-4 py-3">${active}</td>
-      <td class="px-4 py-3">${action}</td>
+      <td class="px-4 py-3"><div class="flex flex-wrap gap-2">${roleAction}${activeAction}${deleteAction}</div></td>
     </tr>`;
   }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">登録済みユーザーはありません。</td></tr>';
 }
@@ -267,6 +294,22 @@ async function toggleUserActive(id, isActive) {
   if (!confirm(`このユーザーを${label}しますか。`)) return;
   await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({is_active: isActive})});
   showInviteMessage(`ユーザーを${label}しました。`);
+  await loadUsersPage();
+}
+async function updateUserRoles(id) {
+  const checked = [...document.querySelectorAll(`input[data-role-user="${id}"]:checked`)].map(input => input.value);
+  if (!checked.length) {
+    showInviteMessage('少なくとも1つの運営ロールを選択してください。', true);
+    return;
+  }
+  await api(`/api/users/${id}/roles`, {method: 'PATCH', body: JSON.stringify({roles: checked})});
+  showInviteMessage('ロールを更新しました。');
+  await loadUsersPage();
+}
+async function deleteUser(id) {
+  if (!confirm('本当に削除しますか？この操作は取り消せません')) return;
+  await api(`/api/users/${id}`, {method: 'DELETE'});
+  showInviteMessage('ユーザーを削除しました。');
   await loadUsersPage();
 }
 roleSelect.addEventListener('change', syncRoleFields);

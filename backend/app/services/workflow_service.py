@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.rbac import has_role
 from app.models import ChatMessage, LessonReport, ReportAction, ReportEvent, ReportStatus, User
 from app.services.notification_service import enqueue, send_email_notification
 
@@ -42,7 +43,7 @@ RETURN_ACTIONS = {
 
 
 def _role_allowed(required: str, actor: User) -> bool:
-    return actor.role == required or actor.role == "admin_master" and required.startswith("admin_")
+    return actor.role == required or has_role(actor, "admin_master") and required.startswith("admin_")
 
 
 def transition(db: Session, report: LessonReport, actor: User, action: str, comment: str | None = None) -> LessonReport:
@@ -238,9 +239,11 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
         return
 
     if action == ReportAction.submit_to_admin.value:
-        receivers = db.scalars(
-            select(User).where(User.role == "admin_receiver", User.is_active.is_(True))
-        ).all()
+        receivers = [
+            user
+            for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+            if has_role(user, "admin_receiver")
+        ]
         await _send_email_to_users(
             db,
             receivers,

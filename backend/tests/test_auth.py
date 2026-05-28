@@ -13,11 +13,36 @@ def test_login_success_and_me(client):
     assert res.status_code == 200
     assert "access_token" in res.cookies
     assert res.json()["role"] == "tutor"
+    assert res.json()["roles"] == ["tutor"]
+    assert res.json()["requires_role_selection"] is False
     assert res.json()["display_name"] == "Tutor"
     auth = {"Authorization": f"Bearer {res.json()['access_token']}"}
     me = client.get("/api/auth/me", headers=auth)
     assert me.status_code == 200
     assert me.json()["email"] == "tutor@example.com"
+    assert me.json()["roles"] == ["tutor"]
+
+
+def test_multi_role_login_requires_role_selection(client, db):
+    user = db.query(User).filter(User.email == "receiver@example.com").one()
+    user.role = "admin_receiver"
+    user.roles = ["admin_receiver", "admin_reviewer"]
+    db.commit()
+
+    res = client.post("/api/auth/login", data={"username": "receiver@example.com", "password": "Passw0rd!"})
+    assert res.status_code == 200
+    assert res.json()["role"] is None
+    assert res.json()["roles"] == ["admin_receiver", "admin_reviewer"]
+    assert res.json()["requires_role_selection"] is True
+    assert res.json()["redirect_url"] == "/select-role"
+
+    selected = client.post("/api/auth/select-role", json={"role": "admin_reviewer"})
+    assert selected.status_code == 200
+    assert selected.json()["role"] == "admin_reviewer"
+    me = client.get("/api/auth/me")
+    assert me.status_code == 200
+    assert me.json()["role"] == "admin_reviewer"
+    assert me.json()["roles"] == ["admin_receiver", "admin_reviewer"]
 
 
 def test_login_token_expires_in_8_hours(client):
@@ -112,7 +137,7 @@ def test_parent_register_with_invitation(client, db):
     created = db.query(User).filter(User.email == "new-parent@example.com").one()
     db.refresh(assignment)
     db.refresh(invitation)
-    assert created.role == "parent"
+    assert created.roles == ["parent"]
     assert created.display_name == f"{assignment.student_name}の保護者"
     assert assignment.parent_id == created.id
     assert invitation.accepted_at is not None

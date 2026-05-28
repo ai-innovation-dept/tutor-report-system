@@ -14,11 +14,18 @@ class UserOut(BaseModel):
     id: UUID
     email: EmailStr
     role: str
+    roles: list[str] = Field(default_factory=list)
     display_name: str
     tutor_no: str | None = None
     phone: str | None = None
     is_active: bool
     created_at: datetime | None = None
+    deleted_at: datetime | None = None
+
+    @field_validator("roles", mode="before")
+    @classmethod
+    def default_roles(cls, roles):
+        return roles or []
 
 
 class UserCreate(BaseModel):
@@ -36,6 +43,19 @@ class UserPatch(BaseModel):
     phone: str | None = None
     is_active: bool | None = None
     role: str | None = None
+
+
+class UserRolesPatch(BaseModel):
+    roles: list[str]
+
+    @field_validator("roles")
+    @classmethod
+    def validate_roles(cls, roles: list[str]):
+        cleaned = []
+        for role in roles:
+            if role not in cleaned:
+                cleaned.append(role)
+        return cleaned
 
 
 class PasswordChange(BaseModel):
