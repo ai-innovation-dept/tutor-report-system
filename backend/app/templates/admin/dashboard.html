@@ -156,6 +156,12 @@ function formatDateTime(value) {
   if (Number.isNaN(d.getTime())) return '-';
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
+function formatEventDate(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 function tutorName(id) {
   return allTutors.find(tutor => tutor.id === id)?.display_name || '講師未設定';
 }
@@ -223,9 +229,6 @@ function eventsForGroup(group) {
   });
   return events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
-function latestEvent(group, action) {
-  return [...eventsForGroup(group)].reverse().find(event => event.action === action);
-}
 function reportIdsForStatus(group, status) {
   const statuses = Array.isArray(status) ? status : [status];
   return group.reports.filter(report => statuses.includes(report.status)).map(report => report.id);
@@ -241,9 +244,7 @@ function taskConfig() {
       subtext: '最終承認が必要',
       label: '最終承認',
       endpoint: '/api/reports/admin-approve-bulk',
-      returnRole: 'master',
-      eventAction: 're_review',
-      metaLabel: '再鑑完了'
+      returnRole: 'master'
     };
   }
   if (currentRole === 'admin_receiver') {
@@ -252,9 +253,7 @@ function taskConfig() {
       subtext: '受付対応が必要',
       label: '受付承認',
       endpoint: '/api/reports/admin-receive-bulk',
-      returnRole: 'receiver',
-      eventAction: 'return_from_reviewer',
-      metaLabel: '差戻し'
+      returnRole: 'receiver'
     };
   }
   if (currentRole === 'admin_reviewer') {
@@ -263,12 +262,33 @@ function taskConfig() {
       subtext: '再鑑が必要',
       label: '再鑑承認',
       endpoint: '/api/reports/admin-review-bulk',
-      returnRole: 'reviewer',
-      eventAction: 'receive',
-      metaLabel: '受付承認'
+      returnRole: 'reviewer'
     };
   }
   return null;
+}
+function getTaskMeta(group, groupStatus) {
+  const allEvents = group.reports
+    .flatMap(report => report.events || [])
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  if (groupStatus === 're_reviewed') {
+    const event = allEvents.find(item => item.action === 're_review');
+    if (event) return `${event.actor_name || ''} / 再鑑完了 ${formatEventDate(event.created_at)}`.trim();
+  }
+  if (groupStatus === 'received') {
+    const event = allEvents.find(item => item.action === 'receive');
+    if (event) return `${event.actor_name || ''} / 受付完了 ${formatEventDate(event.created_at)}`.trim();
+  }
+  if (groupStatus === 'submitted_to_admin') {
+    const event = allEvents.find(item => item.action === 'parent_approve');
+    if (event) return `${event.actor_name || ''} / 保護者承認 ${formatEventDate(event.created_at)}`.trim();
+  }
+  if (groupStatus === 'returned_to_receiver') {
+    const event = allEvents.find(item => item.action === 'return_from_reviewer' || item.action === 'return_from_master');
+    if (event) return `${event.actor_name || ''} / 差戻し ${formatEventDate(event.created_at)}`.trim();
+  }
+  return '';
 }
 function renderFilters() {
   const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
@@ -328,11 +348,12 @@ function renderTasks(groups) {
   const tasks = config ? groups.filter(group => statuses.includes(currentGroupStatus(group.reports))) : [];
   taskCountBadge.textContent = tasks.length;
   taskList.innerHTML = tasks.length ? tasks.map(group => {
-    const event = latestEvent(group, config.eventAction);
+    const groupStatus = currentGroupStatus(group.reports);
+    const meta = getTaskMeta(group, groupStatus);
     return `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
-        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(config.metaLabel)} ${escapeHtml(formatDateTime(event?.created_at))} ${escapeHtml(event?.actor_name || '')}</div>
+        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
       </div>
       <div class="flex flex-wrap gap-2">
         <button class="rounded-lg px-3 py-2 text-sm font-medium text-white" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
