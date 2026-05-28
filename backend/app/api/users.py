@@ -3,15 +3,16 @@ import secrets
 import math
 from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.rbac import ADMIN_ROLES, has_role, is_admin, require_role, sync_user_roles
 from app.core.security import hash_password, verify_password
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Assignment, LessonReport, User
+from app.models import Assignment, Invitation, LessonReport, User
+from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
 from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
 
 router = APIRouter(prefix="/api", tags=["users"])
@@ -178,8 +179,9 @@ def reset_password(user_id: UUID, db: Session = Depends(get_db), _: User = Depen
 
 
 @router.post("/assignments", response_model=AssignmentOut)
-def create_assignment(payload: AssignmentCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def create_assignment(payload: AssignmentCreate, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     data = payload.model_dump()
+    parent_email = data.pop("parent_email", None)
     if user.role == "tutor":
         if payload.tutor_id != user.id:
             raise HTTPException(status_code=403, detail="cannot create assignments for another tutor")
@@ -194,6 +196,8 @@ def create_assignment(payload: AssignmentCreate, db: Session = Depends(get_db), 
             parent = db.get(User, payload.parent_id)
             if not parent or not has_role(parent, "parent"):
                 raise HTTPException(status_code=422, detail="parent_id must be a parent user")
+    if parent_email and data.get("parent_id"):
+        raise HTTPException(status_code=422, detail="parent_email and parent_id cannot both be set")
     duplicate = db.scalar(
         select(Assignment).where(
             Assignment.tutor_id == payload.tutor_id,
@@ -204,8 +208,24 @@ def create_assignment(payload: AssignmentCreate, db: Session = Depends(get_db), 
         raise HTTPException(status_code=409, detail="assignment already exists")
     assignment = Assignment(**data)
     db.add(assignment)
+    invitation = None
+    should_send = False
+    if parent_email:
+        db.flush()
+        invitation, _, should_send = prepare_parent_invitation_for_assignment(str(parent_email), assignment, db, user)
     db.commit()
-    db.refresh(assignment)
+    if invitation and should_send:
+        invitation = db.scalar(
+            select(Invitation)
+            .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))
+            .where(Invitation.id == invitation.id)
+        )
+        await _send_invitation_email(invitation, request)
+    assignment = db.scalar(
+        select(Assignment)
+        .options(selectinload(Assignment.tutor), selectinload(Assignment.parent))
+        .where(Assignment.id == assignment.id)
+    )
     return assignment
 
 
@@ -228,13 +248,17 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
     if "parent_id" in data:
         db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": data["parent_id"]}, synchronize_session=False)
     db.commit()
-    db.refresh(assignment)
+    assignment = db.scalar(
+        select(Assignment)
+        .options(selectinload(Assignment.tutor), selectinload(Assignment.parent))
+        .where(Assignment.id == assignment.id)
+    )
     return assignment
 
 
 @router.get("/assignments", response_model=list[AssignmentOut])
 def list_assignments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    stmt = select(Assignment).order_by(Assignment.created_at.desc())
+    stmt = select(Assignment).options(selectinload(Assignment.tutor), selectinload(Assignment.parent)).order_by(Assignment.created_at.desc())
     if user.role == "tutor":
         stmt = stmt.where(Assignment.tutor_id == user.id, Assignment.is_active.is_(True))
     elif user.role == "parent":

@@ -71,6 +71,10 @@ class Assignment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     student_name: Mapped[str] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    skip_parent_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    reminder_days_after: Mapped[int] = mapped_column(Integer, default=1)
+    reminder_count: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
@@ -78,6 +82,18 @@ class Assignment(Base):
     @property
     def parent_display_name(self) -> str | None:
         return self.parent.display_name if self.parent else None
+
+    @property
+    def tutor_name(self) -> str | None:
+        return self.tutor.display_name if self.tutor else None
+
+    @property
+    def parent_name(self) -> str | None:
+        return self.parent.display_name if self.parent else None
+
+    @property
+    def parent_email(self) -> str | None:
+        return self.parent.email if self.parent else None
 
 
 class Invitation(Base):

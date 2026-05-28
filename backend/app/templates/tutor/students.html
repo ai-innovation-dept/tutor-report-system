@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- # === Phase 9: 講師 生徒管理 START === -->
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <p class="text-sm font-medium text-blue-600">講師ポータル</p>
+    <h1 class="text-2xl font-semibold text-slate-800">生徒管理</h1>
+  </div>
+  <button id="openCreateModal" type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">＋ 新規生徒を追加</button>
+</div>
+
+<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">生徒名</th>
+          <th class="px-4 py-3 text-left">保護者名</th>
+          <th class="px-4 py-3 text-left">保護者メール</th>
+          <th class="px-4 py-3 text-left">状態</th>
+        </tr>
+      </thead>
+      <tbody id="studentRows"></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="createModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeCreateModal()">
+  <form id="createStudentForm" class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">新規生徒を追加</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeCreateModal()">閉じる</button>
+    </div>
+    <div class="grid gap-4 p-5">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">生徒名</span>
+        <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">保護者メールアドレス</span>
+        <input id="parentEmailInput" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+      <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeCreateModal()">キャンセル</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">追加する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+let assignments = [];
+let currentTutorId = '';
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function renderStudents() {
+  studentRows.innerHTML = assignments.length ? assignments.map(assignment => `<tr class="border-t border-slate-100 hover:bg-slate-50">
+    <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(assignment.student_name)}</td>
+    <td class="px-4 py-3">${escapeHtml(assignment.parent_name || '未登録')}</td>
+    <td class="px-4 py-3">${escapeHtml(assignment.parent_email || '-')}</td>
+    <td class="px-4 py-3">${assignment.is_active ? '有効' : '無効'}</td>
+  </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="4">担当生徒はまだありません。</td></tr>';
+}
+async function loadStudents() {
+  assignments = await api('/api/assignments');
+  renderStudents();
+}
+function openModal() {
+  createModal.classList.remove('hidden');
+  createModal.classList.add('flex');
+  studentNameInput.focus();
+}
+function closeCreateModal() {
+  createModal.classList.add('hidden');
+  createModal.classList.remove('flex');
+  createStudentForm.reset();
+}
+openCreateModal.addEventListener('click', openModal);
+createStudentForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api('/api/assignments', {
+      method: 'POST',
+      body: JSON.stringify({
+        tutor_id: currentTutorId,
+        student_name: studentNameInput.value.trim(),
+        parent_email: parentEmailInput.value.trim() || null
+      })
+    });
+    closeCreateModal();
+    showToast('生徒を追加しました', 'success');
+    await loadStudents();
+  } catch (error) {
+    showToast(error.message || '生徒を追加できませんでした', 'error');
+  }
+});
+window.authReady.then(user => {
+  if (!user) return;
+  currentTutorId = user.id;
+  loadStudents();
+});
+</script>
+<!-- # === Phase 9 END === -->
+{% endblock %}

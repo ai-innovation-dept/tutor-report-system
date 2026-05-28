@@ -164,6 +164,7 @@
     function isActiveNavLink(href) {
       const path = window.location.pathname;
       if (href === '/tutor/reports') return path === '/tutor/reports' || path.startsWith('/tutor/reports/');
+      if (href === '/tutor/students') return path === '/tutor/students';
       if (href === '/admin/dashboard') return path === '/admin/dashboard';
       return path === href;
     }
@@ -185,6 +186,7 @@
         navHome.href = '/tutor/reports';
         items.push(navLink('/tutor/reports', '報告書一覧'));
         items.push(navLink('/tutor/approval', '承認管理'));
+        items.push(navLink('/tutor/students', '生徒管理'));
       } else if (user.role === 'parent') {
         navHome.href = '/parent/reports';
         items.push(navLink('/parent/reports', '報告書一覧'));

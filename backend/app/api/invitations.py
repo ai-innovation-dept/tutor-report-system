@@ -133,6 +133,62 @@ def _assignment_for_parent_payload(payload: InvitationCreate, db: Session) -> As
     return assignment
 
 
+def prepare_parent_invitation_for_assignment(
+    email: str,
+    assignment: Assignment,
+    db: Session,
+    invited_by: User,
+) -> tuple[Invitation, str, bool]:
+    email = email.lower()
+    now = datetime.now(timezone.utc)
+    existing_user = db.scalar(select(User).where(User.email == email))
+    if existing_user and existing_user.role != "parent":
+        raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
+    if existing_user:
+        assignment.parent_id = existing_user.id
+        invitation = Invitation(
+            email=email,
+            role="parent",
+            assignment_id=assignment.id,
+            token=secrets.token_urlsafe(32),
+            invited_by=invited_by.id,
+            expires_at=now + timedelta(hours=72),
+            accepted_at=now,
+            created_at=now,
+        )
+        db.add(invitation)
+        db.flush()
+        return invitation, "既存の保護者アカウントに生徒を紐付けました", False
+
+    invitation = db.scalar(
+        select(Invitation)
+        .where(Invitation.email == email, Invitation.accepted_at.is_(None))
+        .order_by(Invitation.created_at.desc())
+    )
+    if invitation:
+        invitation.assignment_id = assignment.id
+        invitation.role = "parent"
+        invitation.display_name = None
+        invitation.tutor_no = None
+        invitation.token = secrets.token_urlsafe(32)
+        invitation.invited_by = invited_by.id
+        invitation.expires_at = now + timedelta(hours=72)
+        invitation.created_at = now
+    else:
+        invitation = Invitation(
+            email=email,
+            role="parent",
+            assignment_id=assignment.id,
+            token=secrets.token_urlsafe(32),
+            invited_by=invited_by.id,
+            expires_at=now + timedelta(hours=72),
+            created_at=now,
+        )
+        db.add(invitation)
+    db.flush()
+    return invitation, "保護者へ招待メールを送信しました", True
+
+
 @router.post("", response_model=InvitationOut)
 async def create_invitation(
     payload: InvitationCreate,

@@ -110,6 +110,7 @@ class ResetTokenInfoOut(BaseModel):
 class AssignmentCreate(BaseModel):
     tutor_id: UUID
     parent_id: UUID | None = None
+    parent_email: EmailStr | None = None
     student_name: str
 
 
@@ -118,6 +119,10 @@ class AssignmentPatch(BaseModel):
     parent_id: UUID | None = None
     student_name: str | None = None
     is_active: bool | None = None
+    skip_parent_approval: bool | None = None
+    reminder_enabled: bool | None = None
+    reminder_days_after: int | None = Field(default=None, ge=1)
+    reminder_count: int | None = Field(default=None, ge=1)
 
 
 class AssignmentOut(BaseModel):
@@ -126,8 +131,15 @@ class AssignmentOut(BaseModel):
     tutor_id: UUID
     parent_id: UUID | None = None
     parent_display_name: str | None = None
+    tutor_name: str | None = None
+    parent_name: str | None = None
+    parent_email: str | None = None
     student_name: str
     is_active: bool
+    skip_parent_approval: bool
+    reminder_enabled: bool
+    reminder_days_after: int
+    reminder_count: int
 
 
 class InvitationCreate(BaseModel):

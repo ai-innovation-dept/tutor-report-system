@@ -1,25 +1,28 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: 紐付け管理 START === -->
-<div class="mb-6">
-  <p class="text-sm font-medium text-blue-600">運営ポータル</p>
-  <h1 class="text-2xl font-semibold text-slate-800">紐付け管理</h1>
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <p class="text-sm font-medium text-blue-600">運営ポータル</p>
+    <h1 class="text-2xl font-semibold text-slate-800">紐付け管理</h1>
+  </div>
 </div>
 
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">既存生徒への講師追加</h2>
-  <form id="existingStudentForm" class="mt-4 grid gap-3 md:grid-cols-[1.3fr_1fr_auto]">
+  <div class="grid gap-3 md:grid-cols-[1fr_180px]">
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">生徒</span>
-      <select id="existingStudentSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></select>
+      <span class="mb-1 block text-slate-700">検索</span>
+      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="生徒名・講師名・保護者名">
     </label>
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">追加する講師</span>
-      <select id="additionalTutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></select>
+      <span class="mb-1 block text-slate-700">状態</span>
+      <select id="statusFilter" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        <option value="all">すべて</option>
+        <option value="active">有効</option>
+        <option value="inactive">無効</option>
+      </select>
     </label>
-    <button class="self-end rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">紐付けを追加する</button>
-  </form>
-  <p id="existingStudentMessage" class="mt-3 text-sm"></p>
+  </div>
 </section>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -31,8 +34,10 @@
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">生徒名</th>
+          <th class="px-4 py-3 text-left">担当講師</th>
           <th class="px-4 py-3 text-left">保護者</th>
-          <th class="px-4 py-3 text-left">講師</th>
+          <th class="px-4 py-3 text-left">保護者スキップ</th>
+          <th class="px-4 py-3 text-left">リマインド設定</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
         </tr>
@@ -41,143 +46,184 @@
     </table>
   </div>
 </section>
+
+<section class="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <button id="toggleCreateForm" type="button" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700">＋ 新規紐付けを追加</button>
+  <form id="createForm" class="mt-4 hidden grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">生徒名</span>
+      <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">担当講師</span>
+      <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">保護者メールアドレス</span>
+      <input id="parentEmailInput" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+    </label>
+    <button class="self-end rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">追加する</button>
+  </form>
+</section>
+
+<div id="reminderModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReminderModal()">
+  <form id="reminderForm" class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">リマインド設定</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeReminderModal()">閉じる</button>
+    </div>
+    <div class="grid gap-4 p-5">
+      <label class="flex items-center gap-2 text-sm text-slate-700">
+        <input id="reminderEnabledInput" type="checkbox" class="h-4 w-4 rounded border-slate-300">
+        リマインドを有効にする
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">承認依頼から何日後</span>
+        <input id="reminderDaysInput" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">送付回数</span>
+        <input id="reminderCountInput" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+      <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeReminderModal()">キャンセル</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">保存</button>
+    </div>
+  </form>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 let assignments = [];
 let tutors = [];
-let parents = [];
+let editingReminderId = '';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
-function tutorName(id) {
-  return tutors.find(user => user.id === id)?.display_name || '講師未設定';
-}
 function tutorLabel(tutor) {
   return `${tutor.display_name}${tutor.tutor_no ? `（${tutor.tutor_no}）` : `（${tutor.email}）`}`;
 }
-function parentLabel(id) {
-  const parent = parents.find(user => user.id === id);
-  return parent ? `${parent.display_name}（${parent.email}）` : '未設定';
+function filteredAssignments() {
+  const keyword = searchInput.value.trim().toLowerCase();
+  const status = statusFilter.value;
+  return assignments.filter(assignment => {
+    const text = [assignment.student_name, assignment.tutor_name, assignment.parent_name, assignment.parent_email].join(' ').toLowerCase();
+    if (keyword && !text.includes(keyword)) return false;
+    if (status === 'active' && !assignment.is_active) return false;
+    if (status === 'inactive' && assignment.is_active) return false;
+    return true;
+  });
 }
-function studentKey(studentName, parentId) {
-  return `${studentName}::${parentId || ''}`;
+function toggleHtml(assignment) {
+  const checked = assignment.skip_parent_approval ? 'checked' : '';
+  return `<button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full transition ${assignment.skip_parent_approval ? 'bg-blue-600' : 'bg-slate-300'}" onclick="toggleSkip('${assignment.id}', ${!assignment.skip_parent_approval})" aria-label="保護者スキップ">
+    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${assignment.skip_parent_approval ? 'translate-x-5' : 'translate-x-1'}"></span>
+  </button>`;
 }
-function selectedStudentOption() {
-  const value = existingStudentSelect.value;
-  if (!value) return null;
-  return JSON.parse(decodeURIComponent(value));
-}
-function showExistingStudentMessage(text, isError = false) {
-  existingStudentMessage.textContent = text;
-  existingStudentMessage.className = `mt-3 text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
-}
-function renderFormOptions() {
-  renderExistingStudentOptions();
-}
-function uniqueStudents() {
-  const map = new Map();
-  for (const assignment of assignments) {
-    const key = studentKey(assignment.student_name, assignment.parent_id);
-    if (!map.has(key)) {
-      map.set(key, {
-        student_name: assignment.student_name,
-        parent_id: assignment.parent_id,
-        parent_label: parentLabel(assignment.parent_id)
-      });
-    }
-  }
-  return [...map.values()].sort((a, b) => a.student_name.localeCompare(b.student_name, 'ja'));
-}
-function renderExistingStudentOptions() {
-  const students = uniqueStudents();
-  existingStudentSelect.innerHTML = students.length
-    ? students.map(student => {
-        const value = encodeURIComponent(JSON.stringify({student_name: student.student_name, parent_id: student.parent_id}));
-        return `<option value="${value}">${escapeHtml(student.student_name)}（保護者：${escapeHtml(student.parent_label)}）</option>`;
-      }).join('')
-    : '<option value="">既存生徒がありません</option>';
-  existingStudentSelect.disabled = !students.length;
-  renderAdditionalTutorOptions();
-}
-function renderAdditionalTutorOptions() {
-  const student = selectedStudentOption();
-  if (!student) {
-    additionalTutorSelect.innerHTML = '<option value="">追加できる講師がありません</option>';
-    additionalTutorSelect.disabled = true;
-    return;
-  }
-  const linkedTutorIds = new Set(
-    assignments
-      .filter(assignment => assignment.student_name === student.student_name)
-      .map(assignment => assignment.tutor_id)
-  );
-  const availableTutors = tutors
-    .filter(tutor => !linkedTutorIds.has(tutor.id))
-    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
-  additionalTutorSelect.innerHTML = availableTutors.length
-    ? availableTutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutorLabel(tutor))}</option>`).join('')
-    : '<option value="">追加できる講師がありません</option>';
-  additionalTutorSelect.disabled = !availableTutors.length;
+function reminderLabel(assignment) {
+  if (!assignment.reminder_enabled) return 'OFF';
+  return `${assignment.reminder_days_after}日後 ${assignment.reminder_count}回`;
 }
 function renderAssignments() {
-  assignmentRows.innerHTML = assignments.length ? assignments.map(assignment => {
-    const parentText = parentLabel(assignment.parent_id);
-    const status = assignment.is_active ? '有効' : '無効';
-    const action = !assignment.is_active
-      ? '<span class="text-sm text-slate-400">無効化済み</span>'
-      : `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deactivateAssignment('${assignment.id}')">無効化</button>`;
+  const rows = filteredAssignments();
+  assignmentRows.innerHTML = rows.length ? rows.map(assignment => {
+    const parent = assignment.parent_name || assignment.parent_email
+      ? `${assignment.parent_name || '未登録'}${assignment.parent_email ? `（${assignment.parent_email}）` : ''}`
+      : '未設定';
+    const action = assignment.is_active
+      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100" onclick="setAssignmentActive('${assignment.id}', false)">無効化</button>`
+      : `<button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
     return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
-      <td class="px-4 py-3">${escapeHtml(assignment.student_name)}</td>
-      <td class="px-4 py-3">${escapeHtml(parentText)}</td>
-      <td class="px-4 py-3">${escapeHtml(tutorName(assignment.tutor_id))}</td>
-      <td class="px-4 py-3">${status}</td>
+      <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(assignment.student_name)}</td>
+      <td class="px-4 py-3">${escapeHtml(assignment.tutor_name || '未設定')}</td>
+      <td class="px-4 py-3">${escapeHtml(parent)}</td>
+      <td class="px-4 py-3">${toggleHtml(assignment)}</td>
+      <td class="px-4 py-3"><button class="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
+      <td class="px-4 py-3">${assignment.is_active ? '有効' : '無効'}</td>
       <td class="px-4 py-3">${action}</td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="5">紐付けはありません。</td></tr>';
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">紐付けはありません。</td></tr>';
+}
+function renderTutorOptions() {
+  tutorSelect.innerHTML = tutors
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'))
+    .map(tutor => `<option value="${tutor.id}">${escapeHtml(tutorLabel(tutor))}</option>`)
+    .join('');
+}
+async function patchAssignment(id, payload, successMessage) {
+  try {
+    await api(`/api/assignments/${id}`, {method: 'PATCH', body: JSON.stringify(payload)});
+    showToast(successMessage, 'success');
+    await loadAssignmentsPage();
+  } catch (error) {
+    showToast(error.message || '更新できませんでした', 'error');
+  }
+}
+async function toggleSkip(id, value) {
+  await patchAssignment(id, {skip_parent_approval: value}, '保護者スキップを更新しました');
+}
+async function setAssignmentActive(id, value) {
+  await patchAssignment(id, {is_active: value}, value ? '紐付けを有効化しました' : '紐付けを無効化しました');
+}
+function openReminderModal(id) {
+  const assignment = assignments.find(item => item.id === id);
+  if (!assignment) return;
+  editingReminderId = id;
+  reminderEnabledInput.checked = assignment.reminder_enabled;
+  reminderDaysInput.value = assignment.reminder_days_after || 1;
+  reminderCountInput.value = assignment.reminder_count || 1;
+  reminderModal.classList.remove('hidden');
+  reminderModal.classList.add('flex');
+}
+function closeReminderModal() {
+  reminderModal.classList.add('hidden');
+  reminderModal.classList.remove('flex');
+  editingReminderId = '';
 }
 async function loadAssignmentsPage() {
-  const [assignmentRows, tutorRows, parentRows] = await Promise.all([
+  const [assignmentRows, tutorRows] = await Promise.all([
     api('/api/assignments'),
-    api('/api/users?roles=tutor&per_page=100'),
-    api('/api/users?roles=parent&per_page=100')
+    api('/api/users?roles=tutor&per_page=100')
   ]);
   assignments = assignmentRows;
   tutors = tutorRows.items || tutorRows;
-  parents = parentRows.items || parentRows;
-  renderFormOptions();
+  renderTutorOptions();
   renderAssignments();
 }
-existingStudentForm.addEventListener('submit', async event => {
+toggleCreateForm.addEventListener('click', () => createForm.classList.toggle('hidden'));
+createForm.addEventListener('submit', async event => {
   event.preventDefault();
-  const student = selectedStudentOption();
-  if (!student || !additionalTutorSelect.value) {
-    showExistingStudentMessage('生徒と講師を選択してください。', true);
-    return;
-  }
   try {
     await api('/api/assignments', {
       method: 'POST',
       body: JSON.stringify({
-        tutor_id: additionalTutorSelect.value,
-        student_name: student.student_name,
-        parent_id: student.parent_id || null
+        tutor_id: tutorSelect.value,
+        student_name: studentNameInput.value.trim(),
+        parent_email: parentEmailInput.value.trim() || null
       })
     });
-    showExistingStudentMessage('紐付けを追加しました。');
+    createForm.reset();
+    createForm.classList.add('hidden');
+    showToast('紐付けを追加しました', 'success');
     await loadAssignmentsPage();
   } catch (error) {
-    showExistingStudentMessage(error.message || '紐付けを追加できませんでした。', true);
+    showToast(error.message || '紐付けを追加できませんでした', 'error');
   }
 });
-existingStudentSelect.addEventListener('change', renderAdditionalTutorOptions);
-async function deactivateAssignment(assignmentId) {
-  if (!confirm('この紐付けを無効化しますか。')) return;
-  await api(`/api/assignments/${assignmentId}`, {method: 'PATCH', body: JSON.stringify({is_active: false})});
-  alert('紐付けを無効化しました。');
-  await loadAssignmentsPage();
-}
+reminderForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!editingReminderId) return;
+  await patchAssignment(editingReminderId, {
+    reminder_enabled: reminderEnabledInput.checked,
+    reminder_days_after: Number(reminderDaysInput.value || 1),
+    reminder_count: Number(reminderCountInput.value || 1)
+  }, 'リマインド設定を更新しました');
+  closeReminderModal();
+});
+searchInput.addEventListener('input', renderAssignments);
+statusFilter.addEventListener('change', renderAssignments);
 window.authReady.then(user => {
   if (!user) return;
   loadAssignmentsPage();

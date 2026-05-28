@@ -1,4 +1,6 @@
-from app.models import Assignment, User
+from uuid import UUID
+
+from app.models import Assignment, Invitation, User
 from app.core.security import hash_password
 from tests.conftest import token
 
@@ -94,3 +96,49 @@ def test_inactive_assignment_is_hidden_from_tutor_assignments(client, db):
     tutor_assignments = client.get("/api/assignments", headers={"Authorization": f"Bearer {tutor_token}"})
     assert tutor_assignments.status_code == 200
     assert tutor_assignments.json() == []
+
+
+def test_create_assignment_links_existing_parent_by_email(client, db, monkeypatch):
+    async def fake_send(self, to, subject, body):
+        raise AssertionError("existing parent should not receive invitation email")
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+
+    res = client.post(
+        "/api/assignments",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"tutor_id": str(tutor.id), "student_name": "メール 生徒", "parent_email": parent.email},
+    )
+
+    assert res.status_code == 200
+    assert res.json()["parent_id"] == str(parent.id)
+    assert res.json()["parent_email"] == parent.email
+    invitation = db.query(Invitation).filter(Invitation.assignment_id == UUID(res.json()["id"])).one()
+    assert invitation.accepted_at is not None
+
+
+def test_tutor_can_create_assignment_with_parent_invitation(client, db, monkeypatch):
+    sent = []
+
+    async def fake_send(self, to, subject, body):
+        sent.append((to, subject, body))
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    tutor_token = token(client, "tutor@example.com")
+    tutor = db.query(User).filter(User.email == "tutor@example.com").one()
+
+    res = client.post(
+        "/api/assignments",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+        json={"tutor_id": str(tutor.id), "student_name": "講師追加 生徒", "parent_email": "new-parent@example.com"},
+    )
+
+    assert res.status_code == 200
+    assert res.json()["tutor_id"] == str(tutor.id)
+    assert res.json()["parent_id"] is None
+    invitation = db.query(Invitation).filter(Invitation.email == "new-parent@example.com").one()
+    assert str(invitation.assignment_id) == res.json()["id"]
+    assert sent and sent[-1][0] == "new-parent@example.com"
