@@ -141,6 +141,10 @@ function buildGroup(assignment, reports) {
     student_name: assignment?.student_name || '生徒未設定',
     parent_id: assignment?.parent_id || sorted[0]?.parent_id || null,
     parent_display_name: assignment?.parent_display_name || '',
+    skip_parent_approval: Boolean(assignment?.skip_parent_approval || sorted.some(report => report.skip_parent_approval)),
+    reminder_enabled: Boolean(assignment?.reminder_enabled),
+    reminder_days_after: assignment?.reminder_days_after || 1,
+    reminder_count: assignment?.reminder_count || 1,
     target_month: currentMonth(),
     reports: sorted,
     phase: monthlyPhase(sorted),
@@ -238,20 +242,25 @@ function actionArea(group) {
   if (group.phase === 're_reviewed') {
     return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">再鑑済み</div>';
   }
-  if (!group.parent_id && group.can_submit_to_parent) {
+  if (!group.skip_parent_approval && !group.parent_id && group.can_submit_to_parent) {
     return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため承認依頼できません。</div>';
   }
   if (group.phase === 'returned') {
-    if (!group.parent_id) {
+    if (!group.skip_parent_approval && !group.parent_id) {
       return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">保護者が未設定のため再依頼できません。</div>';
     }
+    const label = group.skip_parent_approval ? '修正済みの報告書を運営へまとめて再提出' : '修正済みの報告書を保護者へまとめて再依頼';
     return `<div class="mt-5 flex flex-wrap items-center gap-3">
-      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendReturnedReports('${group.assignment_id}')">修正済みの報告書を保護者へまとめて再依頼</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
     </div>`;
   }
   if (group.can_submit_to_parent) {
-    return `<button class="mt-5 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToParentGroup('${group.assignment_id}')">保護者へまとめて承認依頼</button>`;
+    const label = group.skip_parent_approval ? '運営へ提出' : '保護者へまとめて承認依頼';
+    return `<div class="mt-5 grid gap-3">
+      ${reminderSettings(group)}
+      <button class="justify-self-start rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+    </div>`;
   }
   if (group.phase === 'recording') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>';
@@ -260,6 +269,22 @@ function actionArea(group) {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>保護者の承認を待っています</button>';
   }
   return '';
+}
+function reminderSettings(group) {
+  if (group.skip_parent_approval) return '';
+  const checked = group.reminder_enabled ? 'checked' : '';
+  return `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+    <label class="flex flex-wrap items-center gap-2">
+      <input id="reminder-enabled-${group.assignment_id}" type="checkbox" class="h-4 w-4 rounded border-slate-300" ${checked}>
+      <span>リマインドメールを送る</span>
+    </label>
+    <div class="mt-2 flex flex-wrap items-center gap-2">
+      <input id="reminder-days-${group.assignment_id}" type="number" min="1" value="${group.reminder_days_after || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
+      <span>日後に</span>
+      <input id="reminder-count-${group.assignment_id}" type="number" min="1" value="${group.reminder_count || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
+      <span>回送付</span>
+    </div>
+  </div>`;
 }
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 md:grid-cols-3">
@@ -318,6 +343,16 @@ function toggleDetails(assignmentId) {
 }
 async function submitToParentGroup(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
+  if (!group.skip_parent_approval) {
+    await api(`/api/assignments/${assignmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        reminder_enabled: document.getElementById(`reminder-enabled-${assignmentId}`)?.checked || false,
+        reminder_days_after: Number(document.getElementById(`reminder-days-${assignmentId}`)?.value || 1),
+        reminder_count: Number(document.getElementById(`reminder-count-${assignmentId}`)?.value || 1)
+      })
+    });
+  }
   await api('/api/reports/submit-to-parent-bulk', {
     method: 'POST',
     body: JSON.stringify({target_month: group.target_month, report_ids: reportIdsForParentSubmit(group)})

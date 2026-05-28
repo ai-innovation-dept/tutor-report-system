@@ -67,6 +67,7 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
         out.last_return_at = last_return_event.created_at
     out.unread_count = unread
     out.student_name = report.assignment.student_name if report.assignment else None
+    out.skip_parent_approval = bool(report.assignment and report.assignment.skip_parent_approval)
     out.tutor_name = report.tutor.display_name if report.tutor else None
     out.events = [
         ReportEventOut(
@@ -163,7 +164,10 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
     if user.role == "tutor":
         stmt = stmt.where(LessonReport.tutor_id == user.id)
     elif user.role == "parent":
-        stmt = stmt.where(LessonReport.parent_id == user.id)
+        stmt = stmt.join(Assignment, LessonReport.assignment_id == Assignment.id).where(
+            LessonReport.parent_id == user.id,
+            Assignment.skip_parent_approval.is_(False),
+        )
     elif not user.role.startswith("admin_"):
         raise HTTPException(status_code=403, detail="not allowed")
     if status:

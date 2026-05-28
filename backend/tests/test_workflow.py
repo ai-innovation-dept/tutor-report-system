@@ -1,9 +1,10 @@
 # === Phase 5: 承認ワークフロー START ===
 from datetime import date, time
+from uuid import UUID
 
 from app.api import reports as reports_api
 from app.core.security import hash_password
-from app.models import Assignment, LessonReport, ReportStatus, User
+from app.models import Assignment, LessonReport, Notification, ReportStatus, User
 from tests.conftest import token
 
 
@@ -53,6 +54,60 @@ def test_full_workflow(client, db):
     assert report["events"][-1]["actor_role"] == "admin_master"
     assert report["events"][-1]["created_at"]
     assert "comment" in report["events"][-1]
+
+
+def test_skip_parent_approval_submits_directly_to_admin(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    assignment.skip_parent_approval = True
+    db.commit()
+
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": date.today().isoformat(),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "break_minutes": 0,
+        "content": "skip parent",
+    })
+    assert res.status_code == 200
+    rid = res.json()["id"]
+
+    submitted = client.post(f"/api/reports/{rid}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
+
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == ReportStatus.submitted_to_admin.value
+    report = db.query(LessonReport).filter(LessonReport.id == UUID(rid)).one()
+    assert report.submitted_to_admin_at is not None
+    assert report.submitted_to_parent_at is None
+    parent_notifications = db.query(Notification).filter(Notification.user_id == assignment.parent_id).all()
+    assert parent_notifications == []
+    receiver = db.query(User).filter(User.role == "admin_receiver").one()
+    receiver_notifications = db.query(Notification).filter(Notification.user_id == receiver.id).all()
+    assert len(receiver_notifications) == 1
+
+
+def test_parent_report_list_hides_skip_parent_approval_reports(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    assignment.skip_parent_approval = True
+    db.add(LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=date.today(),
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        content="hidden from parent",
+        target_month=date.today().strftime("%Y-%m"),
+        status=ReportStatus.submitted_to_admin.value,
+    ))
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == []
 
 
 def test_parent_approve_bulk_auto_submits_to_admin(client, db):

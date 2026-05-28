@@ -213,6 +213,7 @@ class ReportOut(BaseModel):
     tutor_name: str | None = None
     parent_id: UUID | None = None
     student_name: str | None = None
+    skip_parent_approval: bool = False
     lesson_date: date
     start_time: time
     end_time: time

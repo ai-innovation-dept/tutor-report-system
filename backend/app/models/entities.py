@@ -150,6 +150,10 @@ class LessonReport(Base):
     tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
 
+    @property
+    def skip_parent_approval(self) -> bool:
+        return bool(self.assignment and self.assignment.skip_parent_approval)
+
 
 class ReportEvent(Base):
     __tablename__ = "report_events"

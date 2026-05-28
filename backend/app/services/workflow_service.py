@@ -57,6 +57,10 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
         raise HTTPException(status_code=400, detail="return comment is required")
     if report.status not in allowed_from:
         raise HTTPException(status_code=409, detail=f"invalid transition from {report.status}")
+    skip_parent_approval = action == ReportAction.submit_to_parent.value and bool(report.assignment and report.assignment.skip_parent_approval)
+    if skip_parent_approval:
+        to_status = ReportStatus.submitted_to_admin.value
+        timestamp_field = "submitted_to_admin_at"
 
     old_status = report.status
     report.status = to_status
@@ -67,7 +71,14 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
         db.add(ChatMessage(report_id=report.id, sender_id=actor.id, body=f"差戻し理由: {comment}"))
 
     recipients = []
-    if to_status in {ReportStatus.awaiting_parent_approval.value}:
+    if skip_parent_approval:
+        recipients.append(report.tutor_id)
+        recipients.extend(
+            user.id
+            for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+            if has_role(user, "admin_receiver")
+        )
+    elif to_status in {ReportStatus.awaiting_parent_approval.value}:
         recipients.append(report.parent_id)
     elif to_status in {ReportStatus.returned_to_tutor.value, ReportStatus.parent_approved.value}:
         recipients.append(report.tutor_id)
@@ -195,6 +206,22 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
     }
 
     if action == ReportAction.submit_to_parent.value:
+        if report.assignment and report.assignment.skip_parent_approval:
+            receivers = [
+                user
+                for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+                if has_role(user, "admin_receiver")
+            ]
+            await _send_email_to_users(
+                db,
+                receivers,
+                SUBMITTED_TO_ADMIN_SUBJECT,
+                "notify_submitted_to_admin.txt",
+                context | {
+                    "tutor_name": _tutor(report).display_name if _tutor(report) else "講師",
+                },
+            )
+            return
         parent = _parent(report)
         await _send_email(
             db,
