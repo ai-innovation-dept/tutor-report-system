@@ -70,6 +70,8 @@
     </div>
   </div>
 
+  <div id="toastContainer" class="fixed right-4 top-4 z-[1200] space-y-2"></div>
+
   <script src="/static/js/auth.js"></script>
   <script>
     window.currentUser = {
@@ -82,6 +84,22 @@
     };
 
     window.authReady = Promise.resolve(window.currentUser);
+
+    function showToast(message, type = 'info') {
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-red-600 text-white',
+        info: 'bg-blue-600 text-white'
+      };
+      const toast = document.createElement('div');
+      toast.className = `min-w-64 max-w-sm rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition ${colors[type] || colors.info}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 200);
+      }, 3000);
+    }
 
     function roleDisplayName(role) {
       if (role === 'tutor') return '講師';

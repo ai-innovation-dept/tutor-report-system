@@ -140,12 +140,12 @@ function renderAssignments() {
 async function loadAssignmentsPage() {
   const [assignmentRows, tutorRows, parentRows] = await Promise.all([
     api('/api/assignments'),
-    api('/api/users?role=tutor'),
-    api('/api/users?role=parent')
+    api('/api/users?roles=tutor&per_page=100'),
+    api('/api/users?roles=parent&per_page=100')
   ]);
   assignments = assignmentRows;
-  tutors = tutorRows;
-  parents = parentRows;
+  tutors = tutorRows.items || tutorRows;
+  parents = parentRows.items || parentRows;
   renderFormOptions();
   renderAssignments();
 }

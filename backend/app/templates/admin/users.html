@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- # === Phase 9: ユーザー管理 START === -->
 <div class="mb-6">
   <p class="text-sm font-medium text-blue-600">運営ポータル</p>
   <h1 class="text-2xl font-semibold text-slate-800">ユーザー管理</h1>
@@ -72,10 +71,13 @@
 <section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
     <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
-    <label class="text-sm">
-      <span class="mr-2 text-slate-600">検索</span>
-      <input id="userSearch" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="名前・メール">
-    </label>
+    <div class="flex flex-1 flex-wrap items-center justify-end gap-3">
+      <div id="roleTabs" class="flex flex-wrap gap-2"></div>
+      <label class="text-sm">
+        <span class="sr-only">検索</span>
+        <input id="userSearch" class="w-64 rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="名前・メールアドレス">
+      </label>
+    </div>
   </div>
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
@@ -85,7 +87,6 @@
           <th class="px-4 py-3 text-left">名前</th>
           <th class="px-4 py-3 text-left">メール</th>
           <th class="px-4 py-3 text-left">講師No</th>
-          <th class="px-4 py-3 text-left">登録日</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
         </tr>
@@ -93,41 +94,83 @@
       <tbody id="userRows"></tbody>
     </table>
   </div>
+  <div id="pagination" class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-4"></div>
 </section>
+
+<div id="detailOverlay" class="fixed inset-0 z-[1000] hidden bg-slate-900/40" onclick="closeDetailDrawer()"></div>
+<aside id="detailDrawer" class="fixed inset-y-0 right-0 z-[1001] hidden w-full max-w-xl translate-x-full overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200" onclick="event.stopPropagation()"></aside>
+
+<div id="deleteConfirmOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeDeleteConfirm()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">ユーザー削除の確認</h2>
+    </div>
+    <div class="p-5">
+      <p class="text-sm text-slate-700">本当に削除しますか？削除するには下にメールアドレスを入力してください</p>
+      <input id="deleteEmailInput" class="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+      <div class="mt-4 flex justify-end gap-2">
+        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeDeleteConfirm()">キャンセル</button>
+        <button id="confirmDeleteButton" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="deleteSelectedUser()" disabled>削除する</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 let invitations = [];
 let tutors = [];
 let users = [];
+let paginationState = {page: 1, per_page: 50, total: 0, total_pages: 1, role_counts: {}, active_admin_master_count: 0};
+let activeRole = '';
+let searchTimer = null;
+let changedRoles = {};
+let updatingUsers = new Set();
+let selectedUser = null;
+let deleteTarget = null;
+
 const ROLE_LABELS = {
-  admin_master: '管理者',
+  all: '全て',
   tutor: '講師',
-  admin_receiver: '受付担当',
-  admin_reviewer: '再鑑者',
-  parent: '保護者'
+  parent: '保護者',
+  admin_receiver: '受付',
+  admin_reviewer: '再鑑',
+  admin_master: '管理者'
 };
-const ROLE_ORDER = {
-  admin_master: 0,
-  tutor: 1,
-  admin_receiver: 2,
-  admin_reviewer: 3,
-  parent: 4
-};
+const ROLE_ORDER = ['tutor', 'parent', 'admin_receiver', 'admin_reviewer', 'admin_master'];
+const TABS = [
+  {key: '', label: '全て', countKey: 'all'},
+  {key: 'tutor', label: '講師', countKey: 'tutor'},
+  {key: 'parent', label: '保護者', countKey: 'parent'},
+  {key: 'admin_receiver', label: '受付', countKey: 'admin_receiver'},
+  {key: 'admin_reviewer', label: '再鑑', countKey: 'admin_reviewer'},
+  {key: 'admin_master', label: '管理者', countKey: 'admin_master'}
+];
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
 function roleLabel(role) { return ROLE_LABELS[role] || role; }
-function formatDateTime(value) {
-  if (!value) return '-';
-  const d = new Date(value);
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+function userRoles(user) { return user.roles && user.roles.length ? user.roles : [user.role]; }
+function primaryRole(user) { return userRoles(user)[0] || user.role; }
+function canEditAdminRoles(user) { return userRoles(user).every(role => ['admin_receiver', 'admin_reviewer'].includes(role)); }
+function rolesKey(roles) { return [...roles].sort().join('|'); }
+function currentEditedRoles(user) { return changedRoles[user.id] || userRoles(user); }
+function userHasRoleChanges(user) { return rolesKey(currentEditedRoles(user)) !== rolesKey(userRoles(user)); }
+function isLastActiveAdmin(user) {
+  return user.is_active && userRoles(user).includes('admin_master') && paginationState.active_admin_master_count <= 1;
 }
 function formatDate(value) {
   if (!value) return '-';
   const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
   return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function formatDateTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function statusText(invitation) {
   if (invitation.accepted_at) return '登録済み';
@@ -154,13 +197,9 @@ function syncRoleFields() {
   tutorSelect.disabled = !parentMode;
   studentNameInput.required = parentMode;
   studentNameInput.disabled = !parentMode;
-  if (role === 'tutor') {
-    roleHint.textContent = '講師Noは自動で割り当てられます。';
-  } else if (parentMode) {
-    roleHint.textContent = '保護者は登録URLで本人がパスワードを設定します。既存保護者メールなら生徒を追加します。';
-  } else {
-    roleHint.textContent = '運営スタッフは登録URLで本人がパスワードを設定します。';
-  }
+  if (role === 'tutor') roleHint.textContent = '講師Noは自動で割り当てられます。';
+  else if (parentMode) roleHint.textContent = '保護者は登録URLで本人がパスワードを設定します。既存保護者メールなら生徒を追加します。';
+  else roleHint.textContent = '運営スタッフは登録URLで本人がパスワードを設定します。';
 }
 function renderInvitations() {
   invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
@@ -170,7 +209,7 @@ function renderInvitations() {
          <button class="ml-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
     return `<tr class="border-t border-slate-100 hover:bg-slate-50">
       <td class="px-4 py-3">${escapeHtml(invitation.email)}</td>
-      <td class="px-4 py-3">${roleLabel(invitation.role)}</td>
+      <td class="px-4 py-3">${escapeHtml(roleLabel(invitation.role))}</td>
       <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
       <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
       <td class="px-4 py-3">${formatDateTime(invitation.created_at)}</td>
@@ -179,75 +218,230 @@ function renderInvitations() {
     </tr>`;
   }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
 }
-function sortedUsers() {
-  const keyword = userSearch.value.trim().toLowerCase();
-  return [...users]
-    .filter(user => !keyword || `${user.display_name} ${user.email}`.toLowerCase().includes(keyword))
-    .sort((a, b) => {
-      const roleCompare = (ROLE_ORDER[primaryRole(a)] ?? 99) - (ROLE_ORDER[primaryRole(b)] ?? 99);
-      if (roleCompare !== 0) return roleCompare;
-      return a.display_name.localeCompare(b.display_name, 'ja');
-    });
-}
-function userRoles(user) {
-  return user.roles && user.roles.length ? user.roles : [user.role];
-}
-function primaryRole(user) {
-  return userRoles(user)[0] || user.role;
-}
-function canEditAdminRoles(user) {
-  const roles = userRoles(user);
-  return roles.every(role => ['admin_receiver', 'admin_reviewer'].includes(role));
-}
-function roleCheckboxes(user) {
-  const roles = new Set(userRoles(user));
+function roleCheckboxes(user, location = 'row') {
+  const roles = new Set(currentEditedRoles(user));
   const editable = canEditAdminRoles(user);
-  return ['tutor', 'parent', 'admin_receiver', 'admin_reviewer', 'admin_master'].map(role => {
+  return ROLE_ORDER.map(role => {
     const enabled = editable && ['admin_receiver', 'admin_reviewer'].includes(role);
     return `<label class="mr-3 inline-flex items-center gap-1 whitespace-nowrap text-xs ${enabled ? 'text-slate-700' : 'text-slate-400'}">
-      <input type="checkbox" data-role-user="${user.id}" value="${role}" ${roles.has(role) ? 'checked' : ''} ${enabled ? '' : 'disabled'} class="rounded border-slate-300">
-      <span>${roleLabel(role)}</span>
+      <input type="checkbox" data-role-user="${user.id}" data-role-location="${location}" value="${role}" ${roles.has(role) ? 'checked' : ''} ${enabled ? '' : 'disabled'} class="rounded border-slate-300" onchange="onRoleCheckboxChange('${user.id}', '${location}')">
+      <span>${escapeHtml(roleLabel(role))}</span>
     </label>`;
   }).join('');
 }
+function renderRoleTabs() {
+  const counts = paginationState.role_counts || {};
+  roleTabs.innerHTML = TABS.map(tab => {
+    const active = activeRole === tab.key;
+    return `<button type="button" class="rounded-lg border px-3 py-2 text-sm font-medium transition ${active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="selectRoleTab('${tab.key}')">
+      ${tab.label}<span class="ml-2 rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}">${counts[tab.countKey] || 0}</span>
+    </button>`;
+  }).join('');
+}
 function renderUsers() {
-  const rows = sortedUsers();
-  userRows.innerHTML = rows.length ? rows.map(user => {
+  renderRoleTabs();
+  userRows.innerHTML = users.length ? users.map(user => {
     const active = user.is_active ? '有効' : '無効';
-    const rowClass = user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500';
-    const activeAction = user.is_active
-      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="toggleUserActive('${user.id}', false)">無効化</button>`
-      : `<button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100" onclick="toggleUserActive('${user.id}', true)">有効化</button>`;
-    const roleAction = canEditAdminRoles(user)
-      ? `<button class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100" onclick="updateUserRoles('${user.id}')">更新</button>`
-      : '';
-    const deleteAction = userRoles(user).includes('admin_master')
-      ? ''
-      : `<button class="rounded-lg border border-red-200 bg-white px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-50" onclick="deleteUser('${user.id}')">削除</button>`;
-    return `<tr class="border-t border-slate-100 ${rowClass}">
-      <td class="px-4 py-3 min-w-72">${roleCheckboxes(user)}</td>
+    const updating = updatingUsers.has(user.id);
+    const changed = userHasRoleChanges(user);
+    const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
+    return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
+      <td class="min-w-72 px-4 py-3">${roleCheckboxes(user, 'row')}</td>
       <td class="px-4 py-3">${escapeHtml(user.display_name)}</td>
       <td class="px-4 py-3">${escapeHtml(user.email)}</td>
       <td class="px-4 py-3">${escapeHtml(user.tutor_no || '-')}</td>
-      <td class="px-4 py-3">${formatDate(user.created_at)}</td>
       <td class="px-4 py-3">${active}</td>
-      <td class="px-4 py-3"><div class="flex flex-wrap gap-2">${roleAction}${activeAction}${deleteAction}</div></td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-2">
+          <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
+          <button class="rounded-lg px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
+        </div>
+      </td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">登録済みユーザーはありません。</td></tr>';
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">登録済みユーザーはありません。</td></tr>';
+  renderPagination();
 }
-async function loadUsersPage() {
-  const [invitationRows, tutorRows, userRowsData] = await Promise.all([
+function renderPagination() {
+  const {page, total, total_pages} = paginationState;
+  const buttons = [];
+  const pageButton = (value, label = value) => `<button class="rounded-lg border px-3 py-1.5 text-sm ${page === value ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="goToPage(${value})">${label}</button>`;
+  buttons.push(`<button class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})">&lt; 前へ</button>`);
+  const visible = new Set([1, total_pages, page - 1, page, page + 1].filter(value => value >= 1 && value <= total_pages));
+  let last = 0;
+  [...visible].sort((a, b) => a - b).forEach(value => {
+    if (value - last > 1) buttons.push('<span class="px-1 text-slate-400">...</span>');
+    buttons.push(pageButton(value));
+    last = value;
+  });
+  buttons.push(`<button class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:opacity-40" ${page >= total_pages ? 'disabled' : ''} onclick="goToPage(${page + 1})">次へ &gt;</button>`);
+  pagination.innerHTML = `<div class="text-sm text-slate-500">全${total}件 / ${total_pages}ページ</div><div class="flex flex-wrap items-center gap-2">${buttons.join('')}</div>`;
+}
+async function loadUsersPage(page = paginationState.page) {
+  const params = new URLSearchParams({page, per_page: 50});
+  if (activeRole) params.set('roles', activeRole);
+  const keyword = userSearch.value.trim();
+  if (keyword) params.set('search', keyword);
+  const [invitationRowsData, tutorRows, userRowsData] = await Promise.all([
     api('/api/invitations'),
-    api('/api/users?role=tutor'),
-    api('/api/users')
+    api('/api/users?roles=tutor&per_page=100'),
+    api(`/api/users?${params.toString()}`)
   ]);
-  invitations = invitationRows;
-  tutors = tutorRows;
-  users = userRowsData;
+  invitations = invitationRowsData;
+  tutors = tutorRows.items || tutorRows;
+  users = userRowsData.items || [];
+  paginationState = {
+    page: userRowsData.page || page,
+    per_page: userRowsData.per_page || 50,
+    total: userRowsData.total || 0,
+    total_pages: userRowsData.total_pages || 1,
+    role_counts: userRowsData.role_counts || {},
+    active_admin_master_count: userRowsData.active_admin_master_count || 0
+  };
+  changedRoles = {};
   renderTutorOptions();
   renderInvitations();
   renderUsers();
   syncRoleFields();
+}
+function selectRoleTab(role) {
+  activeRole = role;
+  loadUsersPage(1);
+}
+function goToPage(page) {
+  if (page < 1 || page > paginationState.total_pages) return;
+  loadUsersPage(page);
+}
+function onRoleCheckboxChange(userId, location) {
+  const user = users.find(item => item.id === userId) || selectedUser;
+  if (!user) return;
+  const checked = [...document.querySelectorAll(`input[data-role-user="${userId}"][data-role-location="${location}"]:checked`)].map(input => input.value);
+  changedRoles[userId] = checked;
+  if (location === 'drawer') renderDetailDrawer(userId);
+  renderUsers();
+}
+async function updateUserRoles(id, options = {}) {
+  const user = users.find(item => item.id === id) || selectedUser;
+  if (!user) return;
+  const roles = changedRoles[id] || userRoles(user);
+  if (!roles.length) {
+    showToast('少なくとも1つの運営ロールを選択してください', 'error');
+    return;
+  }
+  updatingUsers.add(id);
+  renderUsers();
+  if (selectedUser?.id === id) renderDetailDrawer(id);
+  try {
+    const updated = await api(`/api/users/${id}/roles`, {method: 'PATCH', body: JSON.stringify({roles})});
+    showToast('ユーザー情報を更新しました', 'success');
+    if (selectedUser?.id === id) selectedUser = updated;
+    await loadUsersPage(paginationState.page);
+    if (options.keepDrawer && selectedUser) renderDetailDrawer(id);
+  } catch (error) {
+    showToast(error.message || 'ユーザー情報を更新できませんでした', 'error');
+  } finally {
+    updatingUsers.delete(id);
+    renderUsers();
+  }
+}
+function openDetailDrawer(id) {
+  selectedUser = users.find(item => item.id === id);
+  if (!selectedUser) return;
+  renderDetailDrawer(id);
+  detailOverlay.classList.remove('hidden');
+  detailDrawer.classList.remove('hidden');
+  requestAnimationFrame(() => detailDrawer.classList.remove('translate-x-full'));
+}
+function closeDetailDrawer() {
+  detailDrawer.classList.add('translate-x-full');
+  setTimeout(() => {
+    detailOverlay.classList.add('hidden');
+    detailDrawer.classList.add('hidden');
+    selectedUser = null;
+  }, 200);
+}
+function renderDetailDrawer(id) {
+  const user = selectedUser && selectedUser.id === id ? selectedUser : users.find(item => item.id === id);
+  if (!user) return;
+  const lastAdmin = isLastActiveAdmin(user);
+  const statusButton = user.is_active
+    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため無効化できません"' : ''}>無効化する</button>`
+    : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;
+  detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+    <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
+    <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeDetailDrawer()">閉じる</button>
+  </div>
+  <div class="space-y-5 p-5">
+    <section>
+      <h3 class="font-semibold text-slate-800">ユーザー基本情報</h3>
+      <dl class="mt-3 grid grid-cols-[120px_1fr] gap-2 text-sm">
+        <dt class="text-slate-500">名前</dt><dd>${escapeHtml(user.display_name)}</dd>
+        <dt class="text-slate-500">メール</dt><dd>${escapeHtml(user.email)}</dd>
+        <dt class="text-slate-500">講師No</dt><dd>${escapeHtml(user.tutor_no || '-')}</dd>
+        <dt class="text-slate-500">登録日</dt><dd>${formatDate(user.created_at)}</dd>
+        <dt class="text-slate-500">最終ログイン日</dt><dd>${formatDateTime(user.last_login_at)}</dd>
+      </dl>
+    </section>
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">ロール設定</h3>
+      <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
+      <button class="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
+    </section>
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">状態管理</h3>
+      <p class="mt-2 text-sm text-slate-700">現在の状態：${user.is_active ? '有効' : '無効'}</p>
+      <div class="mt-3">${statusButton}</div>
+    </section>
+    <section class="rounded-lg border p-4" style="background:#FEF2F2;border-color:#FCA5A5;">
+      <h3 class="font-semibold text-red-700">危険な操作</h3>
+      <p class="mt-2 text-sm text-red-700">ユーザーを削除すると元に戻せません</p>
+      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため削除できません"' : ''}>このユーザーを削除する</button>
+    </section>
+  </div>`;
+}
+async function disableUser(id) {
+  try {
+    await api(`/api/users/${id}/disable`, {method: 'PATCH'});
+    showToast('ユーザーを無効化しました', 'success');
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを無効化できませんでした', 'error');
+  }
+}
+async function enableUser(id) {
+  try {
+    await api(`/api/users/${id}/enable`, {method: 'PATCH'});
+    showToast('ユーザーを有効化しました', 'success');
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを有効化できませんでした', 'error');
+  }
+}
+function openDeleteConfirm(id) {
+  deleteTarget = users.find(item => item.id === id) || selectedUser;
+  if (!deleteTarget) return;
+  deleteEmailInput.value = '';
+  confirmDeleteButton.disabled = true;
+  deleteConfirmOverlay.classList.remove('hidden');
+  deleteConfirmOverlay.classList.add('flex');
+}
+function closeDeleteConfirm() {
+  deleteTarget = null;
+  deleteConfirmOverlay.classList.add('hidden');
+  deleteConfirmOverlay.classList.remove('flex');
+}
+async function deleteSelectedUser() {
+  if (!deleteTarget || deleteEmailInput.value.trim() !== deleteTarget.email) return;
+  try {
+    await api(`/api/users/${deleteTarget.id}`, {method: 'DELETE'});
+    showToast('ユーザーを削除しました', 'success');
+    closeDeleteConfirm();
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを削除できませんでした', 'error');
+  }
 }
 inviteForm.addEventListener('submit', async event => {
   event.preventDefault();
@@ -264,9 +458,9 @@ inviteForm.addEventListener('submit', async event => {
     roleSelect.value = data.role;
     syncRoleFields();
     showInviteMessage(result.message || '招待メールを送信しました。');
-    await loadUsersPage();
+    await loadUsersPage(1);
   } catch (error) {
-    showInviteMessage('招待メールを送信できませんでした。', true);
+    showInviteMessage(error.message || '招待メールを送信できませんでした。', true);
   }
 });
 async function resendInvitation(id) {
@@ -289,35 +483,17 @@ async function deleteInvitation(id) {
   showInviteMessage('招待を取り消しました。');
   await loadUsersPage();
 }
-async function toggleUserActive(id, isActive) {
-  const label = isActive ? '有効化' : '無効化';
-  if (!confirm(`このユーザーを${label}しますか。`)) return;
-  await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({is_active: isActive})});
-  showInviteMessage(`ユーザーを${label}しました。`);
-  await loadUsersPage();
-}
-async function updateUserRoles(id) {
-  const checked = [...document.querySelectorAll(`input[data-role-user="${id}"]:checked`)].map(input => input.value);
-  if (!checked.length) {
-    showInviteMessage('少なくとも1つの運営ロールを選択してください。', true);
-    return;
-  }
-  await api(`/api/users/${id}/roles`, {method: 'PATCH', body: JSON.stringify({roles: checked})});
-  showInviteMessage('ロールを更新しました。');
-  await loadUsersPage();
-}
-async function deleteUser(id) {
-  if (!confirm('本当に削除しますか？この操作は取り消せません')) return;
-  await api(`/api/users/${id}`, {method: 'DELETE'});
-  showInviteMessage('ユーザーを削除しました。');
-  await loadUsersPage();
-}
 roleSelect.addEventListener('change', syncRoleFields);
-userSearch.addEventListener('input', renderUsers);
+userSearch.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadUsersPage(1), 250);
+});
+deleteEmailInput.addEventListener('input', () => {
+  confirmDeleteButton.disabled = !deleteTarget || deleteEmailInput.value.trim() !== deleteTarget.email;
+});
 window.authReady.then(user => {
   if (!user) return;
-  loadUsersPage();
+  loadUsersPage(1);
 });
 </script>
-<!-- # === Phase 9 END === -->
 {% endblock %}

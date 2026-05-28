@@ -1,9 +1,10 @@
 # === Phase 3: ユーザー管理 START ===
 import secrets
+import math
 from datetime import datetime, timezone
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import ADMIN_ROLES, has_role, is_admin, require_role, sync_user_roles
@@ -11,7 +12,7 @@ from app.core.security import hash_password, verify_password
 from app.database import get_db
 from app.deps import get_current_user
 from app.models import Assignment, LessonReport, User
-from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserOut, UserPatch, UserRolesPatch
+from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -29,12 +30,64 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = De
     return {"user": UserOut.model_validate(user), "initial_password": password}
 
 
-@router.get("/users", response_model=list[UserOut])
-def list_users(role: str | None = None, db: Session = Depends(get_db), _: User = Depends(require_role(*ADMIN_ROLES))):
-    users = db.scalars(select(User).where(User.deleted_at.is_(None)).order_by(User.created_at.desc())).all()
-    if role:
-        users = [user for user in users if has_role(user, role)]
-    return users
+def _parse_roles(roles: str | None, role: str | None) -> set[str]:
+    raw = roles or role or ""
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _active_admin_master_count(db: Session) -> int:
+    return sum(
+        1
+        for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+        if has_role(user, "admin_master")
+    )
+
+
+def _ensure_not_last_admin_master(user: User, db: Session) -> None:
+    if has_role(user, "admin_master") and user.is_active and _active_admin_master_count(db) <= 1:
+        raise HTTPException(status_code=409, detail="最後の管理者のため操作できません")
+
+
+@router.get("/users", response_model=UserListOut)
+def list_users(
+    page: int = 1,
+    per_page: int = 50,
+    roles: str | None = None,
+    role: str | None = None,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*ADMIN_ROLES)),
+):
+    page = max(1, page)
+    per_page = min(max(1, per_page), 100)
+    stmt = select(User).where(User.deleted_at.is_(None))
+    if search and search.strip():
+        keyword = f"%{search.strip().lower()}%"
+        stmt = stmt.where(or_(func.lower(User.display_name).like(keyword), func.lower(User.email).like(keyword)))
+    users = db.scalars(stmt.order_by(User.created_at.desc())).all()
+    role_counts = {key: 0 for key in ["all", "tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master"]}
+    role_counts["all"] = len(users)
+    for user in users:
+        for user_role in user.roles or [user.role]:
+            if user_role in role_counts:
+                role_counts[user_role] += 1
+    selected_roles = _parse_roles(roles, role)
+    if selected_roles:
+        users = [user for user in users if any(has_role(user, selected_role) for selected_role in selected_roles)]
+    total = len(users)
+    total_pages = max(1, math.ceil(total / per_page))
+    if page > total_pages:
+        page = total_pages
+    start = (page - 1) * per_page
+    return UserListOut(
+        items=users[start : start + per_page],
+        total=total,
+        total_pages=total_pages,
+        page=page,
+        per_page=per_page,
+        role_counts=role_counts,
+        active_admin_master_count=_active_admin_master_count(db),
+    )
 
 
 @router.get("/users/{user_id}", response_model=UserOut)
@@ -71,13 +124,33 @@ def patch_user_roles(user_id: UUID, payload: UserRolesPatch, db: Session = Depen
     return user
 
 
+@router.patch("/users/{user_id}/disable")
+def disable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+    user = db.get(User, user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(status_code=404, detail="user not found")
+    _ensure_not_last_admin_master(user, db)
+    user.is_active = False
+    db.commit()
+    return {"status": "disabled"}
+
+
+@router.patch("/users/{user_id}/enable")
+def enable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+    user = db.get(User, user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(status_code=404, detail="user not found")
+    user.is_active = True
+    db.commit()
+    return {"status": "enabled"}
+
+
 @router.delete("/users/{user_id}")
 def delete_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
-    if has_role(user, "admin_master"):
-        raise HTTPException(status_code=403, detail="admin_master cannot be deleted")
+    _ensure_not_last_admin_master(user, db)
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
     db.commit()

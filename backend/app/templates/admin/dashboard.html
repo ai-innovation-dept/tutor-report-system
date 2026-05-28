@@ -461,11 +461,11 @@ async function loadAdmin() {
   const [reports, assignments, tutors] = await Promise.all([
     api('/api/reports'),
     api('/api/assignments'),
-    api('/api/users?role=tutor')
+    api('/api/users?roles=tutor&per_page=100')
   ]);
   allReports = reports;
   allAssignments = assignments;
-  allTutors = tutors;
+  allTutors = tutors.items || tutors;
   renderFilters();
   renderDashboard();
 }

@@ -28,6 +28,16 @@ class UserOut(BaseModel):
         return roles or []
 
 
+class UserListOut(BaseModel):
+    items: list[UserOut]
+    total: int
+    total_pages: int
+    page: int
+    per_page: int
+    role_counts: dict[str, int] = Field(default_factory=dict)
+    active_admin_master_count: int = 0
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     role: str
