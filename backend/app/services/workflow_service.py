@@ -43,7 +43,7 @@ RETURN_ACTIONS = {
 
 
 def _role_allowed(required: str, actor: User) -> bool:
-    return actor.role == required or has_role(actor, "admin_master") and required.startswith("admin_")
+    return has_role(actor, required) or (has_role(actor, "admin_master") and required.startswith("admin_"))
 
 
 def transition(db: Session, report: LessonReport, actor: User, action: str, comment: str | None = None) -> LessonReport:
@@ -255,7 +255,7 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
         )
         return
 
-    if action in {ReportAction.return_from_receiver.value, ReportAction.return_from_reviewer.value, ReportAction.return_from_master.value}:
+    if action == ReportAction.return_from_receiver.value:
         tutor = _tutor(report)
         await _send_email(
             db,
@@ -264,6 +264,25 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
             "notify_returned.txt",
             context | {
                 "tutor_name": tutor.display_name if tutor else "講師",
+                "actor_name": actor.display_name,
+                "lesson_date": _format_lesson_date(report),
+                "comment": comment or "",
+            },
+        )
+        return
+
+    if action in {ReportAction.return_from_reviewer.value, ReportAction.return_from_master.value}:
+        receivers = [
+            user
+            for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+            if has_role(user, "admin_receiver")
+        ]
+        await _send_email_to_users(
+            db,
+            receivers,
+            ADMIN_RETURN_SUBJECT,
+            "notify_returned.txt",
+            context | {
                 "actor_name": actor.display_name,
                 "lesson_date": _format_lesson_date(report),
                 "comment": comment or "",

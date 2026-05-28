@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.core.rbac import has_role
 from app.deps import get_current_user, get_report_for_user
 from app.models import LessonReport, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import AdminBulkReturnIn, BulkReturnIn, BulkSubmitIn, CommentIn, ReportOut
@@ -36,7 +37,7 @@ async def _approve_and_submit_reports(reports: list[LessonReport], db: Session, 
 
 @router.post("/{report_id}/submit-to-parent", response_model=ReportOut)
 async def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role == "parent":
+    if has_role(user, "parent"):
         return _cancel_parent_return(report_id, db, user)
     return await _run(report_id, ReportAction.submit_to_parent.value, payload, db, user)
 
@@ -137,7 +138,7 @@ async def admin_return_bulk(payload: AdminBulkReturnIn, db: Session = Depends(ge
 
 @router.post("/admin-receive-bulk")
 async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role not in {"admin_receiver", "admin_master"}:
+    if not (has_role(user, "admin_receiver") or has_role(user, "admin_master")):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value)
@@ -147,12 +148,13 @@ async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db
         transition(db, report, user, ReportAction.receive.value)
         changed.append(report.id)
     db.commit()
+    await send_transition_notifications(db, ReportAction.receive.value, reports, user)
     return {"updated": changed}
 
 
 @router.post("/admin-review-bulk")
 async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role not in {"admin_reviewer", "admin_master"}:
+    if not (has_role(user, "admin_reviewer") or has_role(user, "admin_master")):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.received.value)
@@ -162,12 +164,13 @@ async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db)
         transition(db, report, user, ReportAction.re_review.value)
         changed.append(report.id)
     db.commit()
+    await send_transition_notifications(db, ReportAction.re_review.value, reports, user)
     return {"updated": changed}
 
 
 @router.post("/admin-approve-bulk")
 async def admin_approve_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if user.role != "admin_master":
+    if not has_role(user, "admin_master"):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.re_reviewed.value)
