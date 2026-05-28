@@ -46,12 +46,7 @@
     <span class="mr-2 text-slate-700">講師選択</span>
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
-  <label class="text-sm">
-    <span class="mr-2 text-slate-700">PDF月</span>
-    <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" disabled></select>
-  </label>
   <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
-  <span id="bulkExportWarning" class="text-sm text-amber-700">未承認のレポートが含まれています</span>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -234,6 +229,42 @@ function latestEvent(group, action) {
 function reportIdsForStatus(group, status) {
   return group.reports.filter(report => report.status === status).map(report => report.id);
 }
+function taskConfig() {
+  if (currentRole === 'admin_master') {
+    return {
+      status: 're_reviewed',
+      subtext: '最終承認が必要',
+      label: '最終承認',
+      endpoint: '/api/reports/admin-approve-bulk',
+      returnRole: 'master',
+      eventAction: 're_review',
+      metaLabel: '再鑑完了'
+    };
+  }
+  if (currentRole === 'admin_receiver') {
+    return {
+      status: 'returned_to_receiver',
+      subtext: '受付対応が必要',
+      label: '受付承認',
+      endpoint: '/api/reports/admin-receive-bulk',
+      returnRole: 'receiver',
+      eventAction: 'return_from_reviewer',
+      metaLabel: '差戻し'
+    };
+  }
+  if (currentRole === 'admin_reviewer') {
+    return {
+      status: 'received',
+      subtext: '再鑑が必要',
+      label: '再鑑承認',
+      endpoint: '/api/reports/admin-review-bulk',
+      returnRole: 'reviewer',
+      eventAction: 'receive',
+      metaLabel: '受付承認'
+    };
+  }
+  return null;
+}
 function renderFilters() {
   const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
   if (months.length && !months.includes(selectedMonth)) selectedMonth = months[0];
@@ -245,15 +276,14 @@ function renderFilters() {
   if (selectedTutorId && !tutorIds.has(selectedTutorId)) selectedTutorId = '';
   tutorFilter.innerHTML = ['<option value="">すべての講師</option>', ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}</option>`)].join('');
   tutorFilter.value = selectedTutorId;
-  exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
-  exportMonth.value = selectedMonth;
-  exportMonth.disabled = !months.length;
   renderBulkExportLinks();
 }
 function renderKpis() {
   const monthReports = visibleReports();
   const groups = Object.values(groupedByAssignment(monthReports));
-  const approvalWaiting = currentRole === 'admin_master' ? monthReports.filter(report => report.status === 're_reviewed').length : 0;
+  const config = taskConfig();
+  const approvalWaiting = config ? groups.filter(group => currentGroupStatus(group) === config.status).length : 0;
+  const approvalSubtext = config?.subtext || '対応が必要';
   const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'admin_approved')).length;
   const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_receiver') && !group.some(report => report.status === 'admin_approved')).length;
   const completed = groups.filter(group => group.every(report => report.status === 'admin_approved')).length;
@@ -261,7 +291,7 @@ function renderKpis() {
     <div class="admin-card" style="border:2px solid #DC2626;background:#FEF2F2;">
       <div style="font-size:11px;color:var(--color-text-secondary);">あなたの承認待ち</div>
       <div class="mt-1" style="font-size:28px;font-weight:500;color:#DC2626;">${approvalWaiting}</div>
-      <div style="font-size:11px;color:var(--color-text-tertiary);">最終承認が必要</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">${approvalSubtext}</div>
     </div>
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">差戻し中</div>
@@ -276,7 +306,6 @@ function renderKpis() {
 }
 function renderBulkExportLinks() {
   const month = selectedMonth;
-  exportMonth.value = selectedMonth;
   const reportsInMonth = allReports.filter(report => report.target_month === month);
   const groups = Object.values(groupedByAssignment(reportsInMonth));
   const approvedGroups = groups.filter(group => group.every(report => report.status === 'admin_approved'));
@@ -286,20 +315,20 @@ function renderBulkExportLinks() {
   bulkExportPdf.href = hasApprovedGroup ? `/api/reports/export?${params.toString()}` : '#';
   bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
   bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
-  bulkExportWarning.style.display = hasApprovedGroup && hasUnapprovedGroup ? '' : 'none';
 }
 function renderTasks(groups) {
-  const tasks = currentRole === 'admin_master' ? groups.filter(group => currentGroupStatus(group.reports) === 're_reviewed') : [];
+  const config = taskConfig();
+  const tasks = config ? groups.filter(group => currentGroupStatus(group.reports) === config.status) : [];
   taskCountBadge.textContent = tasks.length;
   taskList.innerHTML = tasks.length ? tasks.map(group => {
-    const review = latestEvent(group, 're_review');
+    const event = latestEvent(group, config.eventAction);
     return `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
-        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)} / 再鑑完了 ${escapeHtml(formatDateTime(review?.created_at))} ${escapeHtml(review?.actor_name || '')}</div>
+        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(config.metaLabel)} ${escapeHtml(formatDateTime(event?.created_at))} ${escapeHtml(event?.actor_name || '')}</div>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button class="rounded-lg px-3 py-2 text-sm font-medium text-white" style="background:#16A34A;" onclick="approveGroup('${group.key}')">最終承認</button>
+        <button class="rounded-lg px-3 py-2 text-sm font-medium text-white" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
         <button class="rounded-lg border px-3 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
       </div>
     </div>`;
@@ -410,10 +439,12 @@ function showDetails(key) {
 async function approveGroup(key) {
   const group = currentGroups().find(item => item.key === key);
   if (!group) return;
-  const ids = reportIdsForStatus(group, 're_reviewed');
+  const config = taskConfig();
+  if (!config) return;
+  const ids = reportIdsForStatus(group, config.status);
   if (!ids.length) return;
-  if (!confirm(`${group.student_name}さんの${monthShortLabel(group.target_month)}分を最終承認します。よろしいですか？`)) return;
-  await api('/api/reports/admin-approve-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month})});
+  if (!confirm(`${group.student_name}さんの${monthShortLabel(group.target_month)}分を${config.label}します。よろしいですか？`)) return;
+  await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month})});
   await loadAdmin();
 }
 function openReturnModal(key) {
@@ -431,15 +462,17 @@ function closeReturnModal() {
 async function submitReturn() {
   const group = currentGroups().find(item => item.key === returnTargetKey);
   if (!group) return;
+  const config = taskConfig();
+  if (!config) return;
   const comment = returnComment.value.trim();
   if (!comment) {
     returnError.textContent = '差戻し理由を入力してください';
     returnError.classList.remove('hidden');
     return;
   }
-  const ids = reportIdsForStatus(group, 're_reviewed');
+  const ids = reportIdsForStatus(group, config.status);
   if (!ids.length) return;
-  await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: 'master', comment})});
+  await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: config.returnRole, comment})});
   closeReturnModal();
   await loadAdmin();
 }
