@@ -296,7 +296,11 @@ def export_reports(
     else:
         filename_base = f"指導実績_全体_{month_label}"
 
-    content = _build_reports_pdf(db, reports, target_month)
+    if is_admin(user):
+        stamps = _approval_stamps(db, reports)
+    else:
+        stamps = {"受付": None, "再鑑": None, "管理者": None}
+    content = _build_reports_pdf(db, reports, target_month, stamps)
     return Response(
         content=content,
         media_type="application/pdf",
@@ -360,55 +364,77 @@ def _register_pdf_font() -> str:
     raise HTTPException(status_code=500, detail="Japanese PDF font is not installed")
 
 
-def _final_approver(db: Session, reports: list[LessonReport]) -> tuple[str, str, object] | None:
-    approved_report_ids = [report.id for report in reports if report.status == ReportStatus.admin_approved.value]
-    if not approved_report_ids:
-        return None
-    row = db.execute(
-        select(ReportEvent, User)
-        .join(User, ReportEvent.actor_id == User.id)
-        .where(
-            ReportEvent.report_id.in_(approved_report_ids),
-            ReportEvent.action == ReportAction.admin_approve.value,
-            User.role == "admin_master",
-        )
-        .order_by(ReportEvent.created_at.desc())
-        .limit(1)
-    ).first()
-    if not row:
-        return None
-    event, actor = row
-    return actor.display_name, "管理者", event.created_at
+def _approval_stamps(db: Session, reports: list[LessonReport]) -> dict[str, tuple[str, str, object] | None]:
+    """受付再鑑管理者の承認情報を取得して返す"""
+    report_ids = [report.id for report in reports]
+    action_to_role = {
+        ReportAction.receive.value: ("受付", "admin_receiver"),
+        ReportAction.re_review.value: ("再鑑", "admin_reviewer"),
+        ReportAction.admin_approve.value: ("管理者", "admin_master"),
+    }
+    stamps = {"受付": None, "再鑑": None, "管理者": None}
+    if not report_ids:
+        return stamps
+
+    for action, (role_label, _) in action_to_role.items():
+        row = db.execute(
+            select(ReportEvent, User)
+            .join(User, ReportEvent.actor_id == User.id)
+            .where(
+                ReportEvent.report_id.in_(report_ids),
+                ReportEvent.action == action,
+            )
+            .order_by(ReportEvent.created_at.desc())
+            .limit(1)
+        ).first()
+        if row:
+            event, actor = row
+            stamps[role_label] = (actor.display_name, role_label, event.created_at)
+    return stamps
 
 
-def _draw_approval_stamp(canvas, doc, approver: tuple[str, str, object] | None, font_name: str) -> None:
-    if not approver:
-        return
-    approver_name, role_label, approved_at = approver
+def _draw_approval_stamps_grid(canvas, doc, stamps: dict[str, tuple[str, str, object] | None], font_name: str) -> None:
     from reportlab.lib import colors
     from reportlab.lib.units import mm
 
-    x = doc.pagesize[0] - doc.rightMargin - 23 * mm
-    y = doc.bottomMargin + 21 * mm
-    radius = 17 * mm
+    roles = ["受付", "再鑑", "管理者"]
+    box_width = 28 * mm
+    box_height = 28 * mm
+    x_right = doc.pagesize[0] - doc.rightMargin
+    y_top = doc.pagesize[1] - doc.topMargin + 2 * mm
+    x_start = x_right - box_width * len(roles)
+    y_bottom = y_top - box_height
     stamp_color = colors.HexColor("#c81e1e")
     canvas.saveState()
-    canvas.setStrokeColor(stamp_color)
-    canvas.setFillColor(stamp_color)
-    canvas.setLineWidth(1.4)
-    canvas.circle(x, y, radius, stroke=1, fill=0)
-    canvas.circle(x, y, radius - 3 * mm, stroke=1, fill=0)
-    canvas.setFont(font_name, 9)
-    canvas.drawCentredString(x, y + 7 * mm, role_label)
-    canvas.setFont(font_name, 12)
-    canvas.drawCentredString(x, y, approver_name[:8])
-    canvas.setFont(font_name, 7)
-    approved_label = approved_at.strftime("%Y/%m/%d %H:%M") if approved_at else ""
-    canvas.drawCentredString(x, y - 8 * mm, approved_label)
+    canvas.setLineWidth(0.6)
+    for index, role_label in enumerate(roles):
+        x = x_start + box_width * index
+        stamp = stamps.get(role_label)
+        canvas.setStrokeColor(colors.HexColor("#777777"))
+        canvas.rect(x, y_bottom, box_width, box_height, stroke=1, fill=0)
+        canvas.setFillColor(colors.HexColor("#222222"))
+        canvas.setFont(font_name, 8)
+        canvas.drawCentredString(x + box_width / 2, y_top - 5 * mm, role_label)
+        if not stamp:
+            continue
+
+        approver_name, _, approved_at = stamp
+        approved_label = approved_at.strftime("%Y/%m/%d %H:%M") if approved_at else ""
+        center_x = x + box_width / 2
+        center_y = y_bottom + 14 * mm
+        radius = 8.5 * mm
+        canvas.setStrokeColor(stamp_color)
+        canvas.setFillColor(stamp_color)
+        canvas.circle(center_x, center_y, radius, stroke=1, fill=0)
+        canvas.circle(center_x, center_y, radius - 1.8 * mm, stroke=1, fill=0)
+        canvas.setFont(font_name, 10)
+        canvas.drawCentredString(center_x, center_y - 1.5 * mm, approver_name[:4])
+        canvas.setFont(font_name, 7)
+        canvas.drawCentredString(center_x, y_bottom + 3 * mm, approved_label)
     canvas.restoreState()
 
 
-def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: str) -> bytes:
+def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: str, stamps: dict[str, tuple[str, str, object] | None]) -> bytes:
     font_name = _register_pdf_font()
     try:
         from reportlab.lib import colors
@@ -430,7 +456,6 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
     for report in reports:
         grouped[report.assignment_id].append(report)
     group_items = sorted(grouped.values(), key=lambda items: (_student_name(items[0]), _tutor_name(items[0])))
-    approver = _final_approver(db, reports)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -482,7 +507,8 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         story.append(table)
     doc.build(
         story,
-        onFirstPage=lambda canvas, doc: _draw_approval_stamp(canvas, doc, approver, font_name),
+        onFirstPage=lambda canvas, doc: _draw_approval_stamps_grid(canvas, doc, stamps, font_name),
+        onLaterPages=lambda canvas, doc: _draw_approval_stamps_grid(canvas, doc, stamps, font_name),
     )
     return buf.getvalue()
 

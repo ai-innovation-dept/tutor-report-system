@@ -568,8 +568,9 @@ def test_selected_role_cookie_is_respected(client, db):
 def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
     exported = {}
 
-    def fake_pdf(db, reports, target_month):
+    def fake_pdf(db, reports, target_month, stamps):
         exported["reports"] = reports
+        exported["stamps"] = stamps
         return b"%PDF-1.4\nadmin\n"
 
     monkeypatch.setattr(reports_api, "_build_reports_pdf", fake_pdf)
@@ -638,7 +639,7 @@ def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
 
 
 def test_parent_can_export_all_children_as_pdf(client, db, monkeypatch):
-    monkeypatch.setattr(reports_api, "_build_reports_pdf", lambda db, reports, target_month: b"%PDF-1.4\nparent\n")
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", lambda db, reports, target_month, stamps: b"%PDF-1.4\nparent\n")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
     tutor = db.get(User, assignment.tutor_id)
