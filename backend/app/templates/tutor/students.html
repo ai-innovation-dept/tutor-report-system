@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: 講師 生徒管理 START === -->
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 80px;
+    margin-right: 8px;
+  }
+}
+</style>
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
     <p class="text-sm font-medium text-blue-600">講師ポータル</p>
@@ -11,7 +42,7 @@
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">生徒名</th>
@@ -58,10 +89,10 @@ function escapeHtml(value) {
 }
 function renderStudents() {
   studentRows.innerHTML = assignments.length ? assignments.map(assignment => `<tr class="border-t border-slate-100 hover:bg-slate-50">
-    <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(assignment.student_name)}</td>
-    <td class="px-4 py-3">${escapeHtml(assignment.parent_name || '未登録')}</td>
-    <td class="px-4 py-3">${escapeHtml(assignment.parent_email || '-')}</td>
-    <td class="px-4 py-3">${assignment.is_active ? '有効' : '無効'}</td>
+    <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(assignment.student_name)}</td>
+    <td class="px-4 py-3" data-label="保護者名">${escapeHtml(assignment.parent_name || '未登録')}</td>
+    <td class="px-4 py-3" data-label="保護者メール">${escapeHtml(assignment.parent_email || '-')}</td>
+    <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
   </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="4">担当生徒はまだありません。</td></tr>';
 }
 async function loadStudents() {

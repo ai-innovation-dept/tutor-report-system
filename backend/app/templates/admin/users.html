@@ -1,5 +1,38 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 70px;
+    margin-right: 8px;
+  }
+  .mobile-cards tbody td .min-w-72 { min-width: 0; }
+}
+</style>
 <div class="mb-6">
   <p class="text-sm font-medium text-blue-600">運営ポータル</p>
   <h1 class="text-2xl font-semibold text-slate-800">ユーザー管理</h1>
@@ -51,7 +84,7 @@
     <h2 class="font-semibold text-slate-800">招待済み一覧</h2>
   </div>
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">メール</th>
@@ -69,18 +102,18 @@
 </section>
 
 <section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
+  <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
     <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
-    <div class="flex flex-1 flex-wrap items-center justify-end gap-3">
+    <div class="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
       <div id="roleTabs" class="flex flex-wrap gap-2"></div>
       <label class="text-sm">
         <span class="sr-only">検索</span>
-        <input id="userSearch" class="w-64 rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="名前・メールアドレス">
+        <input id="userSearch" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64" placeholder="名前・メールアドレス">
       </label>
     </div>
   </div>
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">ロール</th>
@@ -208,13 +241,13 @@ function renderInvitations() {
       : `<button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendInvitation('${invitation.id}')">再送</button>
          <button class="ml-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
     return `<tr class="border-t border-slate-100 hover:bg-slate-50">
-      <td class="px-4 py-3">${escapeHtml(invitation.email)}</td>
-      <td class="px-4 py-3">${escapeHtml(roleLabel(invitation.role))}</td>
-      <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
-      <td class="px-4 py-3">${invitation.role === 'parent' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
-      <td class="px-4 py-3">${formatDateTime(invitation.created_at)}</td>
-      <td class="px-4 py-3">${statusText(invitation)}</td>
-      <td class="px-4 py-3">${action}</td>
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
+      <td class="px-4 py-3" data-label="役割">${escapeHtml(roleLabel(invitation.role))}</td>
+      <td class="px-4 py-3" data-label="担当講師">${invitation.role === 'parent' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
+      <td class="px-4 py-3" data-label="担当生徒">${invitation.role === 'parent' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
+      <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
+      <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
+      <td class="px-4 py-3" data-label="操作">${action}</td>
     </tr>`;
   }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
 }
@@ -246,15 +279,15 @@ function renderUsers() {
     const changed = userHasRoleChanges(user);
     const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
     return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
-      <td class="min-w-72 px-4 py-3">${roleCheckboxes(user, 'row')}</td>
-      <td class="px-4 py-3">${escapeHtml(user.display_name)}</td>
-      <td class="px-4 py-3">${escapeHtml(user.email)}</td>
-      <td class="px-4 py-3">${escapeHtml(user.tutor_no || '-')}</td>
-      <td class="px-4 py-3">${active}</td>
-      <td class="px-4 py-3">
+      <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
+      <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
+      <td class="px-4 py-3" data-label="講師No">${escapeHtml(user.tutor_no || '-')}</td>
+      <td class="px-4 py-3" data-label="状態">${active}</td>
+      <td class="px-4 py-3" data-label="操作">
         <div class="flex flex-wrap gap-2">
-          <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
-          <button class="rounded-lg px-3 py-1.5 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
+          <button class="min-h-[44px] rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
+          <button class="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
         </div>
       </td>
     </tr>`;

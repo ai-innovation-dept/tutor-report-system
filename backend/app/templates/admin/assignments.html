@@ -1,6 +1,37 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: 紐付け管理 START === -->
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 80px;
+    margin-right: 8px;
+  }
+}
+</style>
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
     <p class="text-sm font-medium text-blue-600">運営ポータル</p>
@@ -30,7 +61,7 @@
     <h2 class="font-semibold text-slate-800">紐付け一覧</h2>
   </div>
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">生徒名</th>
@@ -133,16 +164,16 @@ function renderAssignments() {
       ? `${assignment.parent_name || '未登録'}${assignment.parent_email ? `（${assignment.parent_email}）` : ''}`
       : '未設定';
     const action = assignment.is_active
-      ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100" onclick="setAssignmentActive('${assignment.id}', false)">無効化</button>`
-      : `<button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
+      ? `<button class="min-h-[44px] w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', false)">無効化</button>`
+      : `<button class="min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
     return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
-      <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(assignment.student_name)}</td>
-      <td class="px-4 py-3">${escapeHtml(assignment.tutor_name || '未設定')}</td>
-      <td class="px-4 py-3">${escapeHtml(parent)}</td>
-      <td class="px-4 py-3">${toggleHtml(assignment)}</td>
-      <td class="px-4 py-3"><button class="rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
-      <td class="px-4 py-3">${assignment.is_active ? '有効' : '無効'}</td>
-      <td class="px-4 py-3">${action}</td>
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(assignment.student_name)}</td>
+      <td class="px-4 py-3" data-label="担当講師">${escapeHtml(assignment.tutor_name || '未設定')}</td>
+      <td class="px-4 py-3" data-label="保護者">${escapeHtml(parent)}</td>
+      <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
+      <td class="px-4 py-3" data-label="リマインド"><button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
+      <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
+      <td class="px-4 py-3" data-label="操作">${action}</td>
     </tr>`;
   }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">紐付けはありません。</td></tr>';
 }

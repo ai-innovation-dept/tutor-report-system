@@ -27,7 +27,7 @@
   }
   @media (max-width: 760px) {
     .kanban-grid {
-      grid-template-columns: 1fr;
+      grid-template-columns: repeat(6, minmax(160px, 1fr));
     }
   }
 </style>
@@ -37,16 +37,16 @@
   <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">統合ダッシュボード</h1>
 </div>
 
-<div class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-  <label class="text-sm">
-    <span class="mr-2 text-slate-700">月選択</span>
+<div class="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
+  <label class="flex items-center gap-2 text-sm">
+    <span class="text-slate-700">月選択</span>
     <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
-  <label class="text-sm">
-    <span class="mr-2 text-slate-700">講師選択</span>
+  <label class="flex items-center gap-2 text-sm">
+    <span class="text-slate-700">講師選択</span>
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
-  <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
+  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto" href="#">PDFでダウンロード</a>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -61,7 +61,9 @@
 
 <section class="mb-4">
   <h2 class="mb-2 text-lg font-semibold text-slate-800" id="pipelineTitle">🔄 進捗パイプライン</h2>
-  <div id="pipelineBoard" class="kanban-grid"></div>
+  <div class="overflow-x-auto">
+    <div id="pipelineBoard" class="kanban-grid"></div>
+  </div>
 </section>
 
 <section id="detailDrawer" class="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"></section>
@@ -350,14 +352,14 @@ function renderTasks(groups) {
   taskList.innerHTML = tasks.length ? tasks.map(group => {
     const groupStatus = currentGroupStatus(group.reports);
     const meta = getTaskMeta(group, groupStatus);
-    return `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+    return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
         <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
       </div>
-      <div class="flex flex-wrap gap-2">
-        <button class="rounded-lg px-3 py-2 text-sm font-medium text-white" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
-        <button class="rounded-lg border px-3 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
+        <button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
       </div>
     </div>`;
   }).join('') : '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
