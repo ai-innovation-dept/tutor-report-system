@@ -41,10 +41,6 @@
         <span class="block mb-1 text-slate-700">生徒</span>
         <select name="assignment_id" id="assignment" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
       </label>
-      <label class="hidden text-sm" id="newStudentField">
-        <span class="block mb-1 text-slate-700">生徒名</span>
-        <input id="newStudentName" type="text" placeholder="例：山田 太郎" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-      </label>
       <label class="block text-sm">
         <span class="block mb-1 text-slate-700">指導日</span>
         <input name="lesson_date" id="lessonDate" type="date" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
@@ -99,8 +95,6 @@ const STATUS_LABELS = {
   admin_approved: '最終承認済み'
 };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-const NEW_ASSIGNMENT_VALUE = '__new_assignment__';
-let currentUserId = '';
 let allReports = [];
 let allAssignments = [];
 const isSubmitPage = location.pathname === '/tutor/submit';
@@ -162,11 +156,7 @@ function selectedAssignmentApproved() {
   if (!selectedAssignmentId) return false;
   return allReports.some(r => r.target_month === currentMonth && r.assignment_id === selectedAssignmentId && r.status === 'admin_approved');
 }
-function isNewAssignmentMode() {
-  return assignment.value === NEW_ASSIGNMENT_VALUE;
-}
 function filteredReports() {
-  if (isNewAssignmentMode()) return [];
   return allReports.filter(r => {
     const monthMatches = isSubmitPage || r.target_month === selectedMonth;
     const assignmentMatches = !selectedAssignmentId || r.assignment_id === selectedAssignmentId;
@@ -174,19 +164,8 @@ function filteredReports() {
   });
 }
 function updateStudentBadge() {
-  if (isNewAssignmentMode()) {
-    studentBadge.textContent = '生徒：新しい生徒';
-    return;
-  }
   const current = selectedAssignment();
   studentBadge.textContent = `生徒：${current ? current.student_name : 'すべて'}`;
-}
-function updateNewStudentField() {
-  const newMode = isNewAssignmentMode();
-  newStudentField.classList.toggle('hidden', !newMode);
-  newStudentField.classList.toggle('block', newMode);
-  newStudentName.required = newMode;
-  newStudentName.disabled = !newMode;
 }
 function renderCurrentList() {
   const visible = isSubmitPage
@@ -228,7 +207,6 @@ function setReportInputsDisabled(disabled) {
   [lessonDate, startTime, endTime, breakMinutes, subject, content, saveButton].forEach(el => {
     el.disabled = disabled;
   });
-  newStudentName.disabled = disabled || !isNewAssignmentMode();
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
 }
@@ -288,7 +266,6 @@ async function loadTutor() {
 }
 function renderAssignmentOptions() {
   const options = ['<option value="">すべての生徒</option>', ...allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`)];
-  options.push(`<option value="${NEW_ASSIGNMENT_VALUE}">＋ 新しい生徒を追加</option>`);
   assignment.innerHTML = options.join('');
   if (selectedAssignmentId && allAssignments.some(a => a.id === selectedAssignmentId)) {
     assignment.value = selectedAssignmentId;
@@ -296,7 +273,6 @@ function renderAssignmentOptions() {
     assignment.value = '';
     selectedAssignmentId = '';
   }
-  updateNewStudentField();
 }
 function renderMonthFilter() {
   const months = [...new Set([...allReports.map(r => r.target_month), currentMonth])]
@@ -326,16 +302,13 @@ function updateComputedFields() {
 }
 function resetReportForm(keepAssignment = false) {
   const currentAssignment = assignment.value;
-  const currentStudentName = newStudentName.value;
   reportForm.reset();
   editingId.value = '';
   breakMinutes.value = 0;
   if (keepAssignment) {
     assignment.value = currentAssignment;
-    if (currentAssignment === NEW_ASSIGNMENT_VALUE) newStudentName.value = currentStudentName;
   }
-  selectedAssignmentId = assignment.value === NEW_ASSIGNMENT_VALUE ? '' : (assignment.value || selectedAssignmentId);
-  updateNewStudentField();
+  selectedAssignmentId = assignment.value || selectedAssignmentId;
   updateStudentBadge();
   formTitle.textContent = '簡易作成';
   saveButton.textContent = '保存';
@@ -347,7 +320,6 @@ function editReport(id) {
   editingId.value = r.id;
   selectedAssignmentId = r.assignment_id;
   assignment.value = r.assignment_id;
-  updateNewStudentField();
   lessonDate.value = r.lesson_date;
   startTime.value = timeText(r.start_time);
   endTime.value = timeText(r.end_time);
@@ -387,22 +359,11 @@ reportForm.addEventListener('submit', async e => {
       await api(`/api/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify(payload)});
       showFormMessage('報告書を更新しました');
     } else {
-      let successMessage = '報告書を作成しました';
-      if (isNewAssignmentMode()) {
-        const studentName = newStudentName.value.trim();
-        if (!studentName) throw new Error('生徒名を入力してください');
-        const createdAssignment = await api('/api/assignments', {
-          method: 'POST',
-          body: JSON.stringify({tutor_id: currentUserId, parent_id: null, student_name: studentName})
-        });
-        payload.assignment_id = createdAssignment.id;
-        selectedAssignmentId = createdAssignment.id;
-        successMessage = '生徒を登録し、報告書を作成しました';
-      } else if (!payload.assignment_id) {
+      if (!payload.assignment_id) {
         throw new Error('生徒を選択してください');
       }
       await api('/api/reports', {method:'POST', body: JSON.stringify(payload)});
-      showFormMessage(successMessage);
+      showFormMessage('報告書を作成しました');
     }
     await loadTutor();
     resetReportForm(true);
@@ -411,7 +372,7 @@ reportForm.addEventListener('submit', async e => {
   }
 });
 assignment.addEventListener('change', () => {
-  selectedAssignmentId = assignment.value === NEW_ASSIGNMENT_VALUE ? '' : assignment.value;
+  selectedAssignmentId = assignment.value;
   resetReportForm(true);
   updateStudentBadge();
   renderCurrentList();
@@ -425,7 +386,6 @@ monthFilter.addEventListener('change', () => {
 [lessonDate, startTime, endTime, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
 window.authReady.then(user => {
   if (!user) return;
-  currentUserId = user.id;
   loadTutor();
 });
 </script>
