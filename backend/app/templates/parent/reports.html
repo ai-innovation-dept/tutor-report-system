@@ -164,7 +164,8 @@ function renderDownloadArea(month, reports) {
 }
 function exportTargetReports(month) {
   return allReports.filter(report =>
-    report.target_month === month
+    report.target_month === month &&
+    (!selectedAssignmentId || report.assignment_id === selectedAssignmentId)
   );
 }
 function renderBulkExportLinks() {
@@ -174,8 +175,11 @@ function renderBulkExportLinks() {
     bulkExportButtons.innerHTML = '';
     return;
   }
+  const exportUrl = selectedAssignmentId
+    ? `/api/reports/export?assignment_id=${selectedAssignmentId}&target_month=${month}&format=pdf`
+    : `/api/reports/export?scope=all&target_month=${month}&format=pdf`;
   bulkExportButtons.innerHTML = `
-    <a href="/api/reports/export?scope=all&target_month=${month}&format=pdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700">PDFでダウンロード</a>
+    <a href="${exportUrl}" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700">PDFでダウンロード</a>
   `;
 }
 function renderBulkExportArea() {
