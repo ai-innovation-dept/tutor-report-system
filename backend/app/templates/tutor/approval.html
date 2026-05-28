@@ -320,7 +320,7 @@ function renderApproval() {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
     const parentLabel = group.parent_display_name ? `保護者：${escapeHtml(group.parent_display_name)}` : '保護者：未設定';
-    return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" ${collapsedAttr}>
+    return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden" ${collapsedAttr}>
       <summary class="cursor-pointer list-none">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
