@@ -399,42 +399,42 @@ def _draw_approval_stamps_grid(canvas, doc, stamps: dict[str, tuple[str, str, ob
 
     roles = ["受付", "再鑑", "管理者"]
     role_stamp_labels = {"受付": "受付者", "再鑑": "再鑑者", "管理者": "管理者"}
-    box_width = 32 * mm
-    box_height = 32 * mm
-    box_gap = 2 * mm
-    total_width = box_width * len(roles) + box_gap * (len(roles) - 1)
+    box_width = 28 * mm
+    box_height = 25 * mm
+    box_gap = 0
     x_right = doc.pagesize[0] - doc.rightMargin
-    y_top = doc.pagesize[1] - 5 * mm
-    x_start = x_right - total_width
+    y_top = doc.pagesize[1] - 8 * mm
     y_bottom = y_top - box_height
-    stamp_color = colors.HexColor("#c81e1e")
     canvas.saveState()
-    canvas.setLineWidth(0.5)
-    for index, role_label in enumerate(roles):
-        x = x_start + (box_width + box_gap) * index
-        stamp = stamps.get(role_label)
+    for i, role_label in enumerate(reversed(roles)):
+        x = x_right - (i + 1) * box_width - i * box_gap
         canvas.setStrokeColor(colors.black)
+        canvas.setLineWidth(0.5)
         canvas.rect(x, y_bottom, box_width, box_height, stroke=1, fill=0)
         canvas.setFillColor(colors.black)
-        canvas.setFont(font_name, 8)
-        canvas.drawCentredString(x + box_width / 2, y_top - 4 * mm, role_label)
+        canvas.setFont(font_name, 7)
+        canvas.drawCentredString(x + box_width / 2, y_top - 5 * mm, role_label)
+
+        stamp = stamps.get(role_label)
         if not stamp:
             continue
 
         approver_name, _, approved_at = stamp
         approved_label = f"{approved_at.year}年{approved_at.month}月{approved_at.day}日" if approved_at else ""
         center_x = x + box_width / 2
-        center_y = y_bottom + 14 * mm
+        center_y = y_bottom + 12 * mm
+        stamp_color = colors.HexColor("#c81e1e")
         canvas.setStrokeColor(stamp_color)
         canvas.setFillColor(stamp_color)
-        canvas.circle(center_x, center_y, 12 * mm, stroke=1, fill=0)
+        canvas.setLineWidth(1.2)
         canvas.circle(center_x, center_y, 9 * mm, stroke=1, fill=0)
-        canvas.setFont(font_name, 7)
-        canvas.drawCentredString(center_x, center_y + 5 * mm, approved_label)
-        canvas.setFont(font_name, 9)
-        canvas.drawCentredString(center_x, center_y - 1 * mm, role_stamp_labels[role_label])
-        canvas.setFont(font_name, 9)
-        canvas.drawCentredString(center_x, center_y - 6 * mm, approver_name)
+        canvas.circle(center_x, center_y, 6.5 * mm, stroke=1, fill=0)
+        canvas.setFont(font_name, 6)
+        canvas.drawCentredString(center_x, center_y + 4 * mm, approved_label)
+        canvas.setFont(font_name, 8)
+        canvas.drawCentredString(center_x, center_y, role_stamp_labels[role_label])
+        canvas.setFont(font_name, 8)
+        canvas.drawCentredString(center_x, center_y - 5 * mm, approver_name[:5])
     canvas.restoreState()
 
 
@@ -467,7 +467,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         pagesize=A4,
         rightMargin=16 * mm,
         leftMargin=16 * mm,
-        topMargin=29 * mm,
+        topMargin=40 * mm,
         bottomMargin=22 * mm,
         title="指導実績",
     )
