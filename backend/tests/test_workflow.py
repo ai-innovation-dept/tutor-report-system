@@ -410,7 +410,13 @@ def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
 
 
 def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
-    monkeypatch.setattr(reports_api, "_build_reports_pdf", lambda db, reports, target_month: b"%PDF-1.4\nadmin\n")
+    exported = {}
+
+    def fake_pdf(db, reports, target_month):
+        exported["reports"] = reports
+        return b"%PDF-1.4\nadmin\n"
+
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", fake_pdf)
     master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
     tutor = db.get(User, assignment.tutor_id)
@@ -447,17 +453,32 @@ def test_admin_can_export_all_reports_as_pdf(client, db, monkeypatch):
             target_month=target_month,
             status=ReportStatus.admin_approved.value,
         ),
+        LessonReport(
+            assignment_id=second_assignment.id,
+            tutor_id=tutor.id,
+            parent_id=parent.id,
+            lesson_date=today,
+            start_time=time(21, 0),
+            end_time=time(22, 0),
+            break_minutes=0,
+            subject="science",
+            content="not approved",
+            target_month=target_month,
+            status=ReportStatus.received.value,
+        ),
     ])
     db.commit()
 
     res = client.get(
-        f"/api/reports/export?scope=all&target_month={target_month}&format=pdf",
+        f"/api/reports/export?scope=approved_only&target_month={target_month}&format=pdf",
         headers={"Authorization": f"Bearer {master_token}"},
     )
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/pdf"
     assert res.content.startswith(b"%PDF")
     assert ".pdf" in res.headers["content-disposition"]
+    assert exported["reports"]
+    assert all(report.status == ReportStatus.admin_approved.value for report in exported["reports"])
 
 
 def test_parent_can_export_all_children_as_pdf(client, db, monkeypatch):

@@ -240,8 +240,8 @@ def export_reports(
 ):
     if format != "pdf":
         raise HTTPException(status_code=422, detail="format must be pdf")
-    if scope and scope != "all":
-        raise HTTPException(status_code=422, detail="scope must be all")
+    if scope and scope not in {"all", "approved_only"}:
+        raise HTTPException(status_code=422, detail="scope must be all or approved_only")
 
     stmt = (
         select(LessonReport)
@@ -263,7 +263,7 @@ def export_reports(
             raise HTTPException(status_code=403, detail="access denied")
         stmt = stmt.where(LessonReport.parent_id == user.id)
     elif user.role.startswith("admin_"):
-        if scope == "all":
+        if scope in {"all", "approved_only"}:
             stmt = stmt.where(LessonReport.status == ReportStatus.admin_approved.value)
     else:
         raise HTTPException(status_code=403, detail="not allowed")

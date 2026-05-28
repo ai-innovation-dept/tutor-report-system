@@ -46,21 +46,15 @@
     <span class="mr-2 text-slate-700">講師選択</span>
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
+  <label class="text-sm">
+    <span class="mr-2 text-slate-700">PDF月</span>
+    <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" disabled></select>
+  </label>
+  <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
+  <span id="bulkExportWarning" class="text-sm text-amber-700">未承認のレポートが含まれています</span>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
-
-<section class="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-  <h2 class="font-semibold text-slate-800">エクスポート</h2>
-  <div class="mt-3 flex flex-wrap items-end gap-3">
-    <label class="text-sm">
-      <span class="mb-1 block text-slate-700">月</span>
-      <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-    </label>
-    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
-    <span id="bulkExportWarning" class="text-sm text-amber-700">未承認のレポートが含まれています</span>
-  </div>
-</section>
 
 <section class="mb-4">
   <div class="mb-2 flex items-center gap-2">
@@ -211,6 +205,12 @@ function groupReports(reports) {
     a.tutor_name.localeCompare(b.tutor_name, 'ja')
   );
 }
+function groupedByAssignment(reports) {
+  return reports.reduce((groups, report) => {
+    (groups[groupKey(report)] ||= []).push(report);
+    return groups;
+  }, {});
+}
 function currentGroups() {
   return groupReports(visibleReports());
 }
@@ -251,11 +251,12 @@ function renderFilters() {
   renderBulkExportLinks();
 }
 function renderKpis() {
-  const reports = visibleReports();
-  const approvalWaiting = currentRole === 'admin_master' ? reports.filter(report => report.status === 're_reviewed').length : 0;
-  const returnedTutor = reports.filter(report => report.status === 'returned_to_tutor').length;
-  const returnedReceiver = reports.filter(report => report.status === 'returned_to_receiver').length;
-  const completed = reports.filter(report => report.status === 'admin_approved').length;
+  const monthReports = visibleReports();
+  const groups = Object.values(groupedByAssignment(monthReports));
+  const approvalWaiting = currentRole === 'admin_master' ? monthReports.filter(report => report.status === 're_reviewed').length : 0;
+  const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'admin_approved')).length;
+  const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_receiver') && !group.some(report => report.status === 'admin_approved')).length;
+  const completed = groups.filter(group => group.every(report => report.status === 'admin_approved')).length;
   kpiCards.innerHTML = `
     <div class="admin-card" style="border:2px solid #DC2626;background:#FEF2F2;">
       <div style="font-size:11px;color:var(--color-text-secondary);">あなたの承認待ち</div>
@@ -270,18 +271,22 @@ function renderKpis() {
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">今月完了</div>
       <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${completed}</div>
-      <div style="font-size:11px;color:var(--color-text-tertiary);">全${reports.length}件中</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">全${groups.length}件中</div>
     </div>`;
 }
 function renderBulkExportLinks() {
-  const month = exportMonth.value || selectedMonth;
+  const month = selectedMonth;
+  exportMonth.value = selectedMonth;
   const reportsInMonth = allReports.filter(report => report.target_month === month);
-  const allApproved = reportsInMonth.length > 0 && reportsInMonth.every(report => report.status === 'admin_approved');
-  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
-  bulkExportPdf.href = allApproved ? `/api/reports/export?${params.toString()}` : '#';
-  bulkExportPdf.classList.toggle('opacity-50', !allApproved);
-  bulkExportPdf.classList.toggle('pointer-events-none', !allApproved);
-  bulkExportWarning.style.display = allApproved ? 'none' : '';
+  const groups = Object.values(groupedByAssignment(reportsInMonth));
+  const approvedGroups = groups.filter(group => group.every(report => report.status === 'admin_approved'));
+  const hasApprovedGroup = approvedGroups.length > 0;
+  const hasUnapprovedGroup = groups.some(group => !group.every(report => report.status === 'admin_approved'));
+  const params = new URLSearchParams({scope: 'approved_only', target_month: month, format: 'pdf'});
+  bulkExportPdf.href = hasApprovedGroup ? `/api/reports/export?${params.toString()}` : '#';
+  bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
+  bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
+  bulkExportWarning.style.display = hasApprovedGroup && hasUnapprovedGroup ? '' : 'none';
 }
 function renderTasks(groups) {
   const tasks = currentRole === 'admin_master' ? groups.filter(group => currentGroupStatus(group.reports) === 're_reviewed') : [];
@@ -480,7 +485,6 @@ tutorFilter.addEventListener('change', () => {
   selectedGroupKey = '';
   updateUrl();
 });
-exportMonth.addEventListener('change', renderBulkExportLinks);
 window.authReady.then(user => {
   if (!user) return;
   currentRole = user.role;
