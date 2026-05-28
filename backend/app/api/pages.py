@@ -2,7 +2,7 @@
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from sqlalchemy import func, select
@@ -251,61 +251,6 @@ def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
     )
 
 
-def _admin_approval_report_ids(db: Session, current_user: User) -> set:
-    actions_by_role = {
-        "admin_receiver": [ReportAction.receive.value],
-        "admin_reviewer": [ReportAction.re_review.value],
-        "admin_master": [
-            ReportAction.submit_to_parent.value,
-            ReportAction.parent_approve.value,
-            ReportAction.receive.value,
-            ReportAction.re_review.value,
-            ReportAction.admin_approve.value,
-        ],
-    }
-    actions = actions_by_role.get(current_user.role, [])
-    event_stmt = select(ReportEvent.report_id).where(ReportEvent.action.in_(actions))
-    if current_user.role in {"admin_receiver", "admin_reviewer"}:
-        event_stmt = event_stmt.where(ReportEvent.actor_id == current_user.id)
-    return set(db.scalars(event_stmt).all())
-
-
-def _admin_approval_months(db: Session, current_user: User) -> list[str]:
-    report_ids = _admin_approval_report_ids(db, current_user)
-    if not report_ids:
-        return []
-    return db.scalars(
-        select(LessonReport.target_month)
-        .where(LessonReport.id.in_(report_ids))
-        .distinct()
-        .order_by(LessonReport.target_month.desc())
-    ).all()
-
-
-def _admin_approval_groups(db: Session, current_user: User, target_month: str | None = None) -> list[dict]:
-    report_ids = _admin_approval_report_ids(db, current_user)
-    if not report_ids:
-        return []
-    stmt = (
-        select(LessonReport)
-        .options(selectinload(LessonReport.assignment), selectinload(LessonReport.tutor), selectinload(LessonReport.parent))
-        .where(LessonReport.id.in_(report_ids))
-    )
-    if target_month:
-        stmt = stmt.where(LessonReport.target_month == target_month)
-    reports = db.scalars(
-        stmt.order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
-    ).all()
-    step_specs = [
-        ("講師", ReportAction.submit_to_parent.value, False),
-        ("保護者", ReportAction.parent_approve.value, True),
-        ("受付", ReportAction.receive.value, True),
-        ("再鑑", ReportAction.re_review.value, True),
-        ("管理者", ReportAction.admin_approve.value, True),
-    ]
-    return _approval_groups(reports, _events_by_report(db, reports), step_specs)
-
-
 def _tutor_context(request: Request, db: Session, current_user: User) -> dict:
     context = _base_context(request, current_user)
     context.update(
@@ -423,7 +368,6 @@ def parent_approval_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/admin/queue/review", response_class=HTMLResponse)
 @router.get("/admin/queue/approve", response_class=HTMLResponse)
 @router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
-@router.get("/admin/approval", response_class=HTMLResponse)
 @router.get("/admin/users", response_class=HTMLResponse)
 @router.get("/admin/assignments", response_class=HTMLResponse)
 def admin_pages(request: Request, db: Session = Depends(get_db)):
@@ -432,11 +376,10 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
         return _login_redirect()
     path = request.url.path
     allowed_paths = {
-        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive", "/admin/approval"},
-        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review", "/admin/approval"},
+        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive"},
+        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review"},
         "admin_master": {
             "/admin/dashboard",
-            "/admin/approval",
             "/admin/queue/receive",
             "/admin/queue/review",
             "/admin/queue/approve",
@@ -447,27 +390,9 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     if not (path.startswith("/admin/reports/") or path in allowed_paths.get(user.role, set())):
         return _login_redirect()
     context = _base_context(request, user)
-    if path == "/admin/approval":
-        months = _admin_approval_months(db, user)
-        selected_month = request.query_params.get("month") or (months[0] if months else "")
-        context["approval_months"] = months
-        context["selected_month"] = selected_month
-        context["approval_groups"] = _admin_approval_groups(db, user, selected_month or None)
-        return templates.TemplateResponse(request, "admin/approval.html", context=context)
     if path == "/admin/users":
         return templates.TemplateResponse(request, "admin/users.html", context=context)
     if path == "/admin/assignments":
         return templates.TemplateResponse(request, "admin/assignments.html", context=context)
     return templates.TemplateResponse(request, "admin/dashboard.html", context=context)
-
-
-@router.get("/admin/progress", response_class=HTMLResponse)
-def progress_page(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user_from_cookie(request, db)
-    if not user:
-        return _login_redirect()
-    # 将来 admin_receiver / admin_reviewer も追加可能。現状は admin_master のみ進捗管理を許可する。
-    if user.role != "admin_master":
-        raise HTTPException(status_code=403, detail="progress page is only available to admin_master")
-    return templates.TemplateResponse(request, "admin/progress.html", context=_base_context(request, user))
 # === Phase 9 END ===

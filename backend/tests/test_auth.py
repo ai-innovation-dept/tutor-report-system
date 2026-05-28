@@ -106,6 +106,12 @@ def test_admin_page_role_mismatch_redirects_to_login(client):
     assert res.headers["location"] == "/login"
 
 
+def test_admin_approval_and_progress_routes_are_removed(client):
+    client.post("/api/auth/login", data={"username": "master@example.com", "password": "Passw0rd!"})
+    assert client.get("/admin/approval").status_code == 404
+    assert client.get("/admin/progress").status_code == 404
+
+
 def test_role_forbidden(client):
     res = client.post("/api/users", json={"email": "x@example.com", "role": "tutor", "display_name": "X"}, headers={"Authorization": f"Bearer {create_access_token('00000000-0000-0000-0000-000000000000')}"})
     assert res.status_code in {401, 403}

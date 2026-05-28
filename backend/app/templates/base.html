@@ -174,16 +174,12 @@
       } else if (user.role === 'admin_receiver') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
-        items.push(navLink('/admin/approval', '承認管理'));
       } else if (user.role === 'admin_reviewer') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
-        items.push(navLink('/admin/approval', '承認管理'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
-        items.push(navLink('/admin/approval', '承認管理'));
-        items.push(navLink('/admin/progress', '進捗管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '紐付け管理'));
       }

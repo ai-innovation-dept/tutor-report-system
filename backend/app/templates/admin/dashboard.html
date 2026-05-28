@@ -1,12 +1,43 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<style>
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f8fafc;
+    --color-border-tertiary: #cbd5e1;
+    --color-text-secondary: #475569;
+    --color-text-tertiary: #94a3b8;
+    --border-radius-md: 8px;
+  }
+  .admin-card {
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 14px;
+  }
+  .kanban-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+  @media (max-width: 1180px) {
+    .kanban-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 760px) {
+    .kanban-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
 <div class="mb-6">
   <p class="text-sm font-medium text-blue-600">運営ポータル</p>
-  <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">運営ダッシュボード</h1>
+  <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">統合ダッシュボード</h1>
 </div>
 
-<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+<div class="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
   <label class="text-sm">
     <span class="mr-2 text-slate-700">月選択</span>
     <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
@@ -17,7 +48,9 @@
   </label>
 </div>
 
-<section class="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+<section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
+
+<section class="mb-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
   <h2 class="font-semibold text-slate-800">エクスポート</h2>
   <div class="mt-3 flex flex-wrap items-end gap-3">
     <label class="text-sm">
@@ -29,22 +62,50 @@
   </div>
 </section>
 
-<div id="summaryCards" class="mb-4 grid gap-3 md:grid-cols-7"></div>
-<div id="summaryDetails" class="mb-4"></div>
-<div id="studentCards" class="grid gap-4"></div>
+<section class="mb-4">
+  <div class="mb-2 flex items-center gap-2">
+    <h2 class="text-lg font-semibold text-slate-800">📋 あなたのタスク</h2>
+    <span id="taskCountBadge" class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">0</span>
+  </div>
+  <div id="taskList" class="admin-card p-0"></div>
+</section>
+
+<section class="mb-4">
+  <h2 class="mb-2 text-lg font-semibold text-slate-800" id="pipelineTitle">🔄 進捗パイプライン</h2>
+  <div id="pipelineBoard" class="kanban-grid"></div>
+</section>
+
+<section id="detailDrawer" class="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"></section>
+
+<div id="returnModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnModal()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">差戻しコメント</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeReturnModal()">閉じる</button>
+    </div>
+    <div class="p-5">
+      <textarea id="returnComment" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="差戻し理由を入力してください"></textarea>
+      <div id="returnError" class="mt-2 hidden text-sm text-red-700"></div>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeReturnModal()">キャンセル</button>
+        <button type="button" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700" onclick="submitReturn()">差戻し</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
 const STATUS_LABELS = {
-  draft: '下書き',
+  draft: '講師作成',
   awaiting_parent_approval: '保護者承認待ち',
   parent_approved: '保護者承認済み',
-  returned_to_tutor: '差戻し中',
+  returned_to_tutor: '講師へ差戻し中',
   returned_to_receiver: '受付へ差戻し中',
   submitted_to_admin: '受付待ち',
   received: '再鑑待ち',
   re_reviewed: '最終承認待ち',
-  admin_approved: '最終承認済み'
+  admin_approved: '完了'
 };
 const ROLE_LABELS = {
   tutor: '講師',
@@ -56,443 +117,325 @@ const ROLE_LABELS = {
 const ACTION_LABELS = {
   submit_to_parent: '承認依頼',
   parent_approve: '承認',
-  parent_return: '差戻',
+  parent_return: '差戻し',
   receive: '受付承認',
-  return_from_receiver: '差戻',
+  return_from_receiver: '差戻し',
   re_review: '再鑑承認',
-  return_from_reviewer: '差戻',
+  return_from_reviewer: '差戻し',
   admin_approve: '承認',
-  return_from_master: '差戻'
+  return_from_master: '差戻し'
 };
-const APPROVAL_HISTORY_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
-const RETURN_HISTORY_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
-const RETURN_WAIT_LABELS = {
-  returned_to_tutor: '講師の対応待ち',
-  returned_to_receiver: '受付の対応待ち'
-};
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-let currentRole = '';
-function getCurrentMonth() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-}
-const currentMonth = getCurrentMonth();
-const summaryDefinitions = [
-  {key: 'awaiting_parent_approval', label: '保護者承認待ち'},
-  {key: 'submitted_to_admin', label: '受付待ち'},
-  {key: 'received', label: '再鑑待ち'},
-  {key: 're_reviewed', label: '最終承認待ち'},
-  {key: 'admin_approved', label: '最終承認済み'},
-  {key: 'returned_to_tutor', label: '講師へ差戻し中'},
-  {key: 'returned_to_receiver', label: '受付へ差戻し中'}
+const RETURN_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
+const APPROVAL_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
+const PIPELINE_COLUMNS = [
+  {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
+  {key: 'awaiting_parent_approval', label: '保護者承認待ち', statuses: ['awaiting_parent_approval', 'parent_approved']},
+  {key: 'submitted_to_admin', label: '受付待ち', statuses: ['submitted_to_admin', 'returned_to_receiver']},
+  {key: 'received', label: '再鑑待ち', statuses: ['received']},
+  {key: 're_reviewed', label: '最終承認待ち', statuses: ['re_reviewed']},
+  {key: 'admin_approved', label: '完了', statuses: ['admin_approved']}
 ];
+let currentRole = '';
 let allReports = [];
 let allAssignments = [];
 let allTutors = [];
-let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonthValue();
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
-let expandedReturnKey = '';
-let returnErrors = {};
-let activeSummaryStatus = '';
+let selectedGroupKey = '';
+let returnTargetKey = '';
 
+function currentMonthValue() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
-function statusLabel(status) { return STATUS_LABELS[status] || status; }
 function roleLabel(role) { return ROLE_LABELS[role] || role || '-'; }
 function actionLabel(action) { return ACTION_LABELS[action] || action || '-'; }
-function timeText(value) { return (value || '').slice(0, 5); }
-function dateLabel(value) {
-  const d = new Date(`${value}T00:00:00`);
-  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
-}
-function monthOptionLabel(value) {
-  const [year, month] = value.split('-');
-  return `${year}年${Number(month)}月`;
+function statusLabel(status) { return STATUS_LABELS[status] || status || '-'; }
+function monthLabel(value) {
+  if (!value) return '-';
+  return `${value.slice(0, 4)}年${Number(value.slice(5, 7))}月`;
 }
 function monthShortLabel(value) {
-  return `${Number(value.slice(5, 7))}月分`;
+  return `${Number(value.slice(5, 7))}月`;
 }
-function eventDate(value) {
+function formatDateTime(value) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
-}
-function eventTime(value) {
-  if (!value) return '-';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '-';
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
-}
-function minutesBetween(start, end) {
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-}
-function teachingMinutes(report) {
-  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
-}
-function durationLabel(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours && mins) return `${hours}時間${mins}分`;
-  if (hours) return `${hours}時間`;
-  return `${mins}分`;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function tutorName(id) {
   return allTutors.find(tutor => tutor.id === id)?.display_name || '講師未設定';
 }
-function assignmentName(id) {
+function studentName(id) {
   return allAssignments.find(assignment => assignment.id === id)?.student_name || '生徒未設定';
 }
-function isCurrentMonth() {
-  return selectedMonth === currentMonth;
-}
-function sortReports(reports) {
-  return [...reports].sort((a, b) => {
-    const tutorCompare = tutorName(a.tutor_id).localeCompare(tutorName(b.tutor_id), 'ja');
-    if (tutorCompare !== 0) return tutorCompare;
-    const assignmentCompare = assignmentName(a.assignment_id).localeCompare(assignmentName(b.assignment_id), 'ja');
-    if (assignmentCompare !== 0) return assignmentCompare;
-    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
-    if (dateCompare !== 0) return dateCompare;
-    return timeText(a.start_time).localeCompare(timeText(b.start_time));
-  });
-}
-function monthTutorReports() {
-  return sortReports(allReports.filter(report =>
+function visibleReports() {
+  return allReports.filter(report =>
     report.target_month === selectedMonth &&
     (!selectedTutorId || report.tutor_id === selectedTutorId)
-  ));
+  );
 }
-function cardStatus(reports) {
-  if (reports.length && reports.every(report => report.status === 'admin_approved')) return 'admin_approved';
-  if (reports.some(report => report.status === 'returned_to_tutor')) return 'returned_to_tutor';
-  if (reports.some(report => report.status === 'returned_to_receiver')) return 'returned_to_receiver';
-  if (reports.some(report => report.status === 'submitted_to_admin')) return 'submitted_to_admin';
-  if (reports.some(report => report.status === 'received')) return 'received';
-  if (reports.some(report => report.status === 're_reviewed')) return 're_reviewed';
+function groupKey(report) {
+  return `${report.assignment_id}:${report.tutor_id}:${report.target_month}`;
+}
+function currentGroupStatus(reports) {
+  const statuses = new Set(reports.map(report => report.status));
+  for (const status of ['returned_to_tutor', 'returned_to_receiver', 'submitted_to_admin', 'received', 're_reviewed', 'awaiting_parent_approval', 'parent_approved', 'draft', 'admin_approved']) {
+    if (statuses.has(status)) return status;
+  }
   return reports[0]?.status || '';
 }
-function statusClass(status) {
-  if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) return 'bg-rose-50 text-rose-700';
-  if (status === 'admin_approved') return 'bg-emerald-50 text-emerald-700';
-  return 'bg-slate-100 text-slate-700';
+function groupReports(reports) {
+  const grouped = {};
+  reports.forEach(report => {
+    const key = groupKey(report);
+    if (!grouped[key]) {
+      grouped[key] = {
+        key,
+        assignment_id: report.assignment_id,
+        tutor_id: report.tutor_id,
+        target_month: report.target_month,
+        student_name: report.student_name || studentName(report.assignment_id),
+        tutor_name: report.tutor_name || tutorName(report.tutor_id),
+        reports: []
+      };
+    }
+    grouped[key].reports.push(report);
+  });
+  return Object.values(grouped).sort((a, b) =>
+    a.student_name.localeCompare(b.student_name, 'ja') ||
+    a.tutor_name.localeCompare(b.tutor_name, 'ja')
+  );
 }
-function groupedByTutorAssignment(reports) {
-  return reports.reduce((groups, report) => {
-    const key = `${report.tutor_id}:${report.assignment_id}`;
-    if (!groups[key]) groups[key] = {tutor_id: report.tutor_id, assignment_id: report.assignment_id, reports: []};
-    groups[key].reports.push(report);
-    return groups;
-  }, {});
+function currentGroups() {
+  return groupReports(visibleReports());
 }
-function visibleGroups() {
-  return Object.values(groupedByTutorAssignment(monthTutorReports()));
+function eventsForGroup(group) {
+  const seen = new Set();
+  const events = [];
+  group.reports.forEach(report => {
+    (report.events || []).forEach(event => {
+      if (!ACTION_LABELS[event.action]) return;
+      const key = `${event.action}:${event.actor_role || ''}:${event.actor_name || ''}:${String(event.created_at).slice(0, 19)}:${event.comment || ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      events.push(event);
+    });
+  });
+  return events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+function latestEvent(group, action) {
+  return [...eventsForGroup(group)].reverse().find(event => event.action === action);
+}
+function reportIdsForStatus(group, status) {
+  return group.reports.filter(report => report.status === status).map(report => report.id);
 }
 function renderFilters() {
-  const months = [...new Set(allReports.map(report => report.target_month))]
-    .filter(month => month <= currentMonth)
-    .sort()
-    .reverse();
-  if (months.length && !months.includes(selectedMonth)) {
-    selectedMonth = months.includes(currentMonth) ? currentMonth : months[0];
-  }
-  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
+  if (months.length && !months.includes(selectedMonth)) selectedMonth = months[0];
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
   monthFilter.value = selectedMonth;
   monthFilter.disabled = !months.length;
-
   const tutorIds = new Set(allReports.filter(report => report.target_month === selectedMonth).map(report => report.tutor_id));
   const tutors = allTutors.filter(tutor => tutorIds.has(tutor.id)).sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
   if (selectedTutorId && !tutorIds.has(selectedTutorId)) selectedTutorId = '';
-  tutorFilter.innerHTML = [
-    '<option value="">すべての講師</option>',
-    ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}</option>`)
-  ].join('');
+  tutorFilter.innerHTML = ['<option value="">すべての講師</option>', ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}</option>`)].join('');
   tutorFilter.value = selectedTutorId;
-
-  exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
   exportMonth.value = selectedMonth;
   exportMonth.disabled = !months.length;
   renderBulkExportLinks();
 }
-function renderSummary(groups) {
-  summaryCards.innerHTML = summaryDefinitions.map(item => {
-    const count = groups.filter(group => cardStatus(group.reports) === item.key).length;
-    const active = activeSummaryStatus === item.key;
-    return `<button type="button" class="rounded-xl border p-4 text-left shadow-sm transition hover:border-blue-300 hover:bg-blue-50/40 ${active ? 'border-blue-400 bg-blue-50 ring-2 ring-blue-100' : 'border-slate-200 bg-white'}" onclick="toggleSummaryDetails('${item.key}')">
-      <div class="text-xs font-medium uppercase tracking-wide text-slate-500">${item.label}</div>
-      <div class="mt-2 text-2xl font-semibold text-slate-800">${count}<span class="ml-1 text-sm font-normal text-slate-500">セット</span></div>
-    </button>`;
-  }).join('');
-  renderSummaryDetails(groups);
-}
-function toggleSummaryDetails(status) {
-  activeSummaryStatus = activeSummaryStatus === status ? '' : status;
-  renderStudentCards();
-}
-function historyEventsForGroup(group, status) {
-  const allowed = ['returned_to_tutor', 'returned_to_receiver'].includes(status) ? RETURN_HISTORY_ACTIONS : APPROVAL_HISTORY_ACTIONS;
-  const seen = new Set();
-  const rows = [];
-  sortReports(group.reports).forEach(report => {
-    (report.events || []).forEach(event => {
-      if (!allowed.has(event.action)) return;
-      const key = `${event.action}:${event.actor_role || ''}:${event.actor_name || ''}:${String(event.created_at).slice(0, 19)}:${event.comment || ''}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      rows.push(event);
-    });
-  });
-  rows.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-  return rows;
-}
-function summaryHistoryRows(group, status) {
-  const rows = historyEventsForGroup(group, status).map(event => `<tr class="border-t border-slate-100">
-    <td class="px-4 py-3">${eventDate(event.created_at)}</td>
-    <td class="px-4 py-3">${eventTime(event.created_at)}</td>
-    <td class="px-4 py-3">${escapeHtml(roleLabel(event.actor_role))}</td>
-    <td class="px-4 py-3">${escapeHtml(event.actor_name || '-')}</td>
-    <td class="px-4 py-3">${escapeHtml(actionLabel(event.action))}${event.comment ? `<div class="mt-1 whitespace-pre-wrap text-xs text-slate-500">${escapeHtml(event.comment)}</div>` : ''}</td>
-  </tr>`);
-  if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) {
-    rows.push(`<tr class="border-t border-slate-100 bg-amber-50/70">
-      <td class="px-4 py-3">-</td>
-      <td class="px-4 py-3">-</td>
-      <td class="px-4 py-3">-</td>
-      <td class="px-4 py-3">-</td>
-      <td class="px-4 py-3 font-medium text-amber-800">${RETURN_WAIT_LABELS[status] || '対応待ち'}</td>
-    </tr>`);
-  }
-  return rows.join('') || `<tr><td colspan="5" class="px-4 py-4 text-sm text-slate-500">履歴はありません。</td></tr>`;
-}
-function renderSummaryDetails(groups) {
-  if (!activeSummaryStatus) {
-    summaryDetails.innerHTML = '';
-    return;
-  }
-  const definition = summaryDefinitions.find(item => item.key === activeSummaryStatus);
-  const targets = groups.filter(group => cardStatus(group.reports) === activeSummaryStatus);
-  summaryDetails.innerHTML = `<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-    <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
-      <h2 class="font-semibold text-slate-800">${escapeHtml(definition?.label || statusLabel(activeSummaryStatus))}の履歴詳細</h2>
-      <p class="mt-1 text-sm text-slate-500">${targets.length}セット</p>
+function renderKpis() {
+  const reports = visibleReports();
+  const approvalWaiting = currentRole === 'admin_master' ? reports.filter(report => report.status === 're_reviewed').length : 0;
+  const returnedTutor = reports.filter(report => report.status === 'returned_to_tutor').length;
+  const returnedReceiver = reports.filter(report => report.status === 'returned_to_receiver').length;
+  const completed = reports.filter(report => report.status === 'admin_approved').length;
+  kpiCards.innerHTML = `
+    <div class="admin-card" style="border:2px solid #DC2626;background:#FEF2F2;">
+      <div style="font-size:11px;color:var(--color-text-secondary);">あなたの承認待ち</div>
+      <div class="mt-1" style="font-size:28px;font-weight:500;color:#DC2626;">${approvalWaiting}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">最終承認が必要</div>
     </div>
-    <div class="space-y-4 p-4">
-      ${targets.length ? targets.map(group => `<div class="rounded-lg border border-slate-200">
-        <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-3">
-          <div class="font-medium text-slate-800">${escapeHtml(assignmentName(group.assignment_id))}</div>
-          <div class="text-sm text-slate-500">${escapeHtml(tutorName(group.tutor_id))} / ${escapeHtml(monthOptionLabel(selectedMonth))}</div>
-        </div>
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm">
-            <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-              <tr>
-                <th class="px-4 py-3 text-left">日付</th>
-                <th class="px-4 py-3 text-left">時間</th>
-                <th class="px-4 py-3 text-left">ロール</th>
-                <th class="px-4 py-3 text-left">氏名</th>
-                <th class="px-4 py-3 text-left">アクション</th>
-              </tr>
-            </thead>
-            <tbody>${summaryHistoryRows(group, activeSummaryStatus)}</tbody>
-          </table>
-        </div>
-      </div>`).join('') : '<div class="text-sm text-slate-600">該当する報告書セットはありません。</div>'}
+    <div class="admin-card">
+      <div style="font-size:11px;color:var(--color-text-secondary);">差戻し中</div>
+      <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${returnedTutor + returnedReceiver}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 受付${returnedReceiver}</div>
     </div>
-  </section>`;
-}
-function actionConfig(status) {
-  if (!isCurrentMonth()) return null;
-  if (status === 'submitted_to_admin' && ['admin_receiver', 'admin_master'].includes(currentRole)) {
-    return {targetStatus: 'submitted_to_admin', endpoint: '/api/reports/admin-receive-bulk', label: '受付する', confirm: '受付', returnRole: 'receiver'};
-  }
-  if (status === 'received' && ['admin_reviewer', 'admin_master'].includes(currentRole)) {
-    return {targetStatus: 'received', endpoint: '/api/reports/admin-review-bulk', label: '再鑑する', confirm: '再鑑', returnRole: 'reviewer'};
-  }
-  if (status === 're_reviewed' && currentRole === 'admin_master') {
-    return {targetStatus: 're_reviewed', endpoint: '/api/reports/admin-approve-bulk', label: '最終承認する', confirm: '最終承認', returnRole: 'master'};
-  }
-  if (status === 'admin_approved' && currentRole === 'admin_master') {
-    return {targetStatus: 'admin_approved', endpoint: '', label: '', confirm: '', returnRole: 'master', returnOnly: true};
-  }
-  return null;
-}
-function returnReason(reports) {
-  return reports.find(report => report.last_return_comment)?.last_return_comment || '';
-}
-function cardActions(group, status) {
-  if (!isCurrentMonth()) return '<div class="text-sm text-slate-500">過去月のため操作できません。</div>';
-  if (status === 'returned_to_tutor') {
-    const reason = returnReason(group.reports);
-    return `<div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
-  }
-  if (status === 'returned_to_receiver') {
-    const reason = returnReason(group.reports);
-    return `<div class="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">差戻し理由：${escapeHtml(reason || '未入力')}</div>`;
-  }
-  const config = actionConfig(status);
-  if (status === 'admin_approved') {
-    if (!config) return '<div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>';
-    return `<div class="flex flex-wrap gap-2">
-      <div class="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">承認済み</div>
-      <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="showBulkReturnForm('${group.tutor_id}','${group.assignment_id}')">差戻し</button>
+    <div class="admin-card">
+      <div style="font-size:11px;color:var(--color-text-secondary);">今月完了</div>
+      <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${completed}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">全${reports.length}件中</div>
     </div>`;
-  }
-  if (!config) return '<div class="text-sm text-slate-500">現在このロールで操作できる内容はありません。</div>';
-  const targets = group.reports.filter(report => report.status === config.targetStatus);
-  return `<div class="flex flex-wrap gap-2">
-    <button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="bulkAct('${group.tutor_id}','${group.assignment_id}','${config.targetStatus}')">${monthShortLabel(selectedMonth)}を${config.label}</button>
-    <button class="rounded-lg bg-red-500 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-600" onclick="showBulkReturnForm('${group.tutor_id}','${group.assignment_id}')">差戻し</button>
-  </div>`;
-}
-function reportRows(reports) {
-  return sortReports(reports).map((report, index) => {
-    const content = (report.content || '').slice(0, 30);
-    return `<tr class="border-t">
-      <td class="p-2">${index + 1}</td>
-      <td class="p-2">${dateLabel(report.lesson_date)}</td>
-      <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
-      <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
-      <td class="p-2">${escapeHtml(report.subject || '')}</td>
-      <td class="p-2">${escapeHtml(content)}${(report.content || '').length > 30 ? '...' : ''}</td>
-    </tr>`;
-  }).join('');
-}
-function exportButtons(group, month) {
-  if (!group.reports.length || !group.reports.every(report => report.status === 'admin_approved')) return '';
-  return `<div class="mt-4 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
-  </div>`;
 }
 function renderBulkExportLinks() {
   const month = exportMonth.value || selectedMonth;
-  const reportsInMonth = allReports.filter(r => r.target_month === month);
-  const allApproved = reportsInMonth.length > 0 && reportsInMonth.every(r => r.status === 'admin_approved');
+  const reportsInMonth = allReports.filter(report => report.target_month === month);
+  const allApproved = reportsInMonth.length > 0 && reportsInMonth.every(report => report.status === 'admin_approved');
   const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
   bulkExportPdf.href = allApproved ? `/api/reports/export?${params.toString()}` : '#';
   bulkExportPdf.classList.toggle('opacity-50', !allApproved);
   bulkExportPdf.classList.toggle('pointer-events-none', !allApproved);
-  const warning = document.getElementById('bulkExportWarning');
-  if (warning) warning.style.display = allApproved ? 'none' : '';
+  bulkExportWarning.style.display = allApproved ? 'none' : '';
 }
-function returnKey(tutorId, assignmentId) {
-  return `${tutorId}:${assignmentId}`;
+function renderTasks(groups) {
+  const tasks = currentRole === 'admin_master' ? groups.filter(group => currentGroupStatus(group.reports) === 're_reviewed') : [];
+  taskCountBadge.textContent = tasks.length;
+  taskList.innerHTML = tasks.length ? tasks.map(group => {
+    const review = latestEvent(group, 're_review');
+    return `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0">
+      <div>
+        <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
+        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)} / 再鑑完了 ${escapeHtml(formatDateTime(review?.created_at))} ${escapeHtml(review?.actor_name || '')}</div>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="rounded-lg px-3 py-2 text-sm font-medium text-white" style="background:#16A34A;" onclick="approveGroup('${group.key}')">最終承認</button>
+        <button class="rounded-lg border px-3 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
 }
-function renderBulkReturnForm(group, status) {
-  const config = actionConfig(status);
-  const key = returnKey(group.tutor_id, group.assignment_id);
-  if (!config || expandedReturnKey !== key) return '';
-  const error = returnErrors[key] || '';
-  return `<div class="mt-4 rounded-xl border border-red-200 bg-red-50 p-4">
-    <label class="text-sm font-medium text-slate-700" for="adminReturnComment-${key}">差戻し理由を入力してください</label>
-    <textarea id="adminReturnComment-${key}" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000"></textarea>
-    ${error ? `<div class="mt-2 text-sm text-red-700">${escapeHtml(error)}</div>` : ''}
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700" onclick="confirmBulkReturn('${group.tutor_id}','${group.assignment_id}')">差戻しを確定する</button>
-      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="hideBulkReturnForm()">キャンセル</button>
+function pipelineColumnForStatus(status) {
+  if (status === 'returned_to_tutor') return 'draft';
+  if (status === 'returned_to_receiver') return 'submitted_to_admin';
+  if (status === 'parent_approved') return 'awaiting_parent_approval';
+  return status;
+}
+function pipelineCardClass(status) {
+  if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) return 'border-l-[#DC2626] bg-[#FEF2F2]';
+  if (status === 'admin_approved') return 'border-l-[#16A34A] bg-[#F0FDF4]';
+  return 'border-l-[#CBD5E1] bg-[#F8FAFC]';
+}
+function renderPipeline(groups) {
+  pipelineTitle.textContent = `🔄 進捗パイプライン（${monthLabel(selectedMonth)}）`;
+  pipelineBoard.innerHTML = PIPELINE_COLUMNS.map(column => {
+    const items = groups.filter(group => pipelineColumnForStatus(currentGroupStatus(group.reports)) === column.key);
+    return `<div class="rounded-lg border border-slate-200 bg-white">
+      <div class="flex items-center justify-between border-b border-slate-100 px-2 py-2">
+        <div class="text-xs font-semibold text-slate-700">${column.label}</div>
+        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">${items.length}</span>
+      </div>
+      <div class="space-y-2 p-2">
+        ${items.length ? items.map(group => {
+          const status = currentGroupStatus(group.reports);
+          return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${selectedGroupKey === group.key ? 'ring-2 ring-blue-200' : ''}" onclick="showDetails('${group.key}')">
+            <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.student_name)}</div>
+            <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(statusLabel(status))}</div>
+          </button>`;
+        }).join('') : '<div class="px-2 py-4 text-center text-xs text-slate-400">なし</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+function currentWaitLabel(status) {
+  const labels = {
+    draft: '講師の作成待ち',
+    returned_to_tutor: '講師の修正待ち',
+    awaiting_parent_approval: '保護者の承認待ち',
+    parent_approved: '講師の運営提出待ち',
+    submitted_to_admin: '受付の承認待ち',
+    returned_to_receiver: '受付の対応待ち',
+    received: '再鑑の承認待ち',
+    re_reviewed: '管理者の最終承認待ち',
+    admin_approved: '完了'
+  };
+  return labels[status] || statusLabel(status);
+}
+function eventDotClass(action) {
+  if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
+  if (APPROVAL_ACTIONS.has(action)) return 'bg-[#16A34A]';
+  return 'bg-slate-400';
+}
+function actionBadge(action) {
+  const returnStyle = RETURN_ACTIONS.has(action);
+  const cls = returnStyle ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]';
+  return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
+}
+function statusBadge(status) {
+  if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) return '<span class="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">差戻し中</span>';
+  if (status === 'admin_approved') return '<span class="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">完了</span>';
+  return '<span class="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">進行中</span>';
+}
+function timelineRow(event) {
+  const isReturn = RETURN_ACTIONS.has(event.action);
+  return `<div class="relative pb-5 pl-8">
+    <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full ${eventDotClass(event.action)}"></span>
+    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <span>${escapeHtml(formatDateTime(event.created_at))}</span>
+      <span>${escapeHtml(roleLabel(event.actor_role))}</span>
+      <span>${escapeHtml(event.actor_name || '-')}</span>
+      ${actionBadge(event.action)}
+    </div>
+    ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+  </div>`;
+}
+function currentTimelineRow(status) {
+  return `<div class="relative pl-8">
+    <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full bg-[#F59E0B]"></span>
+    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <span>現在</span>
+      <span class="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[11px] font-medium text-[#92400E]">${escapeHtml(currentWaitLabel(status))}</span>
     </div>
   </div>`;
 }
-function renderStudentCards() {
-  const groups = visibleGroups();
-  renderSummary(groups);
-  studentCards.innerHTML = groups.length ? groups.map((group, index) => {
-    const sorted = sortReports(group.reports);
-    const total = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
-    const status = cardStatus(sorted);
-    const detailId = `detail-${index}`;
-    return `<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-      <div class="flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 p-4">
-        <div>
-          <div class="text-sm text-slate-500">${escapeHtml(tutorName(group.tutor_id))}</div>
-          <h2 class="text-lg font-semibold text-slate-800">${escapeHtml(assignmentName(group.assignment_id))}</h2>
-          <div class="mt-1 text-sm text-slate-600">合計：${durationLabel(total)} / ${sorted.length}件</div>
-          <span class="mt-3 inline-flex rounded-full px-3 py-1 text-sm font-medium ${statusClass(status)}">${statusLabel(status)}</span>
-        </div>
-        ${cardActions(group, status)}
-      </div>
-      <div class="p-4">
-        <button class="text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${detailId}', this)">指導記録を見る</button>
-        ${exportButtons(group, selectedMonth)}
-        ${renderBulkReturnForm(group, status)}
-      </div>
-      <div id="${detailId}" class="hidden overflow-x-auto border-t border-slate-200">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-            <tr>
-              <th class="px-4 py-3 text-left">回数</th>
-              <th class="px-4 py-3 text-left">指導日</th>
-              <th class="px-4 py-3 text-left">在室時間</th>
-              <th class="px-4 py-3 text-left">指導時間数</th>
-              <th class="px-4 py-3 text-left">科目</th>
-              <th class="px-4 py-3 text-left">指導内容（先頭30文字）</th>
-            </tr>
-          </thead>
-          <tbody>${reportRows(sorted)}</tbody>
-        </table>
-      </div>
-    </section>`;
-  }).join('') : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">表示できる報告書セットはありません。</div>';
+function showDetails(key) {
+  selectedGroupKey = key;
+  const group = currentGroups().find(item => item.key === key);
+  if (!group) return;
+  const status = currentGroupStatus(group.reports);
+  const events = eventsForGroup(group);
+  detailDrawer.classList.remove('hidden');
+  detailDrawer.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+    <h2 class="font-semibold text-slate-800">📄 ${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}（講師：${escapeHtml(group.tutor_name)}）</h2>
+    ${statusBadge(status)}
+  </div>
+  <div class="p-5">
+    <div class="ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
+      ${events.length ? events.map(timelineRow).join('') : '<div class="pb-5 pl-8 text-sm text-slate-500">履歴はありません。</div>'}
+      ${currentTimelineRow(status)}
+    </div>
+  </div>`;
+  renderPipeline(currentGroups());
 }
-function toggleDetails(id, button) {
-  const panel = document.getElementById(id);
-  panel.classList.toggle('hidden');
-  button.textContent = panel.classList.contains('hidden') ? '指導記録を見る' : '指導記録を閉じる';
-}
-function cardReports(tutorId, assignmentId) {
-  return allReports.filter(report =>
-    report.target_month === selectedMonth &&
-    report.tutor_id === tutorId &&
-    report.assignment_id === assignmentId
-  );
-}
-async function bulkAct(tutorId, assignmentId, status) {
-  const reports = cardReports(tutorId, assignmentId);
-  const config = actionConfig(cardStatus(reports));
-  if (!config) return;
-  const targets = reports.filter(report => report.status === config.targetStatus);
-  if (!targets.length) return;
-  if (!confirm(`${assignmentName(assignmentId)}さんの${monthShortLabel(selectedMonth)}（${targets.length}件）を${config.confirm}します。よろしいですか？`)) return;
-  await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: targets.map(report => report.id), target_month: selectedMonth})});
+async function approveGroup(key) {
+  const group = currentGroups().find(item => item.key === key);
+  if (!group) return;
+  const ids = reportIdsForStatus(group, 're_reviewed');
+  if (!ids.length) return;
+  if (!confirm(`${group.student_name}さんの${monthShortLabel(group.target_month)}分を最終承認します。よろしいですか？`)) return;
+  await api('/api/reports/admin-approve-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month})});
   await loadAdmin();
 }
-function showBulkReturnForm(tutorId, assignmentId) {
-  expandedReturnKey = returnKey(tutorId, assignmentId);
-  delete returnErrors[expandedReturnKey];
-  renderStudentCards();
+function openReturnModal(key) {
+  returnTargetKey = key;
+  returnComment.value = '';
+  returnError.classList.add('hidden');
+  returnModal.classList.remove('hidden');
+  returnModal.classList.add('flex');
 }
-function hideBulkReturnForm() {
-  expandedReturnKey = '';
-  returnErrors = {};
-  renderStudentCards();
+function closeReturnModal() {
+  returnTargetKey = '';
+  returnModal.classList.add('hidden');
+  returnModal.classList.remove('flex');
 }
-async function confirmBulkReturn(tutorId, assignmentId) {
-  const reports = cardReports(tutorId, assignmentId);
-  const config = actionConfig(cardStatus(reports));
-  if (!config) return;
-  const key = returnKey(tutorId, assignmentId);
-  const input = document.getElementById(`adminReturnComment-${key}`);
-  const comment = input ? input.value.trim() : '';
+async function submitReturn() {
+  const group = currentGroups().find(item => item.key === returnTargetKey);
+  if (!group) return;
+  const comment = returnComment.value.trim();
   if (!comment) {
-    returnErrors[key] = '差戻し理由を入力してください';
-    renderStudentCards();
+    returnError.textContent = '差戻し理由を入力してください';
+    returnError.classList.remove('hidden');
     return;
   }
-  const targets = reports.filter(report => report.status === config.targetStatus);
-  if (!targets.length) return;
-  await api('/api/reports/admin-return-bulk', {
-    method: 'POST',
-    body: JSON.stringify({
-      report_ids: targets.map(report => report.id),
-      target_month: selectedMonth,
-      from_role: config.returnRole,
-      comment
-    })
-  });
-  expandedReturnKey = '';
-  returnErrors = {};
+  const ids = reportIdsForStatus(group, 're_reviewed');
+  if (!ids.length) return;
+  await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: 'master', comment})});
+  closeReturnModal();
   await loadAdmin();
 }
 function updateUrl() {
@@ -501,26 +444,40 @@ function updateUrl() {
   if (selectedTutorId) params.set('tutor_id', selectedTutorId);
   location.href = `${location.pathname}?${params.toString()}`;
 }
+function renderDashboard() {
+  const groups = currentGroups();
+  renderKpis();
+  renderTasks(groups);
+  renderPipeline(groups);
+  if (selectedGroupKey && groups.some(group => group.key === selectedGroupKey)) {
+    showDetails(selectedGroupKey);
+  } else {
+    selectedGroupKey = '';
+    detailDrawer.classList.add('hidden');
+    detailDrawer.innerHTML = '';
+  }
+}
 async function loadAdmin() {
   const [reports, assignments, tutors] = await Promise.all([
     api('/api/reports'),
     api('/api/assignments'),
     api('/api/users?role=tutor')
   ]);
-  allReports = sortReports(reports);
+  allReports = reports;
   allAssignments = assignments;
   allTutors = tutors;
-  pageTitle.textContent = '運営ダッシュボード';
   renderFilters();
-  renderStudentCards();
+  renderDashboard();
 }
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;
   selectedTutorId = '';
+  selectedGroupKey = '';
   updateUrl();
 });
 tutorFilter.addEventListener('change', () => {
   selectedTutorId = tutorFilter.value;
+  selectedGroupKey = '';
   updateUrl();
 });
 exportMonth.addEventListener('change', renderBulkExportLinks);
@@ -530,5 +487,4 @@ window.authReady.then(user => {
   loadAdmin();
 });
 </script>
-<!-- # === Phase 9 END === -->
 {% endblock %}
