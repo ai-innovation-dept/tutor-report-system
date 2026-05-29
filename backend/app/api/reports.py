@@ -300,8 +300,10 @@ def export_reports(
     else:
         filename_base = f"指導実績_全体_{month_label}"
 
-    if is_admin(user):
+    if is_admin(user) or has_role(user, "tutor"):
         stamps = _approval_stamps(db, reports)
+    elif has_role(user, "parent"):
+        stamps = None  # parent PDF: 承認印エリアを表示しない
     else:
         stamps = {"受付": None, "再鑑": None, "管理者": None}
     content = _build_reports_pdf(db, reports, target_month, stamps)
@@ -397,7 +399,9 @@ def _approval_stamps(db: Session, reports: list[LessonReport]) -> dict[str, tupl
     return stamps
 
 
-def _draw_approval_stamps_grid(canvas, doc, stamps: dict[str, tuple[str, str, object] | None], font_name: str) -> None:
+def _draw_approval_stamps_grid(canvas, doc, stamps: dict[str, tuple[str, str, object] | None] | None, font_name: str) -> None:
+    if stamps is None:
+        return  # parent ロール：承認印エリアを描画しない
     from reportlab.lib import colors
     from reportlab.lib.units import mm
 

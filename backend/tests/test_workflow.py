@@ -768,4 +768,74 @@ def test_tutor_cannot_export_other_tutor_reports(client, db):
         headers={"Authorization": f"Bearer {tutor_token}"},
     )
     assert res.status_code == 403
+
+
+def test_tutor_pdf_receives_approval_stamps(client, db, monkeypatch):
+    """講師ロールのPDFには承認印データ（stamps）が渡される（Noneではない）"""
+    captured = {}
+
+    def fake_pdf(db, reports, target_month, stamps):
+        captured["stamps"] = stamps
+        return b"%PDF-1.4\ntutor\n"
+
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", fake_pdf)
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    target_month = today.strftime("%Y-%m")
+    db.add(LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="tutor test",
+        target_month=target_month,
+        status=ReportStatus.admin_approved.value,
+    ))
+    db.commit()
+
+    res = client.get(
+        f"/api/reports/export?target_month={target_month}&format=pdf",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+    )
+    assert res.status_code == 200
+    assert captured.get("stamps") is not None, "tutor PDF must receive stamps (not None)"
+
+
+def test_parent_pdf_receives_no_stamps(client, db, monkeypatch):
+    """保護者ロールのPDFには承認印エリアを描画しない（stamps=None）"""
+    captured = {}
+
+    def fake_pdf(db, reports, target_month, stamps):
+        captured["stamps"] = stamps
+        return b"%PDF-1.4\nparent\n"
+
+    monkeypatch.setattr(reports_api, "_build_reports_pdf", fake_pdf)
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    target_month = today.strftime("%Y-%m")
+    db.add(LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="parent test",
+        target_month=target_month,
+        status=ReportStatus.admin_approved.value,
+    ))
+    db.commit()
+
+    res = client.get(
+        f"/api/reports/export?scope=all&target_month={target_month}&format=pdf",
+        headers={"Authorization": f"Bearer {parent_token}"},
+    )
+    assert res.status_code == 200
+    assert captured.get("stamps") is None, "parent PDF must receive stamps=None (no stamp area)"
 # === Phase 5 END ===
