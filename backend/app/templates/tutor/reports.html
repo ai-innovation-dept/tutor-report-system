@@ -416,9 +416,17 @@ startTime.addEventListener('change', () => {
   }
   updateComputedFields();
 });
+// 改修1B: 終了時刻選択後に開始時刻以前なら即クリア（iOSはmin属性を無視するため）
+endTime.addEventListener('change', () => {
+  if (startTime.value && endTime.value && endTime.value <= startTime.value) {
+    endTime.value = '';
+    showFormMessage('終了時刻は開始時刻より後の時刻を選択してください', true);
+  }
+  updateComputedFields();
+});
 // 改修2: 休憩時間フィールドのフォーカスで全選択
 breakMinutes.addEventListener('focus', function() { this.select(); });
-[lessonDate, endTime, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
+[lessonDate, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
 window.authReady.then(user => {
   if (!user) return;
   loadTutor();
