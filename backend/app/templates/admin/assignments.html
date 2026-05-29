@@ -64,9 +64,8 @@
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-4 py-3 text-left">生徒名</th>
-          <th class="px-4 py-3 text-left">担当講師</th>
-          <th class="px-4 py-3 text-left">保護者</th>
+          <th class="px-4 py-3 text-left">保護者名</th>
+          <th class="px-4 py-3 text-left">メール</th>
           <th class="px-4 py-3 text-left">保護者スキップ</th>
           <th class="px-4 py-3 text-left">リマインド設定</th>
           <th class="px-4 py-3 text-left">状態</th>
@@ -160,22 +159,20 @@ function reminderLabel(assignment) {
 function renderAssignments() {
   const rows = filteredAssignments();
   assignmentRows.innerHTML = rows.length ? rows.map(assignment => {
-    const parent = assignment.parent_name || assignment.parent_email
-      ? `${assignment.parent_name || '未登録'}${assignment.parent_email ? `（${assignment.parent_email}）` : ''}`
-      : '未設定';
     const action = assignment.is_active
       ? `<button class="min-h-[44px] w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', false)">無効化</button>`
       : `<button class="min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
+    const parentName = assignment.parent_name || '未登録';
+    const parentEmail = assignment.parent_email || '-';
     return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
-      <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(assignment.student_name)}</td>
-      <td class="px-4 py-3" data-label="担当講師">${escapeHtml(assignment.tutor_name || '未設定')}</td>
-      <td class="px-4 py-3" data-label="保護者">${escapeHtml(parent)}</td>
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="保護者名">${escapeHtml(parentName)}</td>
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(parentEmail)}</td>
       <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
       <td class="px-4 py-3" data-label="リマインド"><button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
       <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
       <td class="px-4 py-3" data-label="操作">${action}</td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">紐付けはありません。</td></tr>';
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">紐付けはありません。</td></tr>';
 }
 function renderTutorOptions() {
   tutorSelect.innerHTML = tutors

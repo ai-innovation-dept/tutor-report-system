@@ -329,12 +329,13 @@ def tutor_approval_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/approval.html", context=_tutor_context(request, db, user))
 
 
-@router.get("/tutor/students", response_class=HTMLResponse)
-def tutor_students_page(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user_from_cookie(request, db)
-    if not user or user.role != "tutor":
-        return _login_redirect()
-    return templates.TemplateResponse(request, "tutor/students.html", context=_tutor_context(request, db, user))
+# 生徒管理機能は将来リリース予定のため一時非表示
+# @router.get("/tutor/students", response_class=HTMLResponse)
+# def tutor_students_page(request: Request, db: Session = Depends(get_db)):
+#     user = get_current_user_from_cookie(request, db)
+#     if not user or user.role != "tutor":
+#         return _login_redirect()
+#     return templates.TemplateResponse(request, "tutor/students.html", context=_tutor_context(request, db, user))
 
 
 @router.get("/parent/reports", response_class=HTMLResponse)
