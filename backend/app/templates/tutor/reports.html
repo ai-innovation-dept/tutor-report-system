@@ -181,6 +181,13 @@ function renderFormAvailability() {
     formUnavailablePanel.classList.add('hidden');
     return;
   }
+  if (!selectedAssignmentId) {
+    formPanel.classList.remove('hidden');
+    formUnavailablePanel.classList.add('hidden');
+    setReportInputsDisabled(true);
+    showFormMessage('生徒を選択してから入力してください');
+    return;
+  }
   let message = '';
   if (selectedMonth !== currentMonth) {
     message = '過去月は参照のみです';
@@ -389,11 +396,11 @@ reportForm.addEventListener('submit', async e => {
     resetReportForm(true);
   } catch (error) {
     showFormMessage(`作成に失敗しました：${error.message}`, true);
+    return;
   }
 });
 assignment.addEventListener('change', () => {
   selectedAssignmentId = assignment.value;
-  resetReportForm(true);
   updateStudentBadge();
   renderCurrentList();
   renderFormAvailability();
