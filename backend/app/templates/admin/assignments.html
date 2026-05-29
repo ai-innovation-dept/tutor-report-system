@@ -35,7 +35,7 @@
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
     <p class="text-sm font-medium text-blue-600">運営ポータル</p>
-    <h1 class="text-2xl font-semibold text-slate-800">紐付け管理</h1>
+    <h1 class="text-2xl font-semibold text-slate-800">システム設定</h1>
   </div>
 </div>
 
@@ -168,7 +168,10 @@ function renderAssignments() {
       <td class="px-4 py-3 font-medium text-slate-800" data-label="保護者名">${escapeHtml(parentName)}</td>
       <td class="px-4 py-3" data-label="メール">${escapeHtml(parentEmail)}</td>
       <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
-      <td class="px-4 py-3" data-label="リマインド"><button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
+      <td class="px-4 py-3" data-label="リマインド">${assignment.skip_parent_approval
+        ? `<span class="inline-block min-h-[44px] rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-400 opacity-50 cursor-not-allowed">${escapeHtml(reminderLabel(assignment))}</span>`
+        : `<button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button>`
+      }</td>
       <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
       <td class="px-4 py-3" data-label="操作">${action}</td>
     </tr>`;
@@ -197,7 +200,7 @@ async function setAssignmentActive(id, value) {
 }
 function openReminderModal(id) {
   const assignment = assignments.find(item => item.id === id);
-  if (!assignment) return;
+  if (!assignment || assignment.skip_parent_approval) return;
   editingReminderId = id;
   reminderEnabledInput.checked = assignment.reminder_enabled;
   reminderDaysInput.value = assignment.reminder_days_after || 1;

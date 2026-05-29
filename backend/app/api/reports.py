@@ -127,6 +127,8 @@ def _monthly_phase(reports: list[LessonReport]) -> str:
 def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "tutor":
         raise HTTPException(status_code=403, detail="only tutors can create reports")
+    if payload.end_time <= payload.start_time:
+        raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
     assignment = db.get(Assignment, payload.assignment_id)
     if not assignment or assignment.tutor_id != user.id or not assignment.is_active:
         raise HTTPException(status_code=403, detail="assignment access denied")
@@ -543,7 +545,7 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
     for key, value in data.items():
         setattr(report, key, value)
     if report.start_time >= report.end_time:
-        raise HTTPException(status_code=422, detail="start_time must be before end_time")
+        raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
     if "lesson_date" in data:
         report.target_month = report.lesson_date.strftime("%Y-%m")
         if report.target_month != _current_month():

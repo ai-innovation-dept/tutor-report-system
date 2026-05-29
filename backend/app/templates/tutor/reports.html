@@ -51,11 +51,11 @@
       <div class="grid grid-cols-2 gap-3 sm:gap-6">
         <div class="min-w-0">
           <label class="block mb-1 text-sm text-slate-700" for="startTime">開始時刻</label>
-          <input name="start_time" id="startTime" type="time" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          <input name="start_time" id="startTime" type="time" step="900" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
         </div>
         <div class="min-w-0">
           <label class="block mb-1 text-sm text-slate-700" for="endTime">終了時刻</label>
-          <input name="end_time" id="endTime" type="time" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          <input name="end_time" id="endTime" type="time" step="900" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
         </div>
       </div>
       <label class="block text-sm">
@@ -205,12 +205,18 @@ function clearFormMessage() {
   formMessage.className = 'mb-3 hidden rounded-lg px-3 py-2 text-sm';
   formMessage.textContent = '';
 }
+function setEndTimeDisabled(disabled) {
+  endTime.disabled = disabled;
+  endTime.classList.toggle('opacity-50', disabled);
+  endTime.classList.toggle('cursor-not-allowed', disabled);
+}
 function setReportInputsDisabled(disabled) {
   [lessonDate, startTime, endTime, breakMinutes, subject, content, saveButton].forEach(el => {
     el.disabled = disabled;
   });
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
+  if (!disabled) setEndTimeDisabled(!startTime.value);
 }
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
@@ -314,6 +320,9 @@ function resetReportForm(keepAssignment = false) {
   updateStudentBadge();
   formTitle.textContent = '簡易作成';
   saveButton.textContent = '保存';
+  endTime.value = '';
+  endTime.min = '';
+  setEndTimeDisabled(true);
   updateComputedFields();
 }
 function editReport(id) {
@@ -324,6 +333,8 @@ function editReport(id) {
   assignment.value = r.assignment_id;
   lessonDate.value = r.lesson_date;
   startTime.value = timeText(r.start_time);
+  endTime.min = timeText(r.start_time);
+  setEndTimeDisabled(!startTime.value);
   endTime.value = timeText(r.end_time);
   breakMinutes.value = r.break_minutes || 0;
   subject.value = r.subject || '';
@@ -355,6 +366,11 @@ reportForm.addEventListener('submit', async e => {
   e.preventDefault();
   const payload = formPayload();
   clearFormMessage();
+  // 改修1C: フロントエンド時刻バリデーション
+  if (payload.start_time && payload.end_time && payload.end_time <= payload.start_time) {
+    showFormMessage('終了時刻は開始時刻より後の時刻を指定してください', true);
+    return;
+  }
   try {
     if (editingId.value) {
       delete payload.assignment_id;
@@ -385,7 +401,24 @@ monthFilter.addEventListener('change', () => {
   renderCurrentList();
   renderFormAvailability();
 });
-[lessonDate, startTime, endTime, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
+// 改修1A/1B: 開始時刻に連動して終了時刻の disabled / min を制御
+startTime.addEventListener('change', () => {
+  if (startTime.value) {
+    endTime.min = startTime.value;
+    setEndTimeDisabled(false);
+    if (endTime.value && endTime.value <= startTime.value) {
+      endTime.value = '';
+    }
+  } else {
+    endTime.value = '';
+    endTime.min = '';
+    setEndTimeDisabled(true);
+  }
+  updateComputedFields();
+});
+// 改修2: 休憩時間フィールドのフォーカスで全選択
+breakMinutes.addEventListener('focus', function() { this.select(); });
+[lessonDate, endTime, breakMinutes].forEach(el => el.addEventListener('input', updateComputedFields));
 window.authReady.then(user => {
   if (!user) return;
   loadTutor();

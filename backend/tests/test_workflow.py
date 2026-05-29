@@ -838,4 +838,51 @@ def test_parent_pdf_receives_no_stamps(client, db, monkeypatch):
     )
     assert res.status_code == 200
     assert captured.get("stamps") is None, "parent PDF must receive stamps=None (no stamp area)"
+
+
+def test_create_report_rejects_end_time_before_start_time(client, db):
+    """終了時刻が開始時刻より早い場合 422 を返す"""
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(date.today()),
+        "start_time": "18:00",
+        "end_time": "17:00",
+        "subject": "math",
+        "content": "lesson",
+    })
+    assert res.status_code == 422
+    assert "終了時刻" in res.json()["detail"]
+
+
+def test_create_report_rejects_equal_start_end_time(client, db):
+    """終了時刻と開始時刻が同一の場合 422 を返す"""
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(date.today()),
+        "start_time": "18:00",
+        "end_time": "18:00",
+        "subject": "math",
+        "content": "lesson",
+    })
+    assert res.status_code == 422
+    assert "終了時刻" in res.json()["detail"]
+
+
+def test_create_report_accepts_valid_times(client, db):
+    """終了時刻が開始時刻より後の場合は正常作成される"""
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(date.today()),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "subject": "math",
+        "content": "lesson",
+    })
+    assert res.status_code == 200
 # === Phase 5 END ===
