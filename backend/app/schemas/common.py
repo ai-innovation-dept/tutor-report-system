@@ -183,7 +183,7 @@ class ReportCreate(BaseModel):
     def validate_times(cls, end_time, info):
         start_time = info.data.get("start_time")
         if start_time and start_time >= end_time:
-            raise ValueError("start_time must be before end_time")
+            raise ValueError("終了時刻は開始時刻より後の時刻を指定してください")
         return end_time
 
 

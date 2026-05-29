@@ -853,7 +853,9 @@ def test_create_report_rejects_end_time_before_start_time(client, db):
         "content": "lesson",
     })
     assert res.status_code == 422
-    assert "終了時刻" in res.json()["detail"]
+    detail = res.json()["detail"]
+    detail_str = detail if isinstance(detail, str) else str(detail)
+    assert "終了時刻" in detail_str
 
 
 def test_create_report_rejects_equal_start_end_time(client, db):
@@ -869,7 +871,9 @@ def test_create_report_rejects_equal_start_end_time(client, db):
         "content": "lesson",
     })
     assert res.status_code == 422
-    assert "終了時刻" in res.json()["detail"]
+    detail = res.json()["detail"]
+    detail_str = detail if isinstance(detail, str) else str(detail)
+    assert "終了時刻" in detail_str
 
 
 def test_create_report_accepts_valid_times(client, db):
