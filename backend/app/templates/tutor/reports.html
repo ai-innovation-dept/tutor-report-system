@@ -38,7 +38,10 @@
     <form id="reportForm" class="space-y-3">
       <input type="hidden" id="editingId">
       <label class="block text-sm">
-        <span class="block mb-1 text-slate-700">生徒</span>
+        <span class="mb-1 flex items-center gap-2">
+          <span class="text-slate-700">生徒</span>
+          <span id="assignmentError" class="hidden text-xs text-red-600">※生徒を選択してください</span>
+        </span>
         <select name="assignment_id" id="assignment" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
       </label>
       <label class="block text-sm">
@@ -185,8 +188,10 @@ function renderFormAvailability() {
     formPanel.classList.remove('hidden');
     formUnavailablePanel.classList.add('hidden');
     setReportInputsDisabled(true);
-    showFormMessage('生徒を選択してから入力してください');
+    document.getElementById('assignmentError').classList.remove('hidden');
     return;
+  } else {
+    document.getElementById('assignmentError').classList.add('hidden');
   }
   let message = '';
   if (selectedMonth !== currentMonth) {
