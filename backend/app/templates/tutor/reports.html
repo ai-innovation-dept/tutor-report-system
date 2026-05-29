@@ -366,11 +366,13 @@ reportForm.addEventListener('submit', async e => {
   e.preventDefault();
   const payload = formPayload();
   clearFormMessage();
-  // 改修1C: フロントエンド時刻バリデーション
+  // 改修1C: フロントエンド時刻バリデーション（ネイティブポップアップ）
   if (payload.start_time && payload.end_time && payload.end_time <= payload.start_time) {
-    showFormMessage('終了時刻は開始時刻より後の時刻を指定してください', true);
+    endTime.setCustomValidity('開始時刻より後の時刻を設定してください');
+    endTime.reportValidity();
     return;
   }
+  endTime.setCustomValidity('');
   try {
     if (editingId.value) {
       delete payload.assignment_id;
@@ -416,11 +418,14 @@ startTime.addEventListener('change', () => {
   }
   updateComputedFields();
 });
-// 改修1B: 終了時刻選択後に開始時刻以前なら即クリア（iOSはmin属性を無視するため）
+// 改修1B: 終了時刻選択後に開始時刻以前なら即クリア＋ネイティブバリデーション表示（iOS対応）
 endTime.addEventListener('change', () => {
   if (startTime.value && endTime.value && endTime.value <= startTime.value) {
     endTime.value = '';
-    showFormMessage('終了時刻は開始時刻より後の時刻を選択してください', true);
+    endTime.setCustomValidity('開始時刻より後の時刻を設定してください');
+    endTime.reportValidity();
+  } else {
+    endTime.setCustomValidity('');
   }
   updateComputedFields();
 });
