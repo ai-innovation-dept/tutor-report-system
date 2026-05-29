@@ -3,10 +3,6 @@
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
-    <p class="text-sm font-medium text-blue-600">保護者ポータル</p>
-    <h1 class="text-2xl font-semibold text-slate-800">報告書一覧</h1>
-    <p class="mt-1 text-sm text-slate-500">月ごとの報告書を確認し、承認または差戻しできます。</p>
-  </div>
   <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
     <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
       <span class="text-slate-600">表示月</span>
@@ -36,6 +32,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
+setBreadcrumb('保護者ポータル', '報告書一覧');
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const currentMonth = new Date().toISOString().slice(0, 7);
 const parentAssignments = {{ assignments | default([]) | tojson }};

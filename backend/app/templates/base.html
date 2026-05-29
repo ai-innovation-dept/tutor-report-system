@@ -39,18 +39,21 @@
   </aside>
 
   <div class="min-h-screen md:pl-56">
-    <header class="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-      <div class="flex items-center justify-between gap-3 px-4 py-4 md:px-8">
+    <header class="sticky top-0 z-20 bg-[#1e293b] shadow-md">
+      <div class="flex items-center justify-between gap-3 px-4 py-3 md:px-8">
         <div class="flex items-center gap-3">
-          <button type="button" class="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-700 shadow-sm transition hover:bg-slate-50 md:hidden" onclick="openSidebar()" aria-label="メニューを開く">
+          <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white md:hidden" onclick="openSidebar()" aria-label="メニューを開く">
             ☰
           </button>
-          <div>
-            <div id="page-title" class="text-lg font-semibold text-slate-800"></div>
-            <div class="text-xs text-slate-500">業務システム</div>
-          </div>
+          <span class="text-sm font-bold text-white">Tutor Reports</span>
+          <span class="h-5 w-px bg-slate-600"></span>
+          <span id="breadcrumb"></span>
         </div>
-        <div class="flex items-center gap-2"></div>
+        <div class="flex flex-col items-end">
+          {% set role_labels = {'tutor': '講師', 'parent': '保護者', 'admin_receiver': '受付担当', 'admin_reviewer': '再鑑者', 'admin_master': '管理者'} %}
+          <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
+          <span class="text-xs text-slate-400">{{ role_labels.get(current_user.role, current_user.role) }}{% if current_user.tutor_no %}・{{ current_user.tutor_no }}{% endif %}</span>
+        </div>
       </div>
     </header>
 
@@ -169,12 +172,6 @@
       return path === href;
     }
 
-    function syncPageTitle() {
-      const title = document.getElementById('page-title');
-      const heading = document.querySelector('main h1');
-      if (title && heading) title.textContent = heading.textContent.trim();
-    }
-
     async function renderNav(user) {
       sidebarUserName.textContent = user.display_name;
       sidebarUserRole.textContent = roleDisplayName(user.role);
@@ -206,7 +203,6 @@
       }
       navItems.innerHTML = items.join('');
 
-      syncPageTitle();
       closeSidebar();
       if (user.role === 'tutor') await renderTutorNavExtras();
     }
@@ -283,6 +279,16 @@
     window.addEventListener('resize', () => {
       if (window.innerWidth >= 768) closeSidebar();
     });
+
+    function setBreadcrumb(portal, page) {
+      const el = document.getElementById('breadcrumb');
+      if (!el) return;
+      el.innerHTML = `
+        <span style="color:#94a3b8;font-size:13px;">${portal}</span>
+        <span style="color:#475569;font-size:12px;margin:0 6px;">›</span>
+        <span style="color:#e2e8f0;font-size:13px;font-weight:500;">${page}</span>
+      `;
+    }
 
     renderNav(window.currentUser);
   </script>

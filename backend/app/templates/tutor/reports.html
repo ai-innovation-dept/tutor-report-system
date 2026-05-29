@@ -3,9 +3,7 @@
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
 <div class="mb-6 flex flex-wrap items-end justify-between gap-4">
   <div>
-    <p class="text-sm font-medium text-blue-600">講師ポータル</p>
-    <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">講師 報告書</h1>
-    <div id="studentBadge" class="mt-3 inline-flex rounded-full bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-800">生徒：すべて</div>
+    <div id="studentBadge" class="inline-flex rounded-full bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-800">生徒：すべて</div>
   </div>
   <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
     <label class="text-sm text-slate-700" for="monthFilter">表示月</label>
@@ -87,6 +85,7 @@
 {% block scripts %}
 <script src="/static/js/chat.js"></script>
 <script>
+setBreadcrumb('講師ポータル', '報告書一覧');
 const STATUS_LABELS = {
   draft: '下書き',
   awaiting_parent_approval: '保護者承認待ち',
@@ -264,7 +263,7 @@ async function loadTutor() {
   renderAssignmentOptions();
   renderMonthFilter();
   updateStudentBadge();
-  pageTitle.textContent = isSubmitPage ? '運営へ提出' : '講師 報告書';
+  setBreadcrumb('講師ポータル', isSubmitPage ? '運営へ提出' : '報告書一覧');
   renderCurrentList();
   renderBulkSubmit(allReports);
   renderFormAvailability();

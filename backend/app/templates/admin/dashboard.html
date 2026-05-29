@@ -32,11 +32,6 @@
   }
 </style>
 
-<div class="mb-6">
-  <p class="text-sm font-medium text-blue-600">運営ポータル</p>
-  <h1 class="text-2xl font-semibold text-slate-800" id="pageTitle">統合ダッシュボード</h1>
-</div>
-
 <div class="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
   <label class="flex items-center gap-2 text-sm">
     <span class="text-slate-700">月選択</span>
@@ -87,6 +82,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
+setBreadcrumb('運営ポータル', '統合ダッシュボード');
 const STATUS_LABELS = {
   draft: '講師作成',
   awaiting_parent_approval: '保護者承認待ち',

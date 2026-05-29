@@ -1,11 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<div class="mb-6">
-  <p class="text-sm font-medium text-blue-600">保護者ポータル</p>
-  <h1 class="text-2xl font-semibold text-slate-800">承認管理</h1>
-</div>
-
 <div class="grid gap-4">
   {% for group in approval_groups %}
   <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -43,4 +38,9 @@
   {% endfor %}
 </div>
 <!-- # === Phase 9 END === -->
+{% endblock %}
+{% block scripts %}
+<script>
+setBreadcrumb('保護者ポータル', '承認管理');
+</script>
 {% endblock %}
