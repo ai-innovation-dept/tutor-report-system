@@ -142,3 +142,71 @@ def test_tutor_can_create_assignment_with_parent_invitation(client, db, monkeypa
     invitation = db.query(Invitation).filter(Invitation.email == "new-parent@example.com").one()
     assert str(invitation.assignment_id) == res.json()["id"]
     assert sent and sent[-1][0] == "new-parent@example.com"
+
+
+def test_tutor_can_patch_reminder_settings_on_own_assignment(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+
+    res = client.patch(
+        f"/api/assignments/{assignment.id}",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+        json={"reminder_enabled": True, "reminder_days_after": 3, "reminder_count": 2},
+    )
+    assert res.status_code == 200
+    assert res.json()["reminder_enabled"] is True
+    assert res.json()["reminder_days_after"] == 3
+    assert res.json()["reminder_count"] == 2
+
+
+def test_tutor_cannot_patch_restricted_fields_on_own_assignment(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    original_student_name = assignment.student_name
+    original_skip = assignment.skip_parent_approval
+
+    res = client.patch(
+        f"/api/assignments/{assignment.id}",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+        json={"student_name": "改ざん 生徒", "skip_parent_approval": True},
+    )
+    assert res.status_code == 200
+    # restricted fields must remain unchanged
+    assert res.json()["student_name"] == original_student_name
+    assert res.json()["skip_parent_approval"] == original_skip
+
+
+def test_tutor_cannot_patch_another_tutors_assignment(client, db):
+    from app.core.security import hash_password as hp
+    other_tutor = User(
+        email="other@example.com",
+        role="tutor",
+        roles=["tutor"],
+        display_name="Other Tutor",
+        password_hash=hp("Passw0rd!"),
+    )
+    db.add(other_tutor)
+    db.flush()
+    other_assignment = Assignment(tutor_id=other_tutor.id, student_name="Other Student")
+    db.add(other_assignment)
+    db.commit()
+
+    tutor_token = token(client, "tutor@example.com")
+    res = client.patch(
+        f"/api/assignments/{other_assignment.id}",
+        headers={"Authorization": f"Bearer {tutor_token}"},
+        json={"reminder_enabled": True},
+    )
+    assert res.status_code == 403
+
+
+def test_parent_cannot_patch_assignment(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+
+    res = client.patch(
+        f"/api/assignments/{assignment.id}",
+        headers={"Authorization": f"Bearer {parent_token}"},
+        json={"reminder_enabled": True},
+    )
+    assert res.status_code == 403

@@ -63,7 +63,7 @@ def sync_user_roles(user: User, roles: list[str]) -> None:
 
 def require_role(*roles: str):
     def dependency(user: User = Depends(get_current_user)) -> User:
-        if user.role not in roles:
+        if not any(has_role(user, role) for role in roles):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient role")
         return user
     return dependency

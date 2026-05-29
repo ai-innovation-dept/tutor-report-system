@@ -229,12 +229,22 @@ async def create_assignment(payload: AssignmentCreate, request: Request, db: Ses
     return assignment
 
 
+_TUTOR_PATCH_ALLOWED = {"reminder_enabled", "reminder_days_after", "reminder_count"}
+
+
 @router.patch("/assignments/{assignment_id}", response_model=AssignmentOut)
-def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     assignment = db.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="assignment not found")
-    data = payload.model_dump(exclude_unset=True)
+    if has_role(current_user, "admin_master"):
+        data = payload.model_dump(exclude_unset=True)
+    elif has_role(current_user, "tutor"):
+        if assignment.tutor_id != current_user.id:
+            raise HTTPException(status_code=403, detail="insufficient role")
+        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k in _TUTOR_PATCH_ALLOWED}
+    else:
+        raise HTTPException(status_code=403, detail="insufficient role")
     if "tutor_id" in data and data["tutor_id"] is not None:
         tutor = db.get(User, data["tutor_id"])
         if not tutor or not has_role(tutor, "tutor"):
