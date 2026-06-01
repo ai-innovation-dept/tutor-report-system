@@ -118,11 +118,14 @@ def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
+    second_assignment = Assignment(tutor_id=assignment.tutor_id, parent_id=assignment.parent_id, student_name="Second Student")
+    db.add(second_assignment)
+    db.commit()
     today = get_current_jst_date()
     report_ids = []
-    for hour in [18, 19]:
+    for current_assignment, hour in [(assignment, 18), (second_assignment, 19)]:
         res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
-            "assignment_id": str(assignment.id),
+            "assignment_id": str(current_assignment.id),
             "lesson_date": str(today),
             "start_time": f"{hour:02d}:00",
             "end_time": f"{hour + 1:02d}:00",
@@ -365,11 +368,14 @@ def test_return_comment_is_limited_to_returned_report(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
+    second_assignment = Assignment(tutor_id=assignment.tutor_id, parent_id=assignment.parent_id, student_name="Second Student")
+    db.add(second_assignment)
+    db.commit()
     today = date.today()
     report_ids = []
-    for hour in [18, 19]:
+    for current_assignment, hour in [(assignment, 18), (second_assignment, 19)]:
         res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
-            "assignment_id": str(assignment.id),
+            "assignment_id": str(current_assignment.id),
             "lesson_date": str(today),
             "start_time": f"{hour:02d}:00",
             "end_time": f"{hour + 1:02d}:00",
@@ -723,6 +729,38 @@ def test_report_create_rejects_after_admin_approved(client, db):
     })
     assert res.status_code == 409
     assert "最終承認済み" in res.json()["detail"]
+
+
+def test_create_report_rejects_duplicate_in_progress(client, db):
+    """当月分が進行中ステータスの場合も2件目は作成できないこと（409）"""
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    in_progress = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="in progress",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.draft.value,
+    )
+    db.add(in_progress)
+    db.commit()
+
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(today),
+        "start_time": "19:00",
+        "end_time": "20:00",
+        "content": "lesson",
+    })
+
+    assert res.status_code == 409
+    assert res.json()["detail"] == "当月分の報告書がすでに進行中です"
 
 
 def test_admin_master_can_return_admin_approved_bulk(client, db):

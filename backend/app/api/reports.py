@@ -150,6 +150,19 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     ) or 0
     if existing_approved > 0:
         raise HTTPException(status_code=409, detail="当月分はすでに最終承認済みです。追加修正が必要な場合は運営に差戻しを依頼してください")
+    existing_in_progress = db.scalar(
+        select(func.count(LessonReport.id)).where(
+            LessonReport.tutor_id == user.id,
+            LessonReport.assignment_id == payload.assignment_id,
+            LessonReport.target_month == current_month,
+            LessonReport.status.notin_([
+                ReportStatus.admin_approved.value,
+                ReportStatus.closed.value,
+            ]),
+        )
+    ) or 0
+    if existing_in_progress > 0:
+        raise HTTPException(status_code=409, detail="当月分の報告書がすでに進行中です")
     report = LessonReport(
         **payload.model_dump(),
         tutor_id=user.id,
