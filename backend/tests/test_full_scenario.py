@@ -297,10 +297,27 @@ def test_scenario_duplicate_creation_blocked(scenario, scenario_db, monkeypatch)
     """当月に報告書が存在する状態で追加作成を試みると 409 になること。"""
     FrozenDate(2026, 6).patch(monkeypatch)
     client, token_value, assignment = scenario["client"], scenario["tokens"]["tutor_a"], scenario["assignments"]["student1"]
+    # draft / returned_to_tutor は保護者未提出のため重複チェック対象外 → 201
     for status in [
         ReportStatus.draft.value,
-        ReportStatus.awaiting_parent_approval.value,
         ReportStatus.returned_to_tutor.value,
+    ]:
+        scenario_db.query(ReportEvent).delete()
+        scenario_db.query(LessonReport).delete()
+        scenario_db.commit()
+        seed_report(scenario_db, assignment, date(2026, 6, 1), 1, status=status)
+        response = client.post("/api/reports", headers=auth(token_value), json={
+            "assignment_id": str(assignment.id),
+            "lesson_date": "2026-06-02",
+            "start_time": "18:00",
+            "end_time": "19:00",
+            "content": "重複",
+        })
+        assert response.status_code == 200
+
+    # 保護者提出済み以降のステータスは重複不可 → 409
+    for status in [
+        ReportStatus.awaiting_parent_approval.value,
         ReportStatus.admin_approved.value,
     ]:
         scenario_db.query(ReportEvent).delete()

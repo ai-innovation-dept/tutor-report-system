@@ -746,7 +746,7 @@ def test_create_report_rejects_duplicate_in_progress(client, db):
         break_minutes=0,
         content="in progress",
         target_month=today.strftime("%Y-%m"),
-        status=ReportStatus.draft.value,
+        status=ReportStatus.awaiting_parent_approval.value,
     )
     db.add(in_progress)
     db.commit()

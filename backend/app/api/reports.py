@@ -156,6 +156,8 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
             LessonReport.assignment_id == payload.assignment_id,
             LessonReport.target_month == current_month,
             LessonReport.status.notin_([
+                ReportStatus.draft.value,
+                ReportStatus.returned_to_tutor.value,
                 ReportStatus.admin_approved.value,
                 ReportStatus.closed.value,
             ]),
