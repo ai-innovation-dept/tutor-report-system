@@ -9,7 +9,7 @@
 </head>
 <body class="bg-slate-100 text-slate-900">
   <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
-    先月以前の差戻し中未処理の報告があります。管理者へ連絡ください。
+    先月以前の差戻し中未処理および未承認の報告があります。管理者へ連絡ください。
     （<span id="stale-count"></span>件）
     {% if current_user.role in ['admin_receiver', 'admin_reviewer', 'admin_master'] %}
     <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
