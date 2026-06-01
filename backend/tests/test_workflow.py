@@ -117,7 +117,7 @@ def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
-    today = date.today()
+    today = get_current_jst_date()
     report_ids = []
     for hour in [18, 19]:
         res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
@@ -169,7 +169,7 @@ def test_returned_report_can_be_resubmitted_to_parent(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
-    today = date.today()
+    today = get_current_jst_date()
     res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
         "assignment_id": str(assignment.id),
         "lesson_date": str(today),
@@ -186,6 +186,110 @@ def test_returned_report_can_be_resubmitted_to_parent(client, db):
     resubmitted = client.post(f"/api/reports/{rid}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
     assert resubmitted.status_code == 200
     assert resubmitted.json()["status"] == ReportStatus.awaiting_parent_approval.value
+
+
+def test_parent_can_return_report(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    created = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(today),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+    report_id = created.json()["id"]
+    client.post(f"/api/reports/{report_id}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
+
+    returned = client.post(f"/api/reports/{report_id}/parent-return", headers={"Authorization": f"Bearer {parent_token}"}, json={"comment": "修正してください"})
+
+    assert returned.status_code == 200
+    assert returned.json()["status"] == ReportStatus.returned_to_tutor.value
+
+
+def test_tutor_sees_returned_report(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    created = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(today),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+    report_id = created.json()["id"]
+    client.post(f"/api/reports/{report_id}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
+    returned = client.post("/api/reports/parent-return-bulk", headers={"Authorization": f"Bearer {parent_token}"}, json={
+        "report_ids": [report_id],
+        "target_month": today.strftime("%Y-%m"),
+        "comment": "月次差戻し",
+    })
+    assert returned.status_code == 200
+
+    reports = client.get("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"})
+    by_id = {report["id"]: report for report in reports.json()}
+    assert report_id in by_id
+    assert by_id[report_id]["status"] == ReportStatus.returned_to_tutor.value
+    assert by_id[report_id]["last_return_comment"] == "月次差戻し"
+
+
+def test_return_report_permission_denied_for_other_parent(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    other_parent = User(
+        email="other-parent@example.com",
+        role="parent",
+        roles=["parent"],
+        display_name="Other Parent",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(other_parent)
+    db.commit()
+    other_parent_token = token(client, "other-parent@example.com")
+    today = get_current_jst_date()
+    created = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(today),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+    report_id = created.json()["id"]
+    client.post(f"/api/reports/{report_id}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
+
+    returned = client.post(f"/api/reports/{report_id}/parent-return", headers={"Authorization": f"Bearer {other_parent_token}"}, json={"comment": "不正な差戻し"})
+
+    assert returned.status_code == 403
+
+
+def test_return_comment_is_saved(client, db):
+    tutor_token = token(client, "tutor@example.com")
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    created = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": str(today),
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+    report_id = created.json()["id"]
+    client.post(f"/api/reports/{report_id}/submit-to-parent", headers={"Authorization": f"Bearer {tutor_token}"}, json={})
+
+    client.post(f"/api/reports/{report_id}/parent-return", headers={"Authorization": f"Bearer {parent_token}"}, json={"comment": "指導内容を追記してください"})
+
+    report = client.get(f"/api/reports/{report_id}", headers={"Authorization": f"Bearer {tutor_token}"})
+    assert report.status_code == 200
+    assert report.json()["last_return_comment"] == "指導内容を追記してください"
+    assert any(
+        event["action"] == "parent_return" and event["comment"] == "指導内容を追記してください"
+        for event in report.json()["events"]
+    )
 
 
 def test_parent_return_requires_non_blank_comment(client, db):

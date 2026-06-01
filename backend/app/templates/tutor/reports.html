@@ -23,6 +23,7 @@
             <th class="px-4 py-3 text-left">休憩（分）</th>
             <th class="px-4 py-3 text-left">指導時間数</th>
             <th class="px-4 py-3 text-left">科目</th>
+            <th class="px-4 py-3 text-left">状態</th>
             <th class="px-4 py-3 text-left">アクション</th>
           </tr>
         </thead>
@@ -97,7 +98,8 @@ const STATUS_LABELS = {
   submitted_to_admin: '運営提出済み',
   received: '受付済み',
   re_reviewed: '再鑑済み',
-  admin_approved: '最終承認済み'
+  admin_approved: '最終承認済み',
+  returned_to_receiver: '運営内差戻し'
 };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 let allReports = [];
@@ -140,6 +142,23 @@ function durationLabel(minutes) {
   if (hours && mins) return `${hours}時間${mins}分`;
   if (hours) return `${hours}時間`;
   return `${mins}分`;
+}
+function statusBadge(status) {
+  const label = statusLabel(status);
+  if (status === 'returned_to_tutor') {
+    return `<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">${label}</span>`;
+  }
+  if (status === 'draft') {
+    return `<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${label}</span>`;
+  }
+  if (status === 'admin_approved') {
+    return `<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">${label}</span>`;
+  }
+  return `<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">${label}</span>`;
+}
+function returnComment(r) {
+  if (r.status !== 'returned_to_tutor' || !r.last_return_comment) return '';
+  return `<div class="mt-1 max-w-xs whitespace-pre-wrap text-xs text-red-700">差戻し理由：${escapeHtml(r.last_return_comment)}</div>`;
 }
 function rowAction(r) {
   if (selectedMonth !== currentMonth) return '';
@@ -241,11 +260,16 @@ function renderRows(reports) {
     <td class="px-4 py-3">${timeText(r.start_time)} ～ ${timeText(r.end_time)}</td>
     <td class="px-4 py-3">${Number(r.break_minutes || 0)}分</td>
     <td class="px-4 py-3">${durationLabel(teachingMinutes(r))}</td>
-    <td class="px-4 py-3">${r.subject || ''}</td>
+    <td class="px-4 py-3">${escapeHtml(r.subject || '')}</td>
+    <td class="px-4 py-3">${statusBadge(r.status)}${returnComment(r)}</td>
     <td class="px-4 py-3 align-middle">${rowAction(r)}</td>
   </tr>`).join('');
   cards.innerHTML = reports.map((r, index) => `<div class="p-4">
-    <div class="font-medium text-slate-800">${index + 1}回目 ${reportSummary(r)}</div>
+    <div class="flex flex-wrap items-start justify-between gap-2">
+      <div class="font-medium text-slate-800">${index + 1}回目 ${reportSummary(r)}</div>
+      ${statusBadge(r.status)}
+    </div>
+    ${returnComment(r)}
     <div class="mt-3">${rowAction(r)}</div>
   </div>`).join('');
   totalTeachingTime.textContent = `合計指導時間：${durationLabel(totalMinutes)}`;
