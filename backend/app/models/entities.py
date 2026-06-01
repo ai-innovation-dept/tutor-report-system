@@ -31,7 +31,6 @@ class ReportStatus(str, enum.Enum):
     admin_approved = "admin_approved"
     returned_to_tutor = "returned_to_tutor"
     returned_to_receiver = "returned_to_receiver"
-    returned = "returned"
     closed = "closed"
 
 
