@@ -232,13 +232,10 @@ def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
             LessonReport.parent_id == current_user.id,
             LessonReport.status.in_(
                 [
+                    ReportStatus.awaiting_parent_approval.value,
+                    ReportStatus.returned_to_tutor.value,
                     ReportStatus.parent_approved.value,
-                    ReportStatus.submitted_to_admin.value,
-                    ReportStatus.received.value,
-        ReportStatus.re_reviewed.value,
-        ReportStatus.admin_approved.value,
-        ReportStatus.closed.value,
-    ]
+                ]
             ),
         )
         .order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())

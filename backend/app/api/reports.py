@@ -173,6 +173,13 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
         stmt = stmt.join(Assignment, LessonReport.assignment_id == Assignment.id).where(
             LessonReport.parent_id == user.id,
             Assignment.skip_parent_approval.is_(False),
+            LessonReport.status.in_(
+                [
+                    ReportStatus.awaiting_parent_approval.value,
+                    ReportStatus.returned_to_tutor.value,
+                    ReportStatus.parent_approved.value,
+                ]
+            ),
         )
     elif not user.role.startswith("admin_"):
         raise HTTPException(status_code=403, detail="not allowed")
@@ -187,6 +194,26 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
     if parent_id and user.role.startswith("admin_"):
         stmt = stmt.where(LessonReport.parent_id == parent_id)
     return [_report_out(db, row, user) for row in db.scalars(stmt).all()]
+
+
+@router.get("/exportable-months")
+def exportable_months(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """
+    保護者向け: エクスポート可能な月一覧を返す。
+    admin_approved の報告書が1件以上ある月のみ返す。
+    """
+    if not has_role(user, "parent"):
+        return []
+    rows = db.scalars(
+        select(LessonReport.target_month)
+        .where(
+            LessonReport.parent_id == user.id,
+            LessonReport.status == ReportStatus.admin_approved.value,
+        )
+        .distinct()
+        .order_by(LessonReport.target_month.desc())
+    ).all()
+    return list(rows)
 
 
 @router.get("/monthly-summary")

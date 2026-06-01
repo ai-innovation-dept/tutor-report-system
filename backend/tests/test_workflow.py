@@ -2,6 +2,7 @@
 from datetime import date, datetime, time
 from uuid import UUID
 
+from app.api import pages as pages_api
 from app.api import reports as reports_api
 from app.core import time as time_utils
 from app.core.security import hash_password
@@ -139,12 +140,13 @@ def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     })
     assert approved.status_code == 200
 
-    reports = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"}).json()
-    by_id = {report["id"]: report for report in reports}
     for report_id in report_ids:
-        assert by_id[report_id]["status"] == ReportStatus.submitted_to_admin.value
-        assert by_id[report_id]["parent_approved_at"] is not None
-        assert by_id[report_id]["submitted_to_admin_at"] is not None
+        report = db.query(LessonReport).filter(LessonReport.id == UUID(report_id)).one()
+        assert report.status == ReportStatus.submitted_to_admin.value
+        assert report.parent_approved_at is not None
+        assert report.submitted_to_admin_at is not None
+    reports = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"}).json()
+    assert all(report["id"] not in report_ids for report in reports)
 
 
 def test_return_requires_comment(client, db):
@@ -442,6 +444,178 @@ def test_parent_reports_can_filter_by_tutor(client, db):
     assert filtered.status_code == 200
     assert [report["content"] for report in filtered.json()] == ["second tutor"]
     assert filtered.json()[0]["tutor_name"] == "講師 二郎"
+
+
+def test_list_reports_parent_excludes_submitted_to_admin(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="submitted",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.submitted_to_admin.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert all(item["status"] != ReportStatus.submitted_to_admin.value for item in res.json())
+
+
+def test_list_reports_parent_excludes_closed(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="closed",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.closed.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert all(item["status"] != ReportStatus.closed.value for item in res.json())
+
+
+def test_list_reports_parent_includes_awaiting(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="awaiting",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.awaiting_parent_approval.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert any(item["id"] == str(report.id) for item in res.json())
+
+
+def test_exportable_months_returns_admin_approved_months(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=date(2026, 5, 1),
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="approved",
+        target_month="2026-05",
+        status=ReportStatus.admin_approved.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == ["2026-05"]
+
+
+def test_exportable_months_excludes_non_approved(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=date(2026, 5, 1),
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="awaiting",
+        target_month="2026-05",
+        status=ReportStatus.awaiting_parent_approval.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == []
+
+
+def test_exportable_months_forbidden_for_non_parent(client, db):
+    tutor_token = token(client, "tutor@example.com")
+
+    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {tutor_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == []
+
+
+def test_parent_approval_groups_excludes_closed(client, db):
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    db.add_all(
+        [
+            LessonReport(
+                assignment_id=assignment.id,
+                tutor_id=assignment.tutor_id,
+                parent_id=assignment.parent_id,
+                lesson_date=today,
+                start_time=time(18, 0),
+                end_time=time(19, 0),
+                break_minutes=0,
+                content="closed",
+                target_month=today.strftime("%Y-%m"),
+                status=ReportStatus.closed.value,
+            ),
+            LessonReport(
+                assignment_id=assignment.id,
+                tutor_id=assignment.tutor_id,
+                parent_id=assignment.parent_id,
+                lesson_date=today,
+                start_time=time(19, 0),
+                end_time=time(20, 0),
+                break_minutes=0,
+                content="awaiting",
+                target_month=today.strftime("%Y-%m"),
+                status=ReportStatus.awaiting_parent_approval.value,
+            ),
+        ]
+    )
+    db.commit()
+
+    groups = pages_api._parent_approval_groups(db, parent)
+
+    assert groups
+    assert all(group["current_status"] != ReportStatus.closed.value for group in groups)
 
 
 def test_tutor_reports_page_shows_return_comment_badge(client, db):
