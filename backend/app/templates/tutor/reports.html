@@ -194,6 +194,19 @@ function selectedAssignmentApproved() {
   if (!selectedAssignmentId) return false;
   return allReports.some(r => r.target_month === currentMonth && r.assignment_id === selectedAssignmentId && r.status === 'admin_approved');
 }
+function selectedAssignmentInProgress() {
+  if (!selectedAssignmentId) return false;
+  const inProgressStatuses = [
+    'awaiting_parent_approval', 'parent_approved',
+    'submitted_to_admin', 'received', 're_reviewed',
+    'returned_to_tutor', 'returned_to_receiver'
+  ];
+  return allReports.some(r =>
+    r.target_month === currentMonth &&
+    r.assignment_id === selectedAssignmentId &&
+    inProgressStatuses.includes(r.status)
+  );
+}
 function filteredReports() {
   return allReports.filter(r => {
     const monthMatches = isSubmitPage || r.target_month === selectedMonth;
@@ -231,6 +244,8 @@ function renderFormAvailability() {
     message = '過去月は参照のみです';
   } else if (selectedAssignmentApproved()) {
     message = '当月分は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
+  } else if (selectedAssignmentInProgress()) {
+    message = '当月分の報告書がすでに進行中です。';
   }
   formPanel.classList.remove('hidden');
   formUnavailablePanel.classList.add('hidden');
@@ -439,7 +454,9 @@ reportForm.addEventListener('submit', async e => {
     await loadTutor();
     resetReportForm(true);
   } catch (error) {
-    showFormMessage(`作成に失敗しました：${error.message}`, true);
+    let msg = error.message;
+    try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
+    showFormMessage(`作成に失敗しました：${msg}`, true);
     return;
   }
 });
