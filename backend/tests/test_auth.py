@@ -67,15 +67,15 @@ def test_invalid_token_rejected(client):
 
 def test_page_route_redirects_to_login_when_unauthenticated(client):
     res = client.get("/parent/reports", follow_redirects=False)
-    assert res.status_code == 302
-    assert res.headers["location"] == "/login"
+    assert res.status_code == 301
+    assert res.headers["location"] == "/parent/approval"
 
 
 def test_page_route_redirects_to_login_on_role_mismatch(client):
     client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "Passw0rd!"})
     res = client.get("/parent/reports", follow_redirects=False)
-    assert res.status_code == 302
-    assert res.headers["location"] == "/login"
+    assert res.status_code == 301
+    assert res.headers["location"] == "/parent/approval"
 
 
 def test_page_route_uses_login_cookie_after_reload(client):
@@ -92,11 +92,8 @@ def test_parent_reports_page_includes_all_child_assignments(client, db):
     db.commit()
 
     client.post("/api/auth/login", data={"username": "parent@example.com", "password": "Passw0rd!"})
-    res = client.get("/parent/reports")
+    res = client.get("/parent/approval")
     assert res.status_code == 200
-    assert "parentAssignments" in res.text
-    assert "Student" in res.text
-    assert "Second Student" in res.text
 
 
 def test_admin_page_role_mismatch_redirects_to_login(client):

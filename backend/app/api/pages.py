@@ -303,7 +303,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     if user.role == "tutor":
         return RedirectResponse("/tutor/reports")
     if user.role == "parent":
-        return RedirectResponse("/parent/reports")
+        return RedirectResponse("/parent/approval")
     if user.role.startswith("admin_"):
         return RedirectResponse("/admin/dashboard")
     return _login_redirect()
@@ -339,7 +339,12 @@ def tutor_approval_page(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/parent/reports", response_class=HTMLResponse)
 @router.get("/parent/reports/{report_id}", response_class=HTMLResponse)
-def parent_pages(request: Request, db: Session = Depends(get_db)):
+def parent_reports_redirect(request: Request):
+    return RedirectResponse("/parent/approval", status_code=301)
+
+
+@router.get("/parent/approval", response_class=HTMLResponse)
+def parent_approval_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
     if not user or user.role != "parent":
         return _login_redirect()
@@ -351,23 +356,13 @@ def parent_pages(request: Request, db: Session = Depends(get_db)):
     context = _base_context(request, user)
     context["assignments"] = [
         {
-            "id": str(assignment.id),
-            "student_name": assignment.student_name,
-            "tutor_id": str(assignment.tutor_id),
-            "tutor_name": assignment.tutor.display_name if assignment.tutor else "",
+            "id": str(a.id),
+            "student_name": a.student_name,
+            "tutor_id": str(a.tutor_id),
+            "tutor_name": a.tutor.display_name if a.tutor else "",
         }
-        for assignment in assignments
+        for a in assignments
     ]
-    return templates.TemplateResponse(request, "parent/reports.html", context=context)
-
-
-@router.get("/parent/approval", response_class=HTMLResponse)
-def parent_approval_page(request: Request, db: Session = Depends(get_db)):
-    user = get_current_user_from_cookie(request, db)
-    if not user or user.role != "parent":
-        return _login_redirect()
-    context = _base_context(request, user)
-    context["approval_groups"] = _parent_approval_groups(db, user)
     return templates.TemplateResponse(request, "parent/approval.html", context=context)
 
 

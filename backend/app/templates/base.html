@@ -203,8 +203,7 @@
         // 生徒管理機能は将来リリース予定のため一時非表示
         // items.push(navLink('/tutor/students', '生徒管理'));
       } else if (user.role === 'parent') {
-        navHome.href = '/parent/reports';
-        items.push(navLink('/parent/reports', '報告書一覧'));
+        navHome.href = '/parent/approval';
         items.push(navLink('/parent/approval', '承認管理'));
       } else if (user.role === 'admin_receiver') {
         navHome.href = '/admin/dashboard';
