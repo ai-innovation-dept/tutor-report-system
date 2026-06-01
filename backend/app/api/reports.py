@@ -178,6 +178,7 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
                     ReportStatus.awaiting_parent_approval.value,
                     ReportStatus.returned_to_tutor.value,
                     ReportStatus.parent_approved.value,
+                    ReportStatus.admin_approved.value,
                 ]
             ),
         )

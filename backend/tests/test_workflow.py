@@ -521,6 +521,31 @@ def test_list_reports_parent_includes_awaiting(client, db):
     assert any(item["id"] == str(report.id) for item in res.json())
 
 
+def test_list_reports_parent_includes_admin_approved(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="admin approved",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.admin_approved.value,
+    )
+    db.add(report)
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert any(item["id"] == str(report.id) for item in res.json())
+
+
 def test_exportable_months_returns_admin_approved_months(client, db):
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
