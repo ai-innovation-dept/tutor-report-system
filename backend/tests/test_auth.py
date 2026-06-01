@@ -97,7 +97,7 @@ def test_parent_reports_page_includes_all_child_assignments(client, db):
     assert "const parentAssignments = " in res.text
     assert "Student" in res.text
     assert "Second Student" in res.text
-    assert "/api/reports/exportable-months" in res.text
+    assert "/api/reports/exportable-months" not in res.text
     assert "あなたの操作履歴" in res.text
 
 

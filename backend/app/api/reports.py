@@ -197,26 +197,6 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
     return [_report_out(db, row, user) for row in db.scalars(stmt).all()]
 
 
-@router.get("/exportable-months")
-def exportable_months(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    """
-    保護者向け: エクスポート可能な月一覧を返す。
-    admin_approved の報告書が1件以上ある月のみ返す。
-    """
-    if not has_role(user, "parent"):
-        return []
-    rows = db.scalars(
-        select(LessonReport.target_month)
-        .where(
-            LessonReport.parent_id == user.id,
-            LessonReport.status == ReportStatus.admin_approved.value,
-        )
-        .distinct()
-        .order_by(LessonReport.target_month.desc())
-    ).all()
-    return list(rows)
-
-
 @router.get("/monthly-summary")
 def monthly_summary(tutor_id: UUID | None = None, target_month: str | None = None, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     target_tutor_id = tutor_id or user.id

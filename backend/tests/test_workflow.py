@@ -546,63 +546,6 @@ def test_list_reports_parent_includes_admin_approved(client, db):
     assert any(item["id"] == str(report.id) for item in res.json())
 
 
-def test_exportable_months_returns_admin_approved_months(client, db):
-    parent_token = token(client, "parent@example.com")
-    assignment = db.query(Assignment).first()
-    report = LessonReport(
-        assignment_id=assignment.id,
-        tutor_id=assignment.tutor_id,
-        parent_id=assignment.parent_id,
-        lesson_date=date(2026, 5, 1),
-        start_time=time(18, 0),
-        end_time=time(19, 0),
-        break_minutes=0,
-        content="approved",
-        target_month="2026-05",
-        status=ReportStatus.admin_approved.value,
-    )
-    db.add(report)
-    db.commit()
-
-    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {parent_token}"})
-
-    assert res.status_code == 200
-    assert res.json() == ["2026-05"]
-
-
-def test_exportable_months_excludes_non_approved(client, db):
-    parent_token = token(client, "parent@example.com")
-    assignment = db.query(Assignment).first()
-    report = LessonReport(
-        assignment_id=assignment.id,
-        tutor_id=assignment.tutor_id,
-        parent_id=assignment.parent_id,
-        lesson_date=date(2026, 5, 1),
-        start_time=time(18, 0),
-        end_time=time(19, 0),
-        break_minutes=0,
-        content="awaiting",
-        target_month="2026-05",
-        status=ReportStatus.awaiting_parent_approval.value,
-    )
-    db.add(report)
-    db.commit()
-
-    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {parent_token}"})
-
-    assert res.status_code == 200
-    assert res.json() == []
-
-
-def test_exportable_months_forbidden_for_non_parent(client, db):
-    tutor_token = token(client, "tutor@example.com")
-
-    res = client.get("/api/reports/exportable-months", headers={"Authorization": f"Bearer {tutor_token}"})
-
-    assert res.status_code == 200
-    assert res.json() == []
-
-
 def test_parent_approval_groups_excludes_closed(client, db):
     parent = db.query(User).filter(User.email == "parent@example.com").one()
     assignment = db.query(Assignment).first()
