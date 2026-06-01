@@ -94,6 +94,11 @@ def test_parent_reports_page_includes_all_child_assignments(client, db):
     client.post("/api/auth/login", data={"username": "parent@example.com", "password": "Passw0rd!"})
     res = client.get("/parent/approval")
     assert res.status_code == 200
+    assert "const parentAssignments = " in res.text
+    assert "Student" in res.text
+    assert "Second Student" in res.text
+    assert "/api/reports/exportable-months" in res.text
+    assert "あなたの操作履歴" in res.text
 
 
 def test_admin_page_role_mismatch_redirects_to_login(client):
