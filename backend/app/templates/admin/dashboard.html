@@ -476,24 +476,50 @@ function toggleDetails(key) {
   }
   showDetails(key);
 }
+function reportCard(report) {
+  const events = (report.events || [])
+    .filter(e => ACTION_LABELS[e.action])
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const closedSection = report.status === 'closed' ? `
+    <div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+      <div class="font-medium text-slate-800">クローズ済み</div>
+      <div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(report.close_reason || '-')}</div>
+      <div class="mt-1">日時：${escapeHtml(formatDateTime(report.closed_at))}</div>
+      <div class="mt-1">操作者：${escapeHtml(report.closed_by_name || '-')}</div>
+    </div>` : '';
+  return `<div class="rounded-lg border border-slate-200 bg-white p-4">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm font-medium text-slate-800">指導日：${escapeHtml(report.lesson_date || '-')}</span>
+      ${statusBadge(report.status)}
+    </div>
+    ${closedSection}
+    <div class="mt-3 ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
+      ${events.length ? events.map(timelineRow).join('') : '<div class="pb-5 pl-8 text-sm text-slate-500">履歴はありません。</div>'}
+      ${report.status !== 'closed' ? currentTimelineRow(report.status) : ''}
+    </div>
+  </div>`;
+}
 function showDetails(key) {
   openCardKey = key;
   const group = currentGroups().find(item => item.key === key);
   if (!group) return;
-  const status = currentGroupStatus(group.reports);
-  const events = eventsForGroup(group);
+  const overallStatus = currentGroupStatus(group.reports);
+  const activeStatus = currentGroupStatus(group.reports.filter(r => r.status !== 'closed'));
+  const sortedReports = [...group.reports].sort((a, b) => {
+    if (a.status === 'closed' && b.status !== 'closed') return 1;
+    if (b.status === 'closed' && a.status !== 'closed') return -1;
+    return (a.lesson_date || '').localeCompare(b.lesson_date || '');
+  });
   detailDrawer.classList.remove('hidden');
   detailDrawer.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
     <h2 class="font-semibold text-slate-800">📄 ${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}（講師：${escapeHtml(group.tutor_name)}）</h2>
-    ${statusBadge(status)}
+    ${statusBadge(overallStatus)}
   </div>
   <div class="p-5">
-    ${closedReportInfo(group)}
-    <div class="ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
-      ${events.length ? events.map(timelineRow).join('') : '<div class="pb-5 pl-8 text-sm text-slate-500">履歴はありません。</div>'}
-      ${currentTimelineRow(status)}
+    <div class="space-y-6">
+      ${sortedReports.map(report => reportCard(report)).join('')}
     </div>
-    ${currentRole === 'admin_master' && status === 'admin_approved' ? `
+    ${currentRole === 'admin_master' && activeStatus === 'admin_approved' ? `
     <div class="mt-4 border-t border-slate-200 pt-4">
       <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
     </div>` : ''}
