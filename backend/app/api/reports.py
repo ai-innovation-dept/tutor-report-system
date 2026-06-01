@@ -2,7 +2,6 @@
 import io
 import os
 from collections import defaultdict
-from datetime import date
 from urllib.parse import quote
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
@@ -11,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.rbac import has_role, is_admin
+from app.core.time import get_current_jst_month, month_string
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
@@ -31,7 +31,7 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 
 
 def _current_month() -> str:
-    return date.today().strftime("%Y-%m")
+    return get_current_jst_month()
 
 
 def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
@@ -132,7 +132,7 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     assignment = db.get(Assignment, payload.assignment_id)
     if not assignment or assignment.tutor_id != user.id or not assignment.is_active:
         raise HTTPException(status_code=403, detail="assignment access denied")
-    target_month = payload.lesson_date.strftime("%Y-%m")
+    target_month = month_string(payload.lesson_date)
     current_month = _current_month()
     if target_month != current_month:
         raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
@@ -547,7 +547,7 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
     if report.start_time >= report.end_time:
         raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
     if "lesson_date" in data:
-        report.target_month = report.lesson_date.strftime("%Y-%m")
+        report.target_month = month_string(report.lesson_date)
         if report.target_month != _current_month():
             raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
     db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))

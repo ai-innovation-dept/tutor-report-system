@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
+from app.core.time import get_current_jst_date
 from app.database import SessionLocal
 from app.models import LessonReport, ReportStatus
 from app.services.notification_service import enqueue
@@ -19,7 +20,7 @@ def is_reminder_day(today: date, days_before_month_end: int) -> bool:
 
 
 def enqueue_month_end_reminders(db: Session, today: date | None = None) -> int:
-    today = today or date.today()
+    today = today or get_current_jst_date()
     if not is_reminder_day(today, settings.reminder_days_before_month_end):
         return 0
     count = 0
@@ -39,7 +40,7 @@ def enqueue_month_end_reminders(db: Session, today: date | None = None) -> int:
 
 def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
     """承認依頼からX日後にリマインドを送る"""
-    today = today or date.today()
+    today = today or get_current_jst_date()
     reports = db.scalars(
         select(LessonReport)
         .options(selectinload(LessonReport.assignment))

@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
+from app.core.time import get_current_jst_month
 from app.database import get_db
 from app.deps import get_current_user_from_cookie
 from app.models import Assignment, LessonReport, ReportAction, ReportEvent, ReportStatus, User
@@ -32,7 +33,7 @@ def _duration_label(minutes: int) -> str:
 
 
 def _tutor_month_total_label(db: Session, current_user: User) -> str:
-    current_month = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m")
+    current_month = get_current_jst_month()
     reports = db.scalars(
         select(LessonReport).where(
             LessonReport.tutor_id == current_user.id,
@@ -53,7 +54,7 @@ def _format_dt(value: datetime) -> str:
 
 
 def _tutor_return_comments(db: Session, current_user: User) -> list[dict[str, str]]:
-    current_month = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m")
+    current_month = get_current_jst_month()
     return_actions = {
         "parent_return",
         "return_from_receiver",
@@ -102,7 +103,7 @@ def _tutor_return_comments(db: Session, current_user: User) -> list[dict[str, st
 
 
 def _tutor_returned_to_tutor_count(db: Session, current_user: User) -> int:
-    current_month = datetime.now(ZoneInfo(settings.timezone)).strftime("%Y-%m")
+    current_month = get_current_jst_month()
     return (
         db.scalar(
             select(func.count(LessonReport.id))

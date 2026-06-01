@@ -1,9 +1,11 @@
 # === Phase 5: 承認ワークフロー START ===
-from datetime import date, time
+from datetime import date, datetime, time
 from uuid import UUID
 
 from app.api import reports as reports_api
+from app.core import time as time_utils
 from app.core.security import hash_password
+from app.core.time import get_current_jst_date
 from app.models import Assignment, LessonReport, Notification, ReportStatus, User
 from tests.conftest import token
 
@@ -15,10 +17,11 @@ def test_full_workflow(client, db):
     reviewer_token = token(client, "reviewer@example.com")
     master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
 
     report = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
         "assignment_id": str(assignment.id),
-        "lesson_date": str(date(2026, 5, 1)),
+        "lesson_date": str(today),
         "start_time": "18:00",
         "end_time": "19:00",
         "subject": "math",
@@ -148,9 +151,10 @@ def test_return_requires_comment(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
     res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
         "assignment_id": str(assignment.id),
-        "lesson_date": "2026-05-01",
+        "lesson_date": str(today),
         "start_time": "18:00",
         "end_time": "19:00",
         "content": "lesson",
@@ -373,6 +377,75 @@ def test_report_create_rejects_non_current_month(client, db):
         "end_time": "19:00",
         "content": "lesson",
     })
+    assert res.status_code == 400
+    assert res.json()["detail"] == "当月分の報告書のみ作成できます"
+
+
+def test_report_create_allows_current_jst_month_at_utc_month_boundary(client, db, monkeypatch):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 1, 8, 30, tzinfo=time_utils.JST)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(time_utils, "datetime", FrozenDateTime)
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": "2026-06-01",
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+
+    assert res.status_code == 200
+    assert res.json()["target_month"] == "2026-06"
+
+
+def test_report_create_rejects_next_jst_month(client, db, monkeypatch):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 15, 12, 0, tzinfo=time_utils.JST)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(time_utils, "datetime", FrozenDateTime)
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": "2026-07-01",
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+
+    assert res.status_code == 400
+    assert res.json()["detail"] == "当月分の報告書のみ作成できます"
+
+
+def test_report_create_rejects_previous_jst_month(client, db, monkeypatch):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            value = cls(2026, 6, 15, 12, 0, tzinfo=time_utils.JST)
+            return value if tz is None else value.astimezone(tz)
+
+    monkeypatch.setattr(time_utils, "datetime", FrozenDateTime)
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+
+    res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
+        "assignment_id": str(assignment.id),
+        "lesson_date": "2026-05-31",
+        "start_time": "18:00",
+        "end_time": "19:00",
+        "content": "lesson",
+    })
+
     assert res.status_code == 400
     assert res.json()["detail"] == "当月分の報告書のみ作成できます"
 

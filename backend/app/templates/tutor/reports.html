@@ -388,13 +388,13 @@ reportForm.addEventListener('submit', async e => {
   try {
     if (editingId.value) {
       delete payload.assignment_id;
-      await api(`/api/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify(payload)});
+      await api(`/api/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify(payload), suppressFlash: true});
       showFormMessage('報告書を更新しました');
     } else {
       if (!payload.assignment_id) {
         throw new Error('生徒を選択してください');
       }
-      await api('/api/reports', {method:'POST', body: JSON.stringify(payload)});
+      await api('/api/reports', {method:'POST', body: JSON.stringify(payload), suppressFlash: true});
       showFormMessage('報告書を作成しました');
     }
     await loadTutor();
