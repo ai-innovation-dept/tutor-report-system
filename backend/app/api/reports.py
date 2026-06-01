@@ -70,6 +70,7 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
     out.student_name = report.assignment.student_name if report.assignment else None
     out.skip_parent_approval = bool(report.assignment and report.assignment.skip_parent_approval)
     out.tutor_name = report.tutor.display_name if report.tutor else None
+    out.closed_by_name = report.closed_by_user.display_name if report.closed_by_user else None
     out.events = [
         ReportEventOut(
             action=event.action,

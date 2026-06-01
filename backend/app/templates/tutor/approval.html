@@ -302,10 +302,11 @@ function detailRows(group) {
     <td class="px-4 py-3">${timeLabel(r.parent_approved_at, '-')}</td>
     <td class="px-4 py-3">${timeLabel(r.admin_approved_at, '-')}</td>
     <td class="px-4 py-3 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
+    <td class="px-4 py-3 text-slate-700">${r.status === 'closed' ? `<div class="font-medium text-slate-800">クローズ済み</div><div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(r.close_reason || '-')}</div><div class="mt-1">日時：${timeLabel(r.closed_at, '-')}</div>` : ''}</td>
   </tr>`).join('');
   return `<div class="mt-5 overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">保護者へ依頼</th><th class="px-4 py-3 text-left">保護者承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th></tr></thead>
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">保護者へ依頼</th><th class="px-4 py-3 text-left">保護者承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;

@@ -99,7 +99,8 @@ const STATUS_LABELS = {
   received: '受付済み',
   re_reviewed: '再鑑済み',
   admin_approved: '最終承認済み',
-  returned_to_receiver: '運営内差戻し'
+  returned_to_receiver: '運営内差戻し',
+  closed: 'クローズ'
 };
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 let allReports = [];
@@ -154,11 +155,24 @@ function statusBadge(status) {
   if (status === 'admin_approved') {
     return `<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">${label}</span>`;
   }
+  if (status === 'closed') {
+    return `<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${label}</span>`;
+  }
   return `<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">${label}</span>`;
 }
 function returnComment(r) {
   if (r.status !== 'returned_to_tutor' || !r.last_return_comment) return '';
   return `<div class="mt-1 max-w-xs whitespace-pre-wrap text-xs text-red-700">差戻し理由：${escapeHtml(r.last_return_comment)}</div>`;
+}
+function closeInfo(r, showActor = false) {
+  if (r.status !== 'closed') return '';
+  const actor = showActor && r.closed_by_name ? `<div class="mt-1 text-xs text-slate-700">操作者：${escapeHtml(r.closed_by_name)}</div>` : '';
+  return `<div class="mt-2 max-w-xs rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+    <div class="font-medium text-slate-800">クローズ済み</div>
+    <div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(r.close_reason || '-')}</div>
+    <div class="mt-1">日時：${escapeHtml(formatDateTime(r.closed_at))}</div>
+    ${actor}
+  </div>`;
 }
 function rowAction(r) {
   if (selectedMonth !== currentMonth) return '';
@@ -261,7 +275,7 @@ function renderRows(reports) {
     <td class="px-4 py-3">${Number(r.break_minutes || 0)}分</td>
     <td class="px-4 py-3">${durationLabel(teachingMinutes(r))}</td>
     <td class="px-4 py-3">${escapeHtml(r.subject || '')}</td>
-    <td class="px-4 py-3">${statusBadge(r.status)}${returnComment(r)}</td>
+    <td class="px-4 py-3">${statusBadge(r.status)}${returnComment(r)}${closeInfo(r)}</td>
     <td class="px-4 py-3 align-middle">${rowAction(r)}</td>
   </tr>`).join('');
   cards.innerHTML = reports.map((r, index) => `<div class="p-4">
@@ -270,6 +284,7 @@ function renderRows(reports) {
       ${statusBadge(r.status)}
     </div>
     ${returnComment(r)}
+    ${closeInfo(r)}
     <div class="mt-3">${rowAction(r)}</div>
   </div>`).join('');
   totalTeachingTime.textContent = `合計指導時間：${durationLabel(totalMinutes)}`;

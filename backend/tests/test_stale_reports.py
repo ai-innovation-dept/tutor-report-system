@@ -71,6 +71,40 @@ def test_close_report_records_reason_and_actor(client, db):
     assert closed.close_reason == "保護者同意済み対応不要"
 
 
+def test_closed_report_detail_shows_close_reason(client, db):
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment)
+    master_token = token(client, "master@example.com")
+    closed = client.post(
+        f"/api/reports/{report.id}/close",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"close_reason": "最終承認済み（システム外で処理）"},
+    )
+    assert closed.status_code == 200
+
+    detail = client.get(f"/api/reports/{report.id}", headers={"Authorization": f"Bearer {master_token}"})
+
+    assert detail.status_code == 200
+    assert detail.json()["status"] == ReportStatus.closed.value
+    assert detail.json()["close_reason"] == "最終承認済み（システム外で処理）"
+    assert detail.json()["closed_at"] is not None
+    assert detail.json()["closed_by_name"] == "Master"
+
+
+def test_non_closed_report_detail_hides_close_reason(client, db):
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment)
+    tutor_token = token(client, "tutor@example.com")
+
+    detail = client.get(f"/api/reports/{report.id}", headers={"Authorization": f"Bearer {tutor_token}"})
+
+    assert detail.status_code == 200
+    assert detail.json()["status"] != ReportStatus.closed.value
+    assert detail.json()["close_reason"] is None
+    assert detail.json()["closed_at"] is None
+    assert detail.json()["closed_by_name"] is None
+
+
 def test_close_report_does_not_delete_record(client, db):
     assignment = db.query(Assignment).first()
     report = _make_report(db, assignment)

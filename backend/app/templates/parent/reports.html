@@ -50,6 +50,12 @@ function dateLabel(value) {
   const d = new Date(`${value}T00:00:00`);
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
 }
+function dateTimeLabel(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
 function monthLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月分`;
@@ -94,7 +100,16 @@ function statusBadge(report) {
   if (report.status === 'awaiting_parent_approval') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
   if (report.status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
   if (report.status === 'parent_approved') return '<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">承認済み</span>';
+  if (report.status === 'closed') return '<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">クローズ</span>';
   return '<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">対象外</span>';
+}
+function closeInfo(report) {
+  if (report.status !== 'closed') return '';
+  return `<div class="mt-2 max-w-xs rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+    <div class="font-medium text-slate-800">クローズ済み</div>
+    <div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(report.close_reason || '-')}</div>
+    <div class="mt-1">日時：${escapeHtml(dateTimeLabel(report.closed_at))}</div>
+  </div>`;
 }
 function renderReportRows(reports) {
   return reports.map((report, index) => `<tr class="border-t align-top ${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
@@ -104,7 +119,7 @@ function renderReportRows(reports) {
     <td class="p-2">${Number(report.break_minutes || 0)}分</td>
     <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
     <td class="p-2">${escapeHtml(report.subject || '')}</td>
-    <td class="p-2">${statusBadge(report)}</td>
+    <td class="p-2">${statusBadge(report)}${closeInfo(report)}</td>
   </tr>`).join('');
 }
 function monthReturnForm(month) {

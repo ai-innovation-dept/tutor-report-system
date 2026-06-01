@@ -231,6 +231,7 @@ class ReportOut(BaseModel):
     stale_since: datetime | None = None
     closed_at: datetime | None = None
     closed_by: UUID | None = None
+    closed_by_name: str | None = None
     close_reason: str | None = None
     created_at: datetime
     updated_at: datetime
