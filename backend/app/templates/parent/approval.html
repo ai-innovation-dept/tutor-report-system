@@ -49,7 +49,7 @@ function dateTimeLabel(value) {
   if (!value) return '-';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '-';
-  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function monthLabel(value) {
   const [year, month] = value.split('-');
@@ -144,14 +144,25 @@ function operationHistory(reports) {
   const events = reports.flatMap(report => (report.events || [])
     .filter(event => ['parent_approve', 'parent_return'].includes(event.action))
     .map(event => ({...event, report})));
-  events.sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-  if (!events.length) return '<div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">あなたの操作履歴はありません。</div>';
-  return `<div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
-    <div class="font-medium text-slate-800">あなたの操作履歴：</div>
-    <ul class="mt-2 space-y-1 text-slate-700">
+  events.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  if (!events.length) return '';
+  return `<div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+    <div class="font-medium text-slate-800">【あなたの操作履歴】</div>
+    <ul class="mt-2 space-y-3">
       ${events.map(event => {
-        const label = event.action === 'parent_approve' ? '承認しました' : `差戻しました（コメント: ${escapeHtml(event.comment || '')}）`;
-        return `<li>- [${escapeHtml(dateTimeLabel(event.created_at))}] ${label}</li>`;
+        if (event.action === 'parent_approve') {
+          return `<li class="grid gap-1 sm:grid-cols-[9.5rem_1fr]">
+            <span class="text-slate-600">${escapeHtml(dateTimeLabel(event.created_at))}</span>
+            <span class="font-medium text-emerald-700">承認しました</span>
+          </li>`;
+        }
+        return `<li class="grid gap-1 sm:grid-cols-[9.5rem_1fr]">
+          <span class="text-slate-600">${escapeHtml(dateTimeLabel(event.created_at))}</span>
+          <span>
+            <span class="font-medium text-red-700">差戻しました</span>
+            ${event.comment ? `<span class="mt-1 block text-slate-700">コメント：${escapeHtml(event.comment)}</span>` : ''}
+          </span>
+        </li>`;
       }).join('')}
     </ul>
   </div>`;
@@ -225,7 +236,7 @@ function renderMonthSection(month, reports) {
         <tbody>${renderReportRows(sorted)}</tbody>
       </table>
     </div>
-    <div class="border-t border-slate-200 p-5">${renderActionArea(month, sorted)}${operationHistory(sorted)}</div>
+    <div class="border-t border-slate-200 p-5">${operationHistory(sorted)}${renderActionArea(month, sorted)}</div>
   </section>`;
 }
 function renderApproval() {
