@@ -1,5 +1,6 @@
 from datetime import datetime, time, timedelta
 
+from app.core.security import hash_password
 from app.core.time import get_current_jst, get_current_jst_date
 from app.models import Assignment, LessonReport, Notification, ReportStatus, User
 from app.services.reminder_service import daily_stale_check
@@ -111,6 +112,89 @@ def test_stale_count_endpoint_returns_correct_count(client, db):
     tutor_token = token(client, "tutor@example.com")
 
     res = client.get("/api/stale-count", headers={"Authorization": f"Bearer {tutor_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == {"count": 1}
+
+
+def test_stale_count_tutor_only_sees_own_reports(client, db):
+    assignment = db.query(Assignment).first()
+    other_tutor = User(
+        email="other-tutor@example.com",
+        role="tutor",
+        roles=["tutor"],
+        display_name="Other Tutor",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(other_tutor)
+    db.flush()
+    other_assignment = Assignment(tutor_id=other_tutor.id, parent_id=assignment.parent_id, student_name="Other Student")
+    db.add(other_assignment)
+    db.flush()
+    _make_report(db, assignment)
+    _make_report(db, other_assignment)
+    tutor_token = token(client, "tutor@example.com")
+
+    res = client.get("/api/stale-count", headers={"Authorization": f"Bearer {tutor_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == {"count": 1}
+
+
+def test_stale_count_closed_report_not_counted(client, db):
+    assignment = db.query(Assignment).first()
+    _make_report(db, assignment, status=ReportStatus.closed.value)
+    tutor_token = token(client, "tutor@example.com")
+
+    res = client.get("/api/stale-count", headers={"Authorization": f"Bearer {tutor_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == {"count": 0}
+
+
+def test_stale_count_staff_sees_all_reports(client, db):
+    assignment = db.query(Assignment).first()
+    other_tutor = User(
+        email="staff-count-tutor@example.com",
+        role="tutor",
+        roles=["tutor"],
+        display_name="Staff Count Tutor",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(other_tutor)
+    db.flush()
+    other_assignment = Assignment(tutor_id=other_tutor.id, parent_id=assignment.parent_id, student_name="Staff Count Student")
+    db.add(other_assignment)
+    db.flush()
+    _make_report(db, assignment)
+    _make_report(db, other_assignment)
+    receiver_token = token(client, "receiver@example.com")
+
+    res = client.get("/api/stale-count", headers={"Authorization": f"Bearer {receiver_token}"})
+
+    assert res.status_code == 200
+    assert res.json() == {"count": 2}
+
+
+def test_stale_count_parent_only_sees_own_children(client, db):
+    assignment = db.query(Assignment).first()
+    other_parent = User(
+        email="stale-other-parent@example.com",
+        role="parent",
+        roles=["parent"],
+        display_name="Other Parent",
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(other_parent)
+    db.flush()
+    other_assignment = Assignment(tutor_id=assignment.tutor_id, parent_id=other_parent.id, student_name="Other Parent Student")
+    db.add(other_assignment)
+    db.flush()
+    _make_report(db, assignment)
+    _make_report(db, other_assignment)
+    parent_token = token(client, "parent@example.com")
+
+    res = client.get("/api/stale-count", headers={"Authorization": f"Bearer {parent_token}"})
 
     assert res.status_code == 200
     assert res.json() == {"count": 1}

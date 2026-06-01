@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.rbac import has_role
 from app.core.time import get_current_jst
 from app.models import LessonReport, ReportStatus, User
 
@@ -11,9 +12,11 @@ from app.models import LessonReport, ReportStatus, User
 TERMINAL_STATUSES = {ReportStatus.admin_approved.value, ReportStatus.closed.value}
 
 
-def get_stale_reports(db: Session) -> list[LessonReport]:
+def get_stale_reports(db: Session, current_user: User | None = None) -> list[LessonReport]:
     """
     先月以前の未処理報告書を返す。
+    current_user が指定された場合はロール別にフィルタする。
+    バッチ処理から呼ぶ場合は current_user=None で全件取得。
     バナー、一覧、バッチ通知の全箇所がこの関数を呼ぶ。
     """
     current_month = get_current_jst().strftime("%Y-%m")
@@ -24,8 +27,19 @@ def get_stale_reports(db: Session) -> list[LessonReport]:
             LessonReport.target_month < current_month,
             LessonReport.status.notin_(TERMINAL_STATUSES),
         )
-        .order_by(LessonReport.target_month.asc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
     )
+    if current_user is not None:
+        if current_user.role == "tutor":
+            stmt = stmt.where(LessonReport.tutor_id == current_user.id)
+        elif current_user.role == "parent":
+            stmt = stmt.where(LessonReport.parent_id == current_user.id)
+        elif not (
+            has_role(current_user, "admin_receiver")
+            or has_role(current_user, "admin_reviewer")
+            or has_role(current_user, "admin_master")
+        ):
+            stmt = stmt.where(False)
+    stmt = stmt.order_by(LessonReport.target_month.asc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
     return list(db.scalars(stmt).all())
 
 

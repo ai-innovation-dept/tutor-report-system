@@ -25,14 +25,14 @@ def _require_stale_staff(user: User) -> None:
 
 @router.get("/api/stale-count")
 def stale_count(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    reports = get_stale_reports(db)
+    reports = get_stale_reports(db, current_user=current_user)
     return {"count": len(reports)}
 
 
 @router.get("/api/stale-reports", response_model=list[ReportOut])
 def stale_reports(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     _require_stale_staff(current_user)
-    return [_report_out(db, report, current_user) for report in get_stale_reports(db)]
+    return [_report_out(db, report, current_user) for report in get_stale_reports(db, current_user=None)]
 
 
 @router.post("/api/reports/{report_id}/close", response_model=ReportOut)
