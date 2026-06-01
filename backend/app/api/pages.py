@@ -235,9 +235,10 @@ def _parent_approval_groups(db: Session, current_user: User) -> list[dict]:
                     ReportStatus.parent_approved.value,
                     ReportStatus.submitted_to_admin.value,
                     ReportStatus.received.value,
-                    ReportStatus.re_reviewed.value,
-                    ReportStatus.admin_approved.value,
-                ]
+        ReportStatus.re_reviewed.value,
+        ReportStatus.admin_approved.value,
+        ReportStatus.closed.value,
+    ]
             ),
         )
         .order_by(LessonReport.target_month.desc(), LessonReport.lesson_date.asc(), LessonReport.start_time.asc())
@@ -371,6 +372,14 @@ def parent_approval_page(request: Request, db: Session = Depends(get_db)):
     context = _base_context(request, user)
     context["approval_groups"] = _parent_approval_groups(db, user)
     return templates.TemplateResponse(request, "parent/approval.html", context=context)
+
+
+@router.get("/admin/stale-reports", response_class=HTMLResponse)
+def admin_stale_reports_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master"}:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "admin/stale_reports.html", context=_base_context(request, user))
 
 
 @router.get("/admin/dashboard", response_class=HTMLResponse)

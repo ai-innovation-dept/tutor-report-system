@@ -31,6 +31,8 @@ class ReportStatus(str, enum.Enum):
     admin_approved = "admin_approved"
     returned_to_tutor = "returned_to_tutor"
     returned_to_receiver = "returned_to_receiver"
+    returned = "returned"
+    closed = "closed"
 
 
 class ReportAction(str, enum.Enum):
@@ -144,11 +146,16 @@ class LessonReport(Base):
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     re_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     admin_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stale_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    closed_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    close_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     assignment: Mapped[Assignment] = relationship()
     tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
+    closed_by_user: Mapped[User | None] = relationship(foreign_keys=[closed_by])
 
     @property
     def skip_parent_approval(self) -> bool:

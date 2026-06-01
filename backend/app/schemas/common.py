@@ -228,6 +228,10 @@ class ReportOut(BaseModel):
     received_at: datetime | None = None
     re_reviewed_at: datetime | None = None
     admin_approved_at: datetime | None = None
+    stale_since: datetime | None = None
+    closed_at: datetime | None = None
+    closed_by: UUID | None = None
+    close_reason: str | None = None
     created_at: datetime
     updated_at: datetime
     last_event: str | None = None
@@ -239,6 +243,10 @@ class ReportOut(BaseModel):
 
 class CommentIn(BaseModel):
     comment: str | None = None
+
+
+class CloseReportRequest(BaseModel):
+    close_reason: str
 
 
 class BulkSubmitIn(BaseModel):

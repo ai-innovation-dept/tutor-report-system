@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <h2 class="text-lg font-semibold text-slate-800">未処理報告一覧</h2>
+  </div>
+</div>
+
+<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">対象月</th>
+          <th class="px-4 py-3 text-left">講師</th>
+          <th class="px-4 py-3 text-left">生徒</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">未処理検知日</th>
+          <th class="px-4 py-3 text-left">経過日数</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="staleRows"></tbody>
+    </table>
+  </div>
+  <div id="emptyState" class="hidden border-t border-slate-200 p-5 text-sm text-slate-600">未処理報告はありません。</div>
+</section>
+
+<div id="closeOverlay" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeCloseModal()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">報告書をクローズ</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeCloseModal()">閉じる</button>
+    </div>
+    <form id="closeForm" class="space-y-4 p-5">
+      <input type="hidden" id="closeReportId">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">理由</span>
+        <select id="closeReason" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">補足</span>
+        <textarea id="closeNote" class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></textarea>
+      </label>
+      <div id="closeMessage" class="hidden rounded-lg px-3 py-2 text-sm"></div>
+      <div class="flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeCloseModal()">取消</button>
+        <button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700">クローズ</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+setBreadcrumb('管理者ポータル', '未処理報告一覧');
+const CLOSE_REASONS = [
+  '最終承認済み（システム外で処理）',
+  '保護者同意済み対応不要',
+  '講師退会対応不要',
+  '重複報告書のため無効化',
+  'その他（補足に記載）',
+];
+const STATUS_LABELS = {
+  draft: '下書き',
+  awaiting_parent_approval: '保護者承認待ち',
+  parent_approved: '保護者承認済み',
+  submitted_to_admin: '受付待ち',
+  received: '受付済み',
+  re_reviewed: '再鑑済み',
+  admin_approved: '完了',
+  returned_to_tutor: '講師差戻し中',
+  returned_to_receiver: '受付差戻し中',
+  closed: 'クローズ',
+};
+let staleReports = [];
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function statusLabel(status) { return STATUS_LABELS[status] || status || '-'; }
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function elapsedDays(value) {
+  if (!value) return '-';
+  const start = new Date(value);
+  if (Number.isNaN(start.getTime())) return '-';
+  const diff = Date.now() - start.getTime();
+  return `${Math.max(0, Math.floor(diff / 86400000))}日`;
+}
+function renderRows() {
+  emptyState.classList.toggle('hidden', staleReports.length > 0);
+  staleRows.innerHTML = staleReports.map(report => `<tr class="border-t border-slate-100 align-top hover:bg-slate-50">
+    <td class="px-4 py-3">${escapeHtml(report.target_month)}</td>
+    <td class="px-4 py-3">${escapeHtml(report.tutor_name || '')}</td>
+    <td class="px-4 py-3">${escapeHtml(report.student_name || '')}</td>
+    <td class="px-4 py-3"><span class="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">${escapeHtml(statusLabel(report.status))}</span></td>
+    <td class="px-4 py-3">${formatDate(report.stale_since)}</td>
+    <td class="px-4 py-3">${elapsedDays(report.stale_since)}</td>
+    <td class="px-4 py-3">
+      <button class="rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white hover:bg-red-700" onclick="openCloseModal('${report.id}')">クローズ</button>
+    </td>
+  </tr>`).join('');
+}
+function openCloseModal(reportId) {
+  closeReportId.value = reportId;
+  closeReason.innerHTML = CLOSE_REASONS.map(reason => `<option value="${escapeHtml(reason)}">${escapeHtml(reason)}</option>`).join('');
+  closeNote.value = '';
+  closeMessage.className = 'hidden rounded-lg px-3 py-2 text-sm';
+  closeMessage.textContent = '';
+  closeOverlay.classList.remove('hidden');
+  closeOverlay.classList.add('flex');
+}
+function closeCloseModal() {
+  closeOverlay.classList.add('hidden');
+  closeOverlay.classList.remove('flex');
+}
+function closeReasonText() {
+  const note = closeNote.value.trim();
+  return note ? `${closeReason.value}：${note}` : closeReason.value;
+}
+async function loadStaleReports() {
+  staleReports = await api('/api/stale-reports');
+  renderRows();
+}
+closeForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api(`/api/reports/${closeReportId.value}/close`, {
+      method: 'POST',
+      body: JSON.stringify({close_reason: closeReasonText()}),
+      suppressFlash: true,
+    });
+    closeCloseModal();
+    await loadStaleReports();
+  } catch (error) {
+    closeMessage.textContent = error.message;
+    closeMessage.className = 'rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700';
+  }
+});
+window.authReady.then(user => {
+  if (!user) return;
+  loadStaleReports();
+});
+</script>
+{% endblock %}

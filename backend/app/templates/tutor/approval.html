@@ -32,7 +32,8 @@ const PHASE_CURRENT_STEP = {
   submitted_to_admin: 2,
   received: 2,
   re_reviewed: 2,
-  completed: 3
+  completed: 3,
+  closed: 3
 };
 const STATUS_LABELS = {
   draft: '下書き',
@@ -42,7 +43,8 @@ const STATUS_LABELS = {
   submitted_to_admin: '受付待ち',
   received: '受付済み',
   re_reviewed: '再鑑済み',
-  admin_approved: '最終承認済み'
+  admin_approved: '最終承認済み',
+  closed: 'クローズ'
 };
 let allReports = [];
 let allAssignments = [];
@@ -114,9 +116,11 @@ function monthlyPhase(reports) {
     submitted_to_admin: 3,
     received: 4,
     re_reviewed: 5,
-    admin_approved: 6
+    admin_approved: 6,
+    closed: 7
   }[status] ?? 0));
   if (statuses.includes('returned_to_tutor')) return 'returned';
+  if (statuses.length && statuses.every(status => status === 'closed')) return 'closed';
   if (statuses.length && statuses.every(status => status === 'admin_approved')) return 'completed';
   if (statuses.length && ranks.every(rank => rank >= 5)) return 're_reviewed';
   if (statuses.length && ranks.every(rank => rank >= 4)) return 'received';

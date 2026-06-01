@@ -25,6 +25,7 @@ STATUS_RANK = {
     ReportStatus.received.value: 4,
     ReportStatus.re_reviewed.value: 5,
     ReportStatus.admin_approved.value: 6,
+    ReportStatus.closed.value: 7,
 }
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
@@ -112,6 +113,8 @@ def _monthly_phase(reports: list[LessonReport]) -> str:
     ranks = [STATUS_RANK.get(status, 0) for status in statuses]
     if any(status == ReportStatus.returned_to_tutor.value for status in statuses):
         return "returned"
+    if statuses and all(status == ReportStatus.closed.value for status in statuses):
+        return "closed"
     if statuses and all(status == ReportStatus.admin_approved.value for status in statuses):
         return "completed"
     if statuses and all(rank >= STATUS_RANK[ReportStatus.submitted_to_admin.value] for rank in ranks):

@@ -92,7 +92,8 @@ const STATUS_LABELS = {
   submitted_to_admin: '受付待ち',
   received: '再鑑待ち',
   re_reviewed: '最終承認待ち',
-  admin_approved: '完了'
+  admin_approved: '完了',
+  closed: 'クローズ'
 };
 const ROLE_LABELS = {
   tutor: '講師',
@@ -120,7 +121,8 @@ const PIPELINE_COLUMNS = [
   {key: 'submitted_to_admin', label: '受付待ち', statuses: ['submitted_to_admin', 'returned_to_receiver']},
   {key: 'received', label: '再鑑待ち', statuses: ['received']},
   {key: 're_reviewed', label: '最終承認待ち', statuses: ['re_reviewed']},
-  {key: 'admin_approved', label: '完了', statuses: ['admin_approved']}
+  {key: 'admin_approved', label: '完了', statuses: ['admin_approved']},
+  {key: 'closed', label: 'クローズ', statuses: ['closed']}
 ];
 let currentRole = '';
 let allReports = [];
@@ -177,7 +179,7 @@ function groupKey(report) {
 }
 function currentGroupStatus(reports) {
   const statuses = new Set(reports.map(report => report.status));
-  for (const status of ['returned_to_tutor', 'returned_to_receiver', 'submitted_to_admin', 'received', 're_reviewed', 'awaiting_parent_approval', 'parent_approved', 'draft', 'admin_approved']) {
+  for (const status of ['closed', 'returned_to_tutor', 'returned_to_receiver', 'submitted_to_admin', 'received', 're_reviewed', 'awaiting_parent_approval', 'parent_approved', 'draft', 'admin_approved']) {
     if (statuses.has(status)) return status;
   }
   return reports[0]?.status || '';
@@ -368,6 +370,7 @@ function pipelineColumnForStatus(status) {
 }
 function pipelineCardClass(status) {
   if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) return 'border-l-[#DC2626] bg-[#FEF2F2]';
+  if (status === 'closed') return 'border-l-slate-400 bg-slate-50';
   if (status === 'admin_approved') return 'border-l-[#16A34A] bg-[#F0FDF4]';
   return 'border-l-[#CBD5E1] bg-[#F8FAFC]';
 }
@@ -402,7 +405,8 @@ function currentWaitLabel(status) {
     returned_to_receiver: '受付の対応待ち',
     received: '再鑑の承認待ち',
     re_reviewed: '管理者の最終承認待ち',
-    admin_approved: '完了'
+    admin_approved: '完了',
+    closed: 'クローズ'
   };
   return labels[status] || statusLabel(status);
 }
@@ -418,6 +422,7 @@ function actionBadge(action) {
 }
 function statusBadge(status) {
   if (['returned_to_tutor', 'returned_to_receiver'].includes(status)) return '<span class="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">差戻し中</span>';
+  if (status === 'closed') return '<span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">クローズ</span>';
   if (status === 'admin_approved') return '<span class="rounded-full bg-green-100 px-2 py-1 text-xs font-medium text-green-700">完了</span>';
   return '<span class="rounded-full bg-blue-100 px-2 py-1 text-xs font-medium text-blue-700">進行中</span>';
 }

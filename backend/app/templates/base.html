@@ -8,6 +8,13 @@
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 text-slate-900">
+  <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
+    先月以前の差戻し中未処理の報告があります。管理者へ連絡ください。
+    （<span id="stale-count"></span>件）
+    {% if current_user.role in ['admin_receiver', 'admin_reviewer', 'admin_master'] %}
+    <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
+    {% endif %}
+  </div>
   <div id="sidebarBackdrop" class="fixed inset-0 z-30 hidden bg-slate-900/50 md:hidden" onclick="closeSidebar()"></div>
 
   <aside id="sidebarPanel" class="fixed inset-y-0 left-0 z-40 flex w-56 -translate-x-full transform flex-col bg-[#1e2a3a] text-white shadow-2xl transition-transform duration-300 md:translate-x-0">
@@ -87,6 +94,16 @@
     };
 
     window.authReady = Promise.resolve(window.currentUser);
+
+    fetch('/api/stale-count')
+      .then(response => response.ok ? response.json() : {count: 0})
+      .then(data => {
+        if (data.count > 0) {
+          document.getElementById('stale-count').textContent = data.count;
+          document.getElementById('stale-banner').classList.remove('hidden');
+        }
+      })
+      .catch(() => {});
 
     function showToast(message, type = 'info') {
       const colors = {

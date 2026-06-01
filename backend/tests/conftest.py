@@ -14,7 +14,7 @@ from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine, get_db
 from app.main import app
 from app.models import Assignment, User
-from app.api import auth, chat, invitations, reports, users, workflow
+from app.api import auth, chat, invitations, reports, stale, users, workflow
 
 def override_get_db():
     Base.metadata.create_all(bind=engine)
@@ -25,7 +25,7 @@ def override_get_db():
         db.close()
 
 
-for dependency in {get_db, auth.get_db, chat.get_db, invitations.get_db, reports.get_db, users.get_db, workflow.get_db}:
+for dependency in {get_db, auth.get_db, chat.get_db, invitations.get_db, reports.get_db, stale.get_db, users.get_db, workflow.get_db}:
     app.dependency_overrides[dependency] = override_get_db
 
 
