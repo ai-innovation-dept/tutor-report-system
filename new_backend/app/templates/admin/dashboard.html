@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-xl font-bold text-slate-800">ダッシュボード（管理者）</h1>
+  <p class="mt-1 text-sm text-slate-500">全報告書の状況を確認できます</p>
+</div>
+
+<!-- フィルタ -->
+<div class="mb-4 flex flex-wrap items-center gap-3">
+  <div>
+    <label class="text-sm font-medium text-slate-600">対象月</label>
+    <input type="month" id="monthPicker" class="ml-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none">
+  </div>
+  <div>
+    <label class="text-sm font-medium text-slate-600">ステータス</label>
+    <select id="statusFilter" class="ml-2 rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none">
+      <option value="">すべて</option>
+      <option value="draft">下書き</option>
+      <option value="awaiting_school">学校確認待ち</option>
+      <option value="awaiting_sales">営業確認待ち</option>
+      <option value="awaiting_office">事務確認待ち</option>
+      <option value="awaiting_finance">経理確認待ち</option>
+      <option value="approved">承認済み</option>
+      <option value="returned_to_tutor">差戻し（講師）</option>
+      <option value="returned_to_sales">差戻し（営業）</option>
+      <option value="closed">終了</option>
+    </select>
+  </div>
+  <button onclick="loadReports()"
+    class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700 transition">
+    絞り込む
+  </button>
+</div>
+
+<!-- 集計バッジ -->
+<div id="summaryBadges" class="mb-4 flex flex-wrap gap-2"></div>
+
+<!-- 一覧 -->
+<div id="reportList" class="space-y-2">
+  <p class="text-slate-500 text-sm">読み込み中…</p>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STATUS_LABELS = {
+    draft: '下書き',
+    awaiting_school: '学校確認待ち',
+    awaiting_sales: '営業確認待ち',
+    awaiting_office: '事務確認待ち',
+    awaiting_finance: '経理確認待ち',
+    approved: '承認済み',
+    returned_to_tutor: '差戻し（講師）',
+    returned_to_sales: '差戻し（営業）',
+    closed: '終了',
+  };
+  const STATUS_COLORS = {
+    draft: 'bg-slate-100 text-slate-700',
+    awaiting_school: 'bg-blue-100 text-blue-700',
+    awaiting_sales: 'bg-amber-100 text-amber-700',
+    awaiting_office: 'bg-purple-100 text-purple-700',
+    awaiting_finance: 'bg-orange-100 text-orange-700',
+    approved: 'bg-emerald-100 text-emerald-700',
+    returned_to_tutor: 'bg-rose-100 text-rose-700',
+    returned_to_sales: 'bg-rose-100 text-rose-700',
+    closed: 'bg-slate-200 text-slate-600',
+  };
+
+  function currentMonthValue() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  async function loadReports() {
+    const month = document.getElementById('monthPicker').value;
+    const statusFilter = document.getElementById('statusFilter').value;
+    const listEl = document.getElementById('reportList');
+    listEl.innerHTML = '<p class="text-slate-500 text-sm">読み込み中…</p>';
+
+    try {
+      let url = `/api/w/reports?target_month=${month}`;
+      const res = await fetch(url, {credentials: 'same-origin'});
+      if (!res.ok) { listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>'; return; }
+      let reports = await res.json();
+
+      // クライアントサイドでステータスフィルタ
+      if (statusFilter) reports = reports.filter(r => r.status === statusFilter);
+
+      // 集計バッジ
+      const counts = {};
+      reports.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1; });
+      document.getElementById('summaryBadges').innerHTML = Object.entries(counts).map(([s, n]) =>
+        `<span class="rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[s] || 'bg-slate-100 text-slate-700'}">
+          ${navEscape(STATUS_LABELS[s] || s)}：${n}件
+        </span>`
+      ).join('');
+
+      if (!reports.length) { listEl.innerHTML = '<p class="text-slate-500 text-sm">該当する報告書はありません</p>'; return; }
+
+      listEl.innerHTML = `
+        <div class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table class="w-full text-sm">
+            <thead class="bg-slate-50">
+              <tr>
+                <th class="px-4 py-3 text-left font-medium text-slate-600">対象月</th>
+                <th class="px-4 py-3 text-left font-medium text-slate-600">担当講師ID</th>
+                <th class="px-4 py-3 text-left font-medium text-slate-600">フォーム種別</th>
+                <th class="px-4 py-3 text-left font-medium text-slate-600">ステータス</th>
+                <th class="px-4 py-3 text-left font-medium text-slate-600">次のアクター</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              ${reports.map(r => `
+                <tr class="hover:bg-slate-50 transition">
+                  <td class="px-4 py-3 font-medium text-slate-800">${navEscape(r.target_month)}</td>
+                  <td class="px-4 py-3 text-slate-600 font-mono text-xs">${navEscape(r.tutor_id.slice(0,8))}…</td>
+                  <td class="px-4 py-3 text-slate-600">${navEscape(r.form_type)}</td>
+                  <td class="px-4 py-3">
+                    <span class="rounded-full px-2.5 py-0.5 text-xs font-medium ${STATUS_COLORS[r.status] || 'bg-slate-100 text-slate-700'}">
+                      ${navEscape(STATUS_LABELS[r.status] || r.status)}
+                    </span>
+                  </td>
+                  <td class="px-4 py-3 text-slate-600">${navEscape(r.current_approver_role || '-')}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    } catch {
+      listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>';
+    }
+  }
+
+  document.getElementById('monthPicker').value = currentMonthValue();
+  setBreadcrumb('管理者', 'ダッシュボード');
+  loadReports();
+</script>
+{% endblock %}

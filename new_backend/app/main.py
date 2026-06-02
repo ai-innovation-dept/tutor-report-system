@@ -1,11 +1,10 @@
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
-from app.api import auth, reports, users, admin
+from app.api import auth, reports, users, admin, pages
 
 app = FastAPI(title="Work Report System", version="0.1.0")
 
+app.include_router(pages.router)
 app.include_router(auth.router)
 app.include_router(reports.router)
 app.include_router(users.router)

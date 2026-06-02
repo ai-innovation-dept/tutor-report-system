@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex items-center justify-between mb-6">
+  <h1 class="text-xl font-bold text-slate-800">報告書一覧</h1>
+  <button onclick="openNewReportModal()"
+    class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">
+    ＋ 新規作成
+  </button>
+</div>
+
+<!-- 月選択 -->
+<div class="mb-4 flex items-center gap-3">
+  <label class="text-sm font-medium text-slate-600">対象月</label>
+  <input type="month" id="monthPicker" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none">
+</div>
+
+<!-- 報告書リスト -->
+<div id="reportList" class="space-y-3">
+  <p class="text-slate-500 text-sm">読み込み中…</p>
+</div>
+
+<!-- 新規作成モーダル -->
+<div id="newReportModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeNewReportModal()">
+  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">報告書 新規作成</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeNewReportModal()">閉じる</button>
+    </div>
+    <form id="newReportForm" class="p-5 space-y-4">
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">割り当て（生徒）</label>
+        <select id="assignmentSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required>
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-700 mb-1">対象月</label>
+        <input type="month" id="newReportMonth" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required>
+      </div>
+      <p id="newReportError" class="hidden text-sm text-rose-600"></p>
+      <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">作成する</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const STATUS_LABELS = {
+    draft: '下書き',
+    awaiting_school: '学校確認待ち',
+    awaiting_sales: '営業確認待ち',
+    awaiting_office: '事務確認待ち',
+    awaiting_finance: '経理確認待ち',
+    approved: '承認済み',
+    returned_to_tutor: '差戻し（講師へ）',
+    returned_to_sales: '差戻し（営業へ）',
+    closed: '終了',
+  };
+  const STATUS_COLORS = {
+    draft: 'bg-slate-100 text-slate-700',
+    awaiting_school: 'bg-blue-100 text-blue-700',
+    awaiting_sales: 'bg-amber-100 text-amber-700',
+    awaiting_office: 'bg-purple-100 text-purple-700',
+    awaiting_finance: 'bg-orange-100 text-orange-700',
+    approved: 'bg-emerald-100 text-emerald-700',
+    returned_to_tutor: 'bg-rose-100 text-rose-700',
+    returned_to_sales: 'bg-rose-100 text-rose-700',
+    closed: 'bg-slate-200 text-slate-600',
+  };
+
+  let assignments = [];
+
+  function currentMonthValue() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  }
+
+  async function loadAssignments() {
+    try {
+      const res = await fetch('/api/assignments', {credentials: 'same-origin'});
+      if (!res.ok) return;
+      assignments = await res.json();
+      const sel = document.getElementById('assignmentSelect');
+      assignments.forEach(a => {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.student_name;
+        sel.appendChild(opt);
+      });
+    } catch {}
+  }
+
+  async function loadReports(month) {
+    const listEl = document.getElementById('reportList');
+    listEl.innerHTML = '<p class="text-slate-500 text-sm">読み込み中…</p>';
+    try {
+      const res = await fetch(`/api/w/reports?target_month=${month}`, {credentials: 'same-origin'});
+      if (!res.ok) { listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>'; return; }
+      const reports = await res.json();
+      if (!reports.length) { listEl.innerHTML = '<p class="text-slate-500 text-sm">この月の報告書はありません</p>'; return; }
+      listEl.innerHTML = reports.map(r => {
+        const statusLabel = STATUS_LABELS[r.status] || r.status;
+        const statusColor = STATUS_COLORS[r.status] || 'bg-slate-100 text-slate-700';
+        const canSubmit = r.status === 'draft' || r.status === 'returned_to_tutor';
+        return `
+          <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm font-semibold text-slate-800">${navEscape(r.target_month)}</span>
+                <span class="ml-2 text-xs text-slate-500">${navEscape(r.form_type)}</span>
+              </div>
+              <span class="rounded-full px-2.5 py-0.5 text-xs font-medium ${statusColor}">${navEscape(statusLabel)}</span>
+            </div>
+            ${canSubmit ? `
+            <div class="mt-3 flex gap-2">
+              <button onclick="submitReport('${r.id}')"
+                class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition">
+                提出する
+              </button>
+            </div>` : ''}
+          </div>
+        `;
+      }).join('');
+    } catch {
+      listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>';
+    }
+  }
+
+  async function submitReport(reportId) {
+    if (!confirm('提出してよいですか？')) return;
+    try {
+      const res = await fetch(`/api/w/reports/${reportId}/action`, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({action: 'submit'}),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) { showToast('提出に失敗しました', 'error'); return; }
+      showToast('提出しました', 'success');
+      loadReports(document.getElementById('monthPicker').value);
+    } catch { showToast('エラーが発生しました', 'error'); }
+  }
+
+  function openNewReportModal() {
+    document.getElementById('newReportMonth').value = currentMonthValue();
+    document.getElementById('newReportError').classList.add('hidden');
+    document.getElementById('newReportModal').classList.remove('hidden');
+    document.getElementById('newReportModal').classList.add('flex');
+  }
+
+  function closeNewReportModal() {
+    document.getElementById('newReportModal').classList.add('hidden');
+    document.getElementById('newReportModal').classList.remove('flex');
+  }
+
+  document.getElementById('newReportForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const errorEl = document.getElementById('newReportError');
+    errorEl.classList.add('hidden');
+    const payload = {
+      assignment_id: document.getElementById('assignmentSelect').value,
+      target_month: document.getElementById('newReportMonth').value,
+      form_type: 'monthly_dispatch',
+      form_data: {}
+    };
+    try {
+      const res = await fetch('/api/w/reports', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+        credentials: 'same-origin'
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        errorEl.textContent = err.detail || '作成に失敗しました';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      showToast('報告書を作成しました', 'success');
+      closeNewReportModal();
+      loadReports(document.getElementById('monthPicker').value);
+    } catch { errorEl.textContent = 'エラーが発生しました'; errorEl.classList.remove('hidden'); }
+  });
+
+  // 初期化
+  const picker = document.getElementById('monthPicker');
+  picker.value = currentMonthValue();
+  picker.addEventListener('change', () => loadReports(picker.value));
+  setBreadcrumb('講師', '報告書一覧');
+  loadAssignments();
+  loadReports(picker.value);
+</script>
+{% endblock %}

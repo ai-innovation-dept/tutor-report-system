@@ -1,25 +1,181 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{% block title %}指導実績報告システム (新){% endblock %}</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>業務連絡表システム</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-50 text-gray-900 min-h-screen">
-  <nav class="bg-white shadow px-6 py-3 flex items-center justify-between">
-    <span class="font-bold text-indigo-700">指導実績報告システム</span>
-    <div class="flex gap-4 text-sm">
-      {% if user %}
-        <span class="text-gray-600">{{ user.display_name }}（{{ active_role or user.role }}）</span>
-        <a href="/w/logout" class="text-red-600 hover:underline">ログアウト</a>
-      {% else %}
-        <a href="/w/login" class="text-indigo-600 hover:underline">ログイン</a>
-      {% endif %}
+<body class="bg-slate-100 text-slate-900">
+
+  <div id="sidebarBackdrop" class="fixed inset-0 z-30 hidden bg-slate-900/50 md:hidden" onclick="closeSidebar()"></div>
+
+  <aside id="sidebarPanel" class="fixed inset-y-0 left-0 z-40 flex w-56 -translate-x-full transform flex-col bg-[#1a2e1a] text-white shadow-2xl transition-transform duration-300 md:translate-x-0">
+    <div class="border-b border-white/10 px-6 py-5">
+      <a href="/w/" class="block" id="navHome">
+        <h1 class="text-lg font-bold text-white">業務連絡表</h1>
+        <p class="mt-1 text-xs text-slate-400">業務連絡表システム</p>
+      </a>
     </div>
-  </nav>
-  <main class="max-w-5xl mx-auto px-4 py-8">
-    {% block content %}{% endblock %}
-  </main>
+
+    <div class="border-b border-white/10 px-4 py-4">
+      <p class="text-xs text-slate-400">ログイン中</p>
+      <p class="mt-1 text-sm font-semibold text-white" id="sidebarUserName">{{ current_user.display_name }}</p>
+      <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole"></p>
+      <p class="mt-1 text-xs text-slate-400 hidden" id="sidebarUserNo"></p>
+    </div>
+
+    <nav id="navItems" class="flex-1 space-y-1 overflow-y-auto px-3 py-4"></nav>
+
+    <div class="border-t border-white/10 px-4 py-4">
+      <button onclick="logout()" class="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-left text-sm font-medium text-slate-100 hover:bg-white/15">
+        ログアウト
+      </button>
+    </div>
+  </aside>
+
+  <div class="min-h-screen md:pl-56">
+    <header class="sticky top-0 z-20 bg-[#1a2e1a] shadow-md">
+      <div class="flex items-center justify-between gap-3 px-4 py-3 md:px-8">
+        <div class="flex items-center gap-3">
+          <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white md:hidden" onclick="openSidebar()" aria-label="メニューを開く">
+            ☰
+          </button>
+          <span class="text-sm font-bold text-white">業務連絡表システム</span>
+          <span class="h-5 w-px bg-slate-600"></span>
+          <span id="breadcrumb"></span>
+        </div>
+        <div class="flex flex-col items-end">
+          {% set role_labels = {'tutor': '講師', 'school': '学校担当', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '管理者'} %}
+          <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
+          <span class="text-xs text-slate-400">{{ role_labels.get(active_role, active_role) }}{% if current_user.user_no %}・{{ current_user.user_no }}{% endif %}</span>
+        </div>
+      </div>
+    </header>
+
+    <main class="px-4 py-6 md:px-8">
+      <div id="flash" class="mb-4 hidden rounded-xl border border-amber-200 bg-amber-100 p-3 text-amber-900"></div>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <div id="toastContainer" class="fixed right-4 top-4 z-[1200] space-y-2"></div>
+
+  <script>
+    window.currentUser = {
+      id: '{{ current_user.id }}',
+      email: {{ current_user.email | tojson }},
+      role: '{{ active_role }}',
+      roles: {{ (current_user.roles or [current_user.role]) | tojson }},
+      display_name: {{ current_user.display_name | tojson }},
+      user_no: {{ (current_user.user_no or "") | tojson }}
+    };
+
+    function roleDisplayName(role) {
+      const map = {tutor:'講師', school:'学校担当', sales:'営業担当', office:'事務担当', admin_master:'管理者'};
+      return map[role] || role;
+    }
+
+    function showToast(message, type = 'info') {
+      const colors = {
+        success: 'bg-emerald-600 text-white',
+        error: 'bg-red-600 text-white',
+        info: 'bg-emerald-700 text-white'
+      };
+      const toast = document.createElement('div');
+      toast.className = `min-w-64 max-w-sm rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition ${colors[type] || colors.info}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+      setTimeout(() => {
+        toast.classList.add('opacity-0');
+        setTimeout(() => toast.remove(), 200);
+      }, 3000);
+    }
+
+    function openSidebar() {
+      sidebarPanel.classList.remove('-translate-x-full');
+      sidebarBackdrop.classList.remove('hidden');
+    }
+
+    function closeSidebar() {
+      sidebarPanel.classList.add('-translate-x-full');
+      sidebarBackdrop.classList.add('hidden');
+    }
+
+    function navEscape(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+    }
+
+    function navLink(href, label) {
+      const active = window.location.pathname === href || window.location.pathname.startsWith(href + '/');
+      const base = 'flex items-center rounded-lg px-3 py-2 text-sm font-medium transition';
+      const state = active
+        ? 'bg-emerald-600 text-white shadow-sm'
+        : 'text-slate-200 hover:bg-white/10 hover:text-white';
+      return `<a href="${href}" class="${base} ${state}">${navEscape(label)}</a>`;
+    }
+
+    function setBreadcrumb(portal, page) {
+      const el = document.getElementById('breadcrumb');
+      if (!el) return;
+      el.innerHTML = `
+        <span style="color:#94a3b8;font-size:13px;">${navEscape(portal)}</span>
+        <span style="color:#475569;font-size:12px;margin:0 6px;">›</span>
+        <span style="color:#e2e8f0;font-size:13px;font-weight:500;">${navEscape(page)}</span>
+      `;
+    }
+
+    async function api(url, options = {}) {
+      const res = await fetch(url, {
+        ...options,
+        headers: {'Content-Type': 'application/json', ...options.headers}
+      });
+      if (res.status === 401) { location.href = '/w/login'; return null; }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    }
+
+    async function logout() {
+      await fetch('/api/auth/logout', {method: 'POST'});
+      location.href = '/w/login';
+    }
+
+    function renderNav(user) {
+      const roleEl = document.getElementById('sidebarUserRole');
+      if (roleEl) roleEl.textContent = roleDisplayName(user.role);
+      const noEl = document.getElementById('sidebarUserNo');
+      if (noEl && user.user_no) {
+        noEl.textContent = `No：${user.user_no}`;
+        noEl.classList.remove('hidden');
+      }
+
+      const items = [];
+      if (user.role === 'tutor') {
+        navHome.href = '/w/tutor/reports';
+        items.push(navLink('/w/tutor/reports', '報告書一覧'));
+      } else if (user.role === 'school') {
+        navHome.href = '/w/school/approval';
+        items.push(navLink('/w/school/approval', '承認管理'));
+      } else if (user.role === 'sales') {
+        navHome.href = '/w/sales/approval';
+        items.push(navLink('/w/sales/approval', '承認管理'));
+      } else if (user.role === 'office') {
+        navHome.href = '/w/office/approval';
+        items.push(navLink('/w/office/approval', '承認管理'));
+      } else if (user.role === 'admin_master') {
+        navHome.href = '/w/admin/dashboard';
+        items.push(navLink('/w/admin/dashboard', 'ダッシュボード'));
+      }
+      navItems.innerHTML = items.join('');
+      closeSidebar();
+    }
+
+    window.addEventListener('resize', () => {
+      if (window.innerWidth >= 768) closeSidebar();
+    });
+
+    renderNav(window.currentUser);
+  </script>
+  {% block scripts %}{% endblock %}
 </body>
 </html>
