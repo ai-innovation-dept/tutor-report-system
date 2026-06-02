@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <h1 class="text-xl font-bold text-slate-800">報告書詳細</h1>
+    <p class="mt-1 text-sm text-slate-500">報告内容と操作履歴を確認します</p>
+  </div>
+  <a id="pdfLink" href="#" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">PDFエクスポート</a>
+</div>
+
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="flex flex-wrap items-center gap-2">
+    <span id="statusBadge" class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"></span>
+    <span id="metaText" class="text-sm text-slate-500"></span>
+  </div>
+  <pre id="formDataView" class="mt-4 max-h-[520px] overflow-auto rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"></pre>
+</section>
+
+<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="font-semibold text-slate-800">操作履歴</h2>
+  <div id="eventList" class="mt-4 space-y-3"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const reportId = {{ report_id | tojson }};
+  const STATUS_LABELS = {
+    draft: '下書き', awaiting_school: '学校確認待ち', awaiting_sales: '営業確認待ち',
+    awaiting_office: '事務確認待ち', awaiting_finance: '経理確認待ち', approved: '承認済み',
+    returned_to_tutor: '差戻し（講師へ）', returned_to_sales: '差戻し（営業へ）', closed: '終了'
+  };
+  const ACTION_LABELS = {submit:'提出', approve:'承認', return:'差戻し', skip_school:'学校承認スキップ', close:'終了'};
+
+  function formatDateTime(value) {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '-';
+    return `${d.getFullYear()}/${d.getMonth()+1}/${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+
+  async function loadDetail() {
+    const report = await api(`/api/w/reports/${reportId}`);
+    statusBadge.textContent = STATUS_LABELS[report.status] || report.status;
+    metaText.textContent = `${report.target_month} / ${report.form_type} / 次: ${report.current_approver_role || '-'}`;
+    formDataView.textContent = JSON.stringify(report.form_data || {}, null, 2);
+    pdfLink.href = `/api/w/reports/${reportId}/export`;
+    const events = await api(`/api/w/reports/${reportId}/events`);
+    eventList.innerHTML = events.length ? events.map(e => `
+      <div class="rounded-lg border ${e.action === 'return' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'} p-4 text-sm">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="font-medium text-slate-800">${navEscape(ACTION_LABELS[e.action] || e.action)}</span>
+          <span class="text-slate-500">${navEscape(e.from_status || '-')} → ${navEscape(e.to_status || '-')}</span>
+          <span class="text-slate-500">${navEscape(formatDateTime(e.created_at))}</span>
+        </div>
+        ${e.comment ? `<div class="mt-2 whitespace-pre-wrap text-rose-800">差戻しコメント：${navEscape(e.comment)}</div>` : ''}
+      </div>`).join('') : '<div class="text-sm text-slate-500">履歴はありません。</div>';
+  }
+
+  setBreadcrumb('運営', '報告書詳細');
+  loadDetail();
+</script>
+{% endblock %}

@@ -44,8 +44,8 @@ ROLE_LABELS = {
 _DASHBOARD = {
     "tutor": "/w/tutor/reports",
     "school": "/w/school/approval",
-    "sales": "/w/sales/approval",
-    "office": "/w/office/approval",
+    "sales": "/w/sales/queue",
+    "office": "/w/office/queue",
     "admin_master": "/w/admin/dashboard",
 }
 

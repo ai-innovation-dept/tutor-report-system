@@ -28,6 +28,26 @@ class WorkflowAction(BaseModel):
     comment: str | None = None
 
 
+class BulkReportAction(BaseModel):
+    report_ids: list[uuid.UUID]
+    action: str
+    comment: str | None = None
+
+
+class BulkReportActionOut(BaseModel):
+    updated: int
+    report_ids: list[uuid.UUID]
+
+
+class MonthlySummaryOut(BaseModel):
+    target_month: str | None
+    total_reports: int
+    status_counts: dict[str, int]
+    total_teach_minutes: int
+    total_break_minutes: int
+    total_commute_fee: int
+
+
 class ReportOut(BaseModel):
     id: uuid.UUID
     assignment_id: uuid.UUID
@@ -46,6 +66,7 @@ class ReportOut(BaseModel):
 
 class ReportEventOut(BaseModel):
     id: uuid.UUID
+    report_id: uuid.UUID
     action: str
     from_status: str | None
     to_status: str | None

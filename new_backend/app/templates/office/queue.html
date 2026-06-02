@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-xl font-bold text-slate-800">事務キュー</h1>
+  <p class="mt-1 text-sm text-slate-500">事務確認待ちの報告書を一括処理します</p>
+</div>
+
+<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <input type="month" id="monthPicker" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none">
+  <button onclick="bulkApprove()" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">選択を一括承認</button>
+  <button onclick="openReturnModal()" class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50">選択を一括差戻し</button>
+</div>
+
+<div id="queueList" class="space-y-3"></div>
+
+<div id="returnModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnModal()">
+  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="border-b border-slate-200 px-5 py-4 font-semibold text-slate-800">一括差戻し</div>
+    <div class="p-5">
+      <textarea id="returnComment" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" placeholder="差戻し理由"></textarea>
+      <div class="mt-4 flex justify-end gap-2">
+        <button onclick="closeReturnModal()" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">キャンセル</button>
+        <button onclick="bulkReturn()" class="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white">差戻す</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const QUEUE_STATUS = 'awaiting_office';
+  let reports = [];
+  function currentMonthValue() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+  function selectedIds() { return [...document.querySelectorAll('input[name="report-check"]:checked')].map(el => el.value); }
+  async function loadQueue() {
+    reports = (await api(`/api/w/reports?target_month=${monthPicker.value}`)).filter(r => r.status === QUEUE_STATUS);
+    queueList.innerHTML = reports.length ? reports.map(r => `
+      <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <label class="flex items-center gap-3"><input type="checkbox" name="report-check" value="${r.id}" class="h-4 w-4 rounded border-slate-300"><span class="font-semibold text-slate-800">${navEscape(r.target_month)} / ${navEscape(r.form_type)}</span></label>
+          <a href="/w/admin/reports/${r.id}" class="text-sm font-medium text-emerald-700 underline">詳細</a>
+        </div>
+        <div class="mt-2 text-sm text-slate-500">事務確認待ち</div>
+      </article>`).join('') : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">対応待ちはありません。</div>';
+  }
+  async function bulkApprove() {
+    const ids = selectedIds(); if (!ids.length) { showToast('対象を選択してください', 'error'); return; }
+    await api('/api/w/reports/bulk-action', {method:'POST', body:JSON.stringify({report_ids: ids, action:'approve'})});
+    showToast('承認しました', 'success'); await loadQueue();
+  }
+  function openReturnModal() { if (!selectedIds().length) { showToast('対象を選択してください', 'error'); return; } returnComment.value = ''; returnModal.classList.remove('hidden'); returnModal.classList.add('flex'); }
+  function closeReturnModal() { returnModal.classList.add('hidden'); returnModal.classList.remove('flex'); }
+  async function bulkReturn() {
+    const comment = returnComment.value.trim(); if (!comment) { showToast('コメントは必須です', 'error'); return; }
+    await api('/api/w/reports/bulk-action', {method:'POST', body:JSON.stringify({report_ids: selectedIds(), action:'return', comment})});
+    closeReturnModal(); showToast('差戻しました', 'success'); await loadQueue();
+  }
+  monthPicker.value = currentMonthValue(); monthPicker.addEventListener('change', loadQueue);
+  setBreadcrumb('事務', 'キューダッシュボード'); loadQueue();
+</script>
+{% endblock %}

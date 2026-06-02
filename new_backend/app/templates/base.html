@@ -153,18 +153,21 @@
       if (user.role === 'tutor') {
         navHome.href = '/w/tutor/reports';
         items.push(navLink('/w/tutor/reports', '報告書一覧'));
+        items.push(navLink('/w/tutor/approval', '承認管理'));
       } else if (user.role === 'school') {
         navHome.href = '/w/school/approval';
         items.push(navLink('/w/school/approval', '承認管理'));
       } else if (user.role === 'sales') {
-        navHome.href = '/w/sales/approval';
-        items.push(navLink('/w/sales/approval', '承認管理'));
+        navHome.href = '/w/sales/queue';
+        items.push(navLink('/w/sales/queue', 'キューダッシュボード'));
       } else if (user.role === 'office') {
-        navHome.href = '/w/office/approval';
-        items.push(navLink('/w/office/approval', '承認管理'));
+        navHome.href = '/w/office/queue';
+        items.push(navLink('/w/office/queue', 'キューダッシュボード'));
       } else if (user.role === 'admin_master') {
-        navHome.href = '/w/admin/dashboard';
-        items.push(navLink('/w/admin/dashboard', 'ダッシュボード'));
+        navHome.href = '/w/finance/queue';
+        items.push(navLink('/w/finance/queue', 'キューダッシュボード'));
+        items.push(navLink('/w/admin/users', 'ユーザー管理'));
+        items.push(navLink('/w/admin/assignments', '紐付け管理'));
       }
       navItems.innerHTML = items.join('');
       closeSidebar();

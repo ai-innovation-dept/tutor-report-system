@@ -9,7 +9,16 @@ from app.core.database import get_db
 from app.dependencies.auth import get_active_role, get_current_user, require_role
 from app.models.shared import Assignment, User
 from app.models.work import WorkReport, WorkReportEvent
-from app.schemas.reports import ReportCreate, ReportEventOut, ReportOut, ReportPatch, WorkflowAction
+from app.schemas.reports import (
+    BulkReportAction,
+    BulkReportActionOut,
+    MonthlySummaryOut,
+    ReportCreate,
+    ReportEventOut,
+    ReportOut,
+    ReportPatch,
+    WorkflowAction,
+)
 from app.services.report_service import (
     assert_tutor_owns,
     create_report,
@@ -29,6 +38,28 @@ def _get_assignment(db: Session, assignment_id: uuid.UUID) -> Assignment:
     if not a or not a.is_active:
         raise HTTPException(status_code=404, detail="assignment not found")
     return a
+
+
+def _report_scope_stmt(user: User, active_role: str, target_month: str | None = None):
+    roles = list(user.roles or []) or ([user.role] if user.role else [])
+    stmt = select(WorkReport)
+    if active_role == "tutor" or ("tutor" in roles and active_role not in {"school", "sales", "office", "admin_master"}):
+        stmt = stmt.where(WorkReport.tutor_id == user.id)
+    elif active_role != "admin_master":
+        stmt = stmt.where(WorkReport.current_approver_role == active_role)
+    if target_month:
+        stmt = stmt.where(WorkReport.target_month == target_month)
+    return stmt
+
+
+def _numeric_sum(lines: list[dict], key: str) -> int:
+    total = 0
+    for line in lines:
+        try:
+            total += int(line.get(key, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+    return total
 
 
 @router.post("", response_model=ReportOut, status_code=201)
@@ -57,10 +88,80 @@ def list_reports(
     user: User = Depends(get_current_user),
     active_role: str = Depends(get_active_role),
 ):
-    roles = list(user.roles or []) or ([user.role] if user.role else [])
-    if "tutor" in roles:
+    if active_role == "tutor":
         return list_reports_for_tutor(db, user.id, target_month)
+    if active_role == "admin_master":
+        stmt = select(WorkReport)
+        if target_month:
+            stmt = stmt.where(WorkReport.target_month == target_month)
+        return list(db.scalars(stmt.order_by(WorkReport.target_month.desc(), WorkReport.created_at)))
     return list_reports_for_role(db, active_role, target_month)
+
+
+@router.get("/monthly-summary", response_model=MonthlySummaryOut)
+def monthly_summary(
+    target_month: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
+):
+    if active_role not in {"tutor", "admin_master"}:
+        raise HTTPException(status_code=403, detail="monthly summary is only available to tutor/admin_master")
+    reports = list(db.scalars(_report_scope_stmt(user, active_role, target_month)))
+    status_counts: dict[str, int] = {}
+    total_teach = 0
+    total_break = 0
+    total_fee = 0
+    for report in reports:
+        status_counts[report.status] = status_counts.get(report.status, 0) + 1
+        lines = list((report.form_data or {}).get("lines", []))
+        total_teach += _numeric_sum(lines, "teach_minutes")
+        total_break += _numeric_sum(lines, "break_minutes")
+        total_fee += _numeric_sum(lines, "commute_fee")
+    return MonthlySummaryOut(
+        target_month=target_month,
+        total_reports=len(reports),
+        status_counts=status_counts,
+        total_teach_minutes=total_teach,
+        total_break_minutes=total_break,
+        total_commute_fee=total_fee,
+    )
+
+
+@router.post("/bulk-action", response_model=BulkReportActionOut)
+def bulk_action(
+    payload: BulkReportAction,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
+):
+    if active_role not in {"sales", "office", "admin_master"}:
+        raise HTTPException(status_code=403, detail="bulk action is not available for this role")
+    if payload.action not in {"approve", "return"}:
+        raise HTTPException(status_code=422, detail="action must be approve or return")
+    if not payload.report_ids:
+        raise HTTPException(status_code=422, detail="report_ids is required")
+
+    reports = list(db.scalars(select(WorkReport).where(WorkReport.id.in_(payload.report_ids))))
+    found_ids = {report.id for report in reports}
+    missing = [rid for rid in payload.report_ids if rid not in found_ids]
+    if missing:
+        raise HTTPException(status_code=404, detail="one or more reports were not found")
+
+    try:
+        for report in reports:
+            apply_transition(db, report, user, payload.action, active_role, payload.comment)
+    except PermissionDenied as exc:
+        db.rollback()
+        raise HTTPException(status_code=403, detail=str(exc))
+    except InvalidTransition as exc:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(exc))
+    except CommentRequired as exc:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(exc))
+    db.commit()
+    return BulkReportActionOut(updated=len(reports), report_ids=payload.report_ids)
 
 
 @router.get("/{report_id}", response_model=ReportOut)
