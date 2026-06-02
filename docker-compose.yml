@@ -36,6 +36,21 @@ services:
       - ./backend/app:/app/app
       - ./backend/tests:/app/tests
 
+  new_backend:
+    build: ./new_backend
+    env_file: .env
+    ports:
+      - "8001:8001"
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    volumes:
+      - ./new_backend/app:/app/app
+      - ./new_backend/tests:/app/tests
+      - ./new_backend/migrations:/app/migrations
+
 volumes:
   postgres-data:
 # === Phase 0 END ===
