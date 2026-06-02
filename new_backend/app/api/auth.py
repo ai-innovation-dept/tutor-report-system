@@ -1,12 +1,35 @@
-from fastapi import APIRouter, Depends, HTTPException, Response
+import secrets
+from datetime import datetime, timedelta, timezone
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token
+from app.core.security import create_access_token, hash_password
 from app.dependencies.auth import get_current_user, get_active_role
-from app.schemas.auth import LoginRequest, RoleSelectRequest, TokenResponse
+from app.models.shared import Invitation, PasswordResetToken, User
+from app.schemas.auth import (
+    ForgotPasswordIn,
+    LoginRequest,
+    RegisterIn,
+    RegisterInfoOut,
+    RegisterOut,
+    ResetPasswordIn,
+    ResetTokenInfoOut,
+    RoleSelectRequest,
+    TokenResponse,
+)
 from app.schemas.users import UserOut
-from app.services.user_service import authenticate, effective_roles, has_new_system_role
+from app.services.notification_service import send_email
+from app.services.user_service import (
+    ROLE_LABELS,
+    allowed_systems_for_role,
+    authenticate,
+    effective_roles,
+    has_new_system_role,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -82,3 +105,133 @@ def logout(response: Response):
 @router.get("/me", response_model=UserOut)
 def me(user=Depends(get_current_user)):
     return user
+
+
+# ---------------------------------------------------------------------------
+# 登録・パスワードリセット（/api/auth/* 公開エンドポイント）
+# ---------------------------------------------------------------------------
+
+def _valid_invitation(token: str, db: Session) -> Invitation:
+    inv = db.scalar(select(Invitation).where(Invitation.token == token))
+    if not inv:
+        raise HTTPException(status_code=404, detail="招待が無効です")
+    now = datetime.now(timezone.utc)
+    expires = inv.expires_at if inv.expires_at.tzinfo else inv.expires_at.replace(tzinfo=timezone.utc)
+    if expires < now:
+        raise HTTPException(status_code=410, detail="招待の有効期限が切れています")
+    if inv.accepted_at:
+        raise HTTPException(status_code=409, detail="この招待は使用済みです")
+    return inv
+
+
+def _reset_token_status(token_obj: PasswordResetToken | None) -> str | None:
+    if not token_obj:
+        return "not_found"
+    if token_obj.used_at:
+        return "used"
+    expires = token_obj.expires_at if token_obj.expires_at.tzinfo else token_obj.expires_at.replace(tzinfo=timezone.utc)
+    if expires < datetime.now(timezone.utc):
+        return "expired"
+    return None
+
+
+@router.get("/register", response_model=RegisterInfoOut)
+def register_info(token: str, db: Session = Depends(get_db)):
+    inv = _valid_invitation(token, db)
+    return RegisterInfoOut(
+        email=inv.email,
+        role=inv.role,
+        role_display=ROLE_LABELS.get(inv.role, inv.role),
+        display_name=inv.display_name,
+        user_no=inv.tutor_no,
+    )
+
+
+@router.post("/register", response_model=RegisterOut)
+def register(payload: RegisterIn, db: Session = Depends(get_db)):
+    inv = _valid_invitation(payload.token, db)
+    if db.scalar(select(User).where(User.email == inv.email)):
+        raise HTTPException(status_code=409, detail="email already exists")
+
+    display_name = (payload.display_name or inv.display_name or inv.email.split("@", 1)[0]).strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="display_name is required")
+
+    user_no = inv.tutor_no  # generate_user_no の結果が格納済み
+    user = User(
+        email=inv.email,
+        role=inv.role,
+        roles=[inv.role],
+        display_name=display_name,
+        user_no=user_no,
+        tutor_no=user_no if inv.role == "tutor" else None,  # legacy 互換
+        allowed_systems=allowed_systems_for_role(inv.role),
+        password_hash=hash_password(payload.password),
+        is_active=True,
+    )
+    db.add(user)
+    inv.accepted_at = datetime.now(timezone.utc)
+    db.commit()
+    return RegisterOut(message="registered")
+
+
+@router.post("/forgot-password")
+async def forgot_password(
+    payload: ForgotPasswordIn,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    email = str(payload.email).strip().lower()
+    user = db.scalar(select(User).where(func.lower(User.email) == email))
+    # メール存在を明かさない
+    if not user:
+        return {"message": "パスワードリセットメールを送信しました"}
+    token_obj = PasswordResetToken(
+        user_id=user.id,
+        token=secrets.token_urlsafe(32),
+        expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+    )
+    db.add(token_obj)
+    db.commit()
+
+    base_url = settings.BASE_URL.rstrip("/")
+    body = (
+        f"{user.display_name} 様\n\n"
+        f"パスワードリセットのリクエストを受け付けました。\n"
+        f"以下のURLから新しいパスワードを設定してください。\n\n"
+        f"【パスワードリセットURL】\n{base_url}/w/reset-password?token={token_obj.token}\n\n"
+        f"このURLの有効期限は1時間です\n"
+        f"このメールに心当たりがない場合は無視してください\n"
+    )
+    background_tasks.add_task(
+        send_email,
+        user.email,
+        "【業務連絡表システム】パスワードリセットのご案内",
+        body,
+    )
+    return {"message": "パスワードリセットメールを送信しました"}
+
+
+@router.get("/reset-password", response_model=ResetTokenInfoOut)
+def reset_password_info(token: str, db: Session = Depends(get_db)):
+    token_obj = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token == token))
+    reason = _reset_token_status(token_obj)
+    if reason:
+        return ResetTokenInfoOut(valid=False, reason=reason)
+    return ResetTokenInfoOut(valid=True, email=token_obj.user.email)
+
+
+@router.post("/reset-password", response_model=RegisterOut)
+def reset_password(payload: ResetPasswordIn, db: Session = Depends(get_db)):
+    token_obj = db.scalar(select(PasswordResetToken).where(PasswordResetToken.token == payload.token))
+    reason = _reset_token_status(token_obj)
+    if reason == "not_found":
+        raise HTTPException(status_code=404, detail="token not found")
+    if reason == "expired":
+        raise HTTPException(status_code=410, detail="リンクの有効期限が切れています")
+    if reason == "used":
+        raise HTTPException(status_code=409, detail="このリンクは使用済みです")
+    token_obj.user.password_hash = hash_password(payload.new_password)
+    token_obj.used_at = datetime.now(timezone.utc)
+    db.commit()
+    return RegisterOut(message="パスワードを変更しました")

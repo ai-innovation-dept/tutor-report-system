@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between">
+  <h1 class="text-xl font-bold text-slate-800">ユーザー管理</h1>
+</div>
+
+<!-- 招待フォーム -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <h2 class="font-semibold text-slate-800">新規ユーザー招待</h2>
+  <form id="inviteForm" class="mt-4 space-y-3">
+    <div class="grid gap-3 md:grid-cols-3">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">ロール</span>
+        <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+          <option value="tutor">講師</option>
+          <option value="school">学校担当</option>
+          <option value="sales">営業担当</option>
+          <option value="office">事務担当</option>
+          <option value="admin_master">管理者</option>
+        </select>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">氏名</span>
+        <input name="display_name" id="displayNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none" maxlength="100">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">メール</span>
+        <input name="email" type="email" id="emailInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none" required>
+      </label>
+    </div>
+    <div class="flex items-center justify-between">
+      <p class="text-xs text-slate-500">No は自動採番されます。招待メールが送信されます。</p>
+      <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">招待メールを送る</button>
+    </div>
+    <p id="inviteMessage" class="hidden text-sm"></p>
+  </form>
+</section>
+
+<!-- 招待済み一覧 -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">招待済み（未受諾）</h2>
+    <button onclick="loadInvitations()" class="text-xs text-slate-500 hover:text-slate-700">更新</button>
+  </div>
+  <div id="invitationList" class="p-4 text-sm text-slate-500">読み込み中…</div>
+</section>
+
+<!-- ユーザー一覧 -->
+<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
+    <div class="flex gap-2">
+      <input id="searchInput" placeholder="名前・メール" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" oninput="loadUsers()">
+      <select id="roleFilter" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" onchange="loadUsers()">
+        <option value="">全ロール</option>
+        <option value="tutor">講師</option>
+        <option value="school">学校担当</option>
+        <option value="sales">営業担当</option>
+        <option value="office">事務担当</option>
+        <option value="admin_master">管理者</option>
+      </select>
+    </div>
+  </div>
+  <div id="userList" class="divide-y divide-slate-100 text-sm">読み込み中…</div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  const ROLE_LABELS = {tutor:'講師', school:'学校担当', sales:'営業担当', office:'事務担当', admin_master:'管理者'};
+
+  function navEscapeLocal(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function loadInvitations() {
+    const el = document.getElementById('invitationList');
+    try {
+      const res = await fetch('/api/w/invitations', {credentials: 'same-origin'});
+      const data = await res.json();
+      const pending = data.filter(i => !i.accepted_at);
+      if (!pending.length) { el.innerHTML = '<p class="text-slate-400">未受諾の招待はありません</p>'; return; }
+      el.innerHTML = pending.map(i => `
+        <div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
+          <div>
+            <span class="font-medium text-slate-800">${navEscapeLocal(i.email)}</span>
+            <span class="ml-2 text-xs text-slate-500">${ROLE_LABELS[i.role] || i.role}</span>
+            ${i.user_no ? `<span class="ml-1 text-xs text-slate-400">No:${navEscapeLocal(i.user_no)}</span>` : ''}
+          </div>
+          <button onclick="deleteInvitation('${i.id}')" class="text-xs text-rose-500 hover:text-rose-700">取消</button>
+        </div>
+      `).join('');
+    } catch { el.innerHTML = '<p class="text-rose-500">読み込みに失敗しました</p>'; }
+  }
+
+  async function deleteInvitation(id) {
+    if (!confirm('この招待を取り消しますか？')) return;
+    const res = await fetch(`/api/w/invitations/${id}`, {method: 'DELETE', credentials: 'same-origin'});
+    if (!res.ok) { showToast('取消に失敗しました', 'error'); return; }
+    showToast('招待を取り消しました', 'success');
+    loadInvitations();
+  }
+
+  async function loadUsers() {
+    const el = document.getElementById('userList');
+    const search = document.getElementById('searchInput').value;
+    const role = document.getElementById('roleFilter').value;
+    let url = '/api/w/users?per_page=100';
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    if (role) url += `&role=${encodeURIComponent(role)}`;
+    try {
+      const res = await fetch(url, {credentials: 'same-origin'});
+      const data = await res.json();
+      if (!data.items.length) { el.innerHTML = '<p class="p-4 text-slate-400">該当するユーザーはありません</p>'; return; }
+      el.innerHTML = data.items.map(u => `
+        <div class="flex items-center justify-between px-4 py-3">
+          <div>
+            <span class="font-medium text-slate-800">${navEscapeLocal(u.display_name)}</span>
+            <span class="ml-2 text-xs text-slate-500">${navEscapeLocal(u.email)}</span>
+            <span class="ml-2 rounded-full px-2 py-0.5 text-xs ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${ROLE_LABELS[u.role] || u.role}</span>
+            ${u.user_no ? `<span class="ml-1 text-xs text-slate-400">${navEscapeLocal(u.user_no)}</span>` : ''}
+          </div>
+          <div class="flex gap-2">
+            <button onclick="toggleActive('${u.id}', ${u.is_active})"
+              class="text-xs ${u.is_active ? 'text-amber-600 hover:text-amber-800' : 'text-emerald-600 hover:text-emerald-800'}">
+              ${u.is_active ? '無効化' : '有効化'}
+            </button>
+            <button onclick="resetPassword('${u.id}')" class="text-xs text-slate-500 hover:text-slate-700">PW初期化</button>
+          </div>
+        </div>
+      `).join('');
+    } catch { el.innerHTML = '<p class="p-4 text-rose-500">読み込みに失敗しました</p>'; }
+  }
+
+  async function toggleActive(id, isActive) {
+    const res = await fetch(`/api/w/users/${id}`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({is_active: !isActive}), credentials: 'same-origin'
+    });
+    if (!res.ok) { showToast('操作に失敗しました', 'error'); return; }
+    showToast(isActive ? 'ユーザーを無効化しました' : 'ユーザーを有効化しました', 'success');
+    loadUsers();
+  }
+
+  async function resetPassword(id) {
+    if (!confirm('パスワードを初期化しますか？')) return;
+    const res = await fetch(`/api/w/users/${id}/reset-password`, {method: 'POST', credentials: 'same-origin'});
+    if (!res.ok) { showToast('初期化に失敗しました', 'error'); return; }
+    const data = await res.json();
+    alert(`初期パスワード: ${data.initial_password}`);
+  }
+
+  document.getElementById('inviteForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const msgEl = document.getElementById('inviteMessage');
+    const payload = {
+      role: document.getElementById('roleSelect').value,
+      display_name: document.getElementById('displayNameInput').value || null,
+      email: document.getElementById('emailInput').value,
+    };
+    const res = await fetch('/api/w/invitations', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload), credentials: 'same-origin'
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      msgEl.textContent = err.detail || '招待に失敗しました';
+      msgEl.className = 'text-sm text-rose-600'; msgEl.classList.remove('hidden'); return;
+    }
+    msgEl.textContent = '招待メールを送信しました';
+    msgEl.className = 'text-sm text-emerald-700'; msgEl.classList.remove('hidden');
+    e.target.reset();
+    loadInvitations();
+  });
+
+  setBreadcrumb('管理者', 'ユーザー管理');
+  loadInvitations();
+  loadUsers();
+</script>
+{% endblock %}

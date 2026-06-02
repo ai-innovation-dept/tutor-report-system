@@ -1,4 +1,4 @@
-from .shared import User, Assignment
+from .shared import User, Assignment, Invitation, PasswordResetToken
 from .work import (
     WorkAssignmentProfile,
     WorkReport,
@@ -11,6 +11,8 @@ from .work import (
 __all__ = [
     "User",
     "Assignment",
+    "Invitation",
+    "PasswordResetToken",
     "WorkAssignmentProfile",
     "WorkReport",
     "WorkReportEvent",

@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-6 flex items-center justify-between">
+  <h1 class="text-xl font-bold text-slate-800">紐付け管理</h1>
+  <button onclick="openCreateModal()" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">＋ 新規作成</button>
+</div>
+
+<!-- 紐付け一覧 -->
+<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">紐付け一覧</h2>
+  </div>
+  <div id="assignmentList" class="divide-y divide-slate-100 text-sm">読み込み中…</div>
+</section>
+
+<!-- 新規作成モーダル -->
+<div id="createModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeCreateModal()">
+  <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-slate-800">紐付け新規作成</h2>
+      <button onclick="closeCreateModal()" class="text-sm text-slate-500 hover:text-slate-700">閉じる</button>
+    </div>
+    <form id="createForm" class="space-y-4">
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">担当講師</label>
+        <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required>
+          <option value="">選択してください</option>
+        </select>
+      </div>
+      <div>
+        <label class="mb-1 block text-sm font-medium text-slate-700">生徒名</label>
+        <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required maxlength="100">
+      </div>
+      <p id="createError" class="hidden text-sm text-rose-600"></p>
+      <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">作成する</button>
+    </form>
+  </div>
+</div>
+
+<!-- フォーム割り当てモーダル -->
+<div id="profileModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeProfileModal()">
+  <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-slate-800">フォーム割り当て</h2>
+      <button onclick="closeProfileModal()" class="text-sm text-slate-500 hover:text-slate-700">閉じる</button>
+    </div>
+    <div id="profileContent" class="space-y-4 text-sm"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  let tutors = [];
+  let currentAssignmentId = null;
+
+  function navEscapeLocal(v) {
+    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function loadTutors() {
+    try {
+      const res = await fetch('/api/w/users?role=tutor&per_page=100', {credentials: 'same-origin'});
+      const data = await res.json();
+      tutors = data.items || [];
+      const sel = document.getElementById('tutorSelect');
+      sel.innerHTML = '<option value="">選択してください</option>';
+      tutors.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = `${t.display_name}${t.user_no ? ' (' + t.user_no + ')' : ''}`;
+        sel.appendChild(opt);
+      });
+    } catch {}
+  }
+
+  async function loadAssignments() {
+    const el = document.getElementById('assignmentList');
+    try {
+      const res = await fetch('/api/w/assignments', {credentials: 'same-origin'});
+      const data = await res.json();
+      if (!data.length) { el.innerHTML = '<p class="p-4 text-slate-400">紐付けはまだありません</p>'; return; }
+      el.innerHTML = data.map(a => `
+        <div class="flex items-center justify-between px-4 py-3">
+          <div>
+            <span class="font-medium text-slate-800">${navEscapeLocal(a.student_name)}</span>
+            <span class="ml-2 text-xs text-slate-500">講師：${navEscapeLocal(a.tutor?.display_name || '-')}</span>
+            <span class="ml-2 rounded-full px-2 py-0.5 text-xs ${a.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${a.is_active ? '有効' : '無効'}</span>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="openProfileModal('${a.id}')" class="text-xs text-emerald-600 hover:text-emerald-800">フォーム割当</button>
+            <button onclick="toggleAssignment('${a.id}', ${a.is_active})" class="text-xs ${a.is_active ? 'text-amber-600 hover:text-amber-800' : 'text-slate-500 hover:text-slate-700'}">${a.is_active ? '無効化' : '有効化'}</button>
+          </div>
+        </div>
+      `).join('');
+    } catch { el.innerHTML = '<p class="p-4 text-rose-500">読み込みに失敗しました</p>'; }
+  }
+
+  async function toggleAssignment(id, isActive) {
+    const res = await fetch(`/api/w/assignments/${id}`, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({is_active: !isActive}), credentials: 'same-origin'
+    });
+    if (!res.ok) { showToast('操作に失敗しました', 'error'); return; }
+    loadAssignments();
+  }
+
+  async function openProfileModal(assignmentId) {
+    currentAssignmentId = assignmentId;
+    const el = document.getElementById('profileContent');
+    el.innerHTML = '<p class="text-slate-500">読み込み中…</p>';
+    document.getElementById('profileModal').classList.remove('hidden');
+    document.getElementById('profileModal').classList.add('flex');
+
+    try {
+      const res = await fetch('/api/w/admin/profiles', {credentials: 'same-origin'});
+      const profiles = await res.json();
+      const profile = profiles.find(p => p.assignment_id === assignmentId);
+
+      if (profile) {
+        el.innerHTML = `
+          <p class="text-slate-700">フォーム種別：<strong>${navEscapeLocal(profile.form_type)}</strong></p>
+          <p class="text-slate-700 mt-1">契約メモ：<span class="text-slate-500">${navEscapeLocal(JSON.stringify(profile.contract_meta))}</span></p>
+          <p class="text-xs text-slate-400 mt-2">既に割り当てがあります</p>
+        `;
+      } else {
+        el.innerHTML = `
+          <form id="profileForm" class="space-y-3">
+            <div>
+              <label class="mb-1 block text-sm font-medium text-slate-700">フォーム種別</label>
+              <select id="formTypeSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
+                <option value="monthly_dispatch">月次派遣報告</option>
+              </select>
+            </div>
+            <p id="profileError" class="hidden text-sm text-rose-600"></p>
+            <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">割り当てる</button>
+          </form>
+        `;
+        document.getElementById('profileForm').addEventListener('submit', async ev => {
+          ev.preventDefault();
+          const r = await fetch('/api/w/admin/profiles', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({assignment_id: assignmentId, form_type: document.getElementById('formTypeSelect').value}),
+            credentials: 'same-origin'
+          });
+          if (!r.ok) { const err = await r.json(); document.getElementById('profileError').textContent = err.detail || 'エラー'; document.getElementById('profileError').classList.remove('hidden'); return; }
+          showToast('フォームを割り当てました', 'success');
+          closeProfileModal();
+        });
+      }
+    } catch { el.innerHTML = '<p class="text-rose-500">読み込みに失敗しました</p>'; }
+  }
+
+  function openCreateModal() {
+    document.getElementById('createError').classList.add('hidden');
+    document.getElementById('studentNameInput').value = '';
+    document.getElementById('createModal').classList.remove('hidden');
+    document.getElementById('createModal').classList.add('flex');
+  }
+
+  function closeCreateModal() {
+    document.getElementById('createModal').classList.add('hidden');
+    document.getElementById('createModal').classList.remove('flex');
+  }
+
+  function closeProfileModal() {
+    document.getElementById('profileModal').classList.add('hidden');
+    document.getElementById('profileModal').classList.remove('flex');
+    currentAssignmentId = null;
+  }
+
+  document.getElementById('createForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const errEl = document.getElementById('createError');
+    errEl.classList.add('hidden');
+    const res = await fetch('/api/w/assignments', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({tutor_id: document.getElementById('tutorSelect').value, student_name: document.getElementById('studentNameInput').value}),
+      credentials: 'same-origin'
+    });
+    if (!res.ok) { const err = await res.json(); errEl.textContent = err.detail || '作成に失敗しました'; errEl.classList.remove('hidden'); return; }
+    showToast('紐付けを作成しました', 'success');
+    closeCreateModal();
+    loadAssignments();
+  });
+
+  setBreadcrumb('管理者', '紐付け管理');
+  loadTutors();
+  loadAssignments();
+</script>
+{% endblock %}

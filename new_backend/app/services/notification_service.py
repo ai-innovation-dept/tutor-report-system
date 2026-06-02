@@ -2,6 +2,8 @@
 import logging
 from datetime import datetime, timezone
 
+from app.core.config import settings
+
 from sqlalchemy.orm import Session
 
 from app.models.shared import User
@@ -27,6 +29,28 @@ def record_notification(
     )
     db.add(notif)
     return notif
+
+
+async def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    smtp_host: str | None = None,
+    smtp_port: int | None = None,
+) -> None:
+    """DBへの記録なしで単体メールを送信する（招待・パスワードリセット用）。"""
+    host = smtp_host or settings.SMTP_HOST
+    port = smtp_port or settings.SMTP_PORT
+    try:
+        import aiosmtplib
+        from email.mime.text import MIMEText
+        msg = MIMEText(body, "plain", "utf-8")
+        msg["Subject"] = subject
+        msg["From"] = "noreply@work-system.local"
+        msg["To"] = to
+        await aiosmtplib.send(msg, hostname=host, port=port)
+    except Exception as exc:
+        logger.warning("mail send failed to %s: %s", to, exc)
 
 
 async def send_notification(

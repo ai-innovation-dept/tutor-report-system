@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     TIMEZONE: str = "Asia/Tokyo"
     PORT: int = 8001
+    BASE_URL: str = "http://localhost:8001"
+    SMTP_HOST: str = "mailhog"
+    SMTP_PORT: int = 1025
 
     model_config = {"env_file": "../.env", "extra": "ignore"}
 

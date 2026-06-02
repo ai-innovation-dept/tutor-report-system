@@ -123,3 +123,40 @@ def admin_dashboard(request: Request):
     if "admin_master" not in roles:
         return _login_redirect()
     return templates.TemplateResponse(request, "admin/dashboard.html", _ctx(request, user))
+
+
+@router.get("/w/admin/users", response_class=HTMLResponse)
+def admin_users(request: Request):
+    user = _get_user_optional(request)
+    if not user:
+        return _login_redirect()
+    roles = list(user.roles or []) or ([user.role] if user.role else [])
+    if "admin_master" not in roles:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
+
+
+@router.get("/w/admin/assignments", response_class=HTMLResponse)
+def admin_assignments(request: Request):
+    user = _get_user_optional(request)
+    if not user:
+        return _login_redirect()
+    roles = list(user.roles or []) or ([user.role] if user.role else [])
+    if "admin_master" not in roles:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "admin/assignments.html", _ctx(request, user))
+
+
+@router.get("/w/register", response_class=HTMLResponse)
+def register_page(request: Request):
+    return templates.TemplateResponse(request, "register.html", {"request": request})
+
+
+@router.get("/w/forgot-password", response_class=HTMLResponse)
+def forgot_password_page(request: Request):
+    return templates.TemplateResponse(request, "forgot_password.html", {"request": request})
+
+
+@router.get("/w/reset-password", response_class=HTMLResponse)
+def reset_password_page(request: Request):
+    return templates.TemplateResponse(request, "reset_password.html", {"request": request})

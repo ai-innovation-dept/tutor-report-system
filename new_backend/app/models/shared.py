@@ -5,7 +5,7 @@ These tables are managed by the legacy Alembic; new_backend never creates or dro
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, String, Text
 
 
 def _utcnow() -> datetime:
@@ -51,3 +51,35 @@ class Assignment(Base):
 
     tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
+
+
+class Invitation(Base):
+    """既存システムと共有するinvitationsテーブル。
+    tutor_noカラムをuser_no（T/S/X番号）の格納に転用する。
+    """
+    __tablename__ = "invitations"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), index=True)
+    role: Mapped[str] = mapped_column(String(32))
+    display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    tutor_no: Mapped[str | None] = mapped_column(String(20), nullable=True)  # user_noを格納
+    assignment_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("assignments.id"), nullable=True)
+    token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    token: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    user: Mapped[User] = relationship(foreign_keys=[user_id])

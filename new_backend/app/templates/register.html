@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>アカウント登録 - 業務連絡表システム</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-[#1a2e1a]">
+  <div class="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.15),_transparent_28%),linear-gradient(180deg,#1a2e1a_0%,#0d1a0d_100%)] px-4 py-10">
+    <div class="mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-md items-center justify-center">
+      <div class="w-full rounded-2xl border border-white/10 bg-white p-8 shadow-2xl md:p-10">
+        <div id="loading" class="text-sm text-slate-600 text-center py-4">招待内容を確認しています…</div>
+
+        <div id="invalidPanel" class="hidden space-y-3">
+          <div class="mb-6 text-center">
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-xl font-bold text-white">業</div>
+            <h1 class="text-2xl font-bold text-slate-800">業務連絡表システム</h1>
+          </div>
+          <h2 class="text-xl font-semibold text-slate-800">招待リンクを確認できません</h2>
+          <p class="text-sm text-slate-700">この招待リンクは無効または期限切れです。</p>
+          <p class="text-sm text-slate-600">管理者へ招待メールの再送をご依頼ください。</p>
+        </div>
+
+        <form id="registerForm" class="hidden space-y-4">
+          <div class="mb-6 text-center">
+            <div class="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-600 text-xl font-bold text-white">業</div>
+            <h1 class="text-2xl font-bold text-slate-800">アカウント登録</h1>
+            <p id="roleInfo" class="mt-2 text-sm text-slate-600"></p>
+            <p id="email" class="mt-1 text-sm text-slate-500"></p>
+          </div>
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-700">お名前</span>
+            <input id="displayName" name="display_name" class="w-full rounded-lg border border-slate-300 px-4 py-3 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="100">
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-700">パスワード</span>
+            <input id="password" type="password" class="w-full rounded-lg border border-slate-300 px-4 py-3 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required minlength="8">
+          </label>
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-700">パスワード（確認）</span>
+            <input id="passwordConfirm" type="password" class="w-full rounded-lg border border-slate-300 px-4 py-3 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required minlength="8">
+          </label>
+          <p id="message" class="hidden text-sm"></p>
+          <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-3 font-medium text-white transition hover:bg-emerald-700">アカウントを作成する</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || '';
+    const ROLE_LABELS = {tutor:'講師', school:'学校担当', sales:'営業担当', office:'事務担当', admin_master:'管理者'};
+
+    function showMsg(text, isError) {
+      const el = document.getElementById('message');
+      el.textContent = text;
+      el.className = `text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
+      el.classList.remove('hidden');
+    }
+
+    async function loadInvitation() {
+      if (!token) { document.getElementById('loading').classList.add('hidden'); document.getElementById('invalidPanel').classList.remove('hidden'); return; }
+      const res = await fetch(`/api/auth/register?token=${encodeURIComponent(token)}`);
+      document.getElementById('loading').classList.add('hidden');
+      if (!res.ok) { document.getElementById('invalidPanel').classList.remove('hidden'); return; }
+      const data = await res.json();
+      document.getElementById('roleInfo').textContent = `ロール：${ROLE_LABELS[data.role] || data.role}${data.user_no ? '　No：' + data.user_no : ''}`;
+      document.getElementById('email').textContent = data.email;
+      const dn = document.getElementById('displayName');
+      dn.value = data.display_name || '';
+      dn.required = true;
+      document.getElementById('registerForm').classList.remove('hidden');
+    }
+
+    document.getElementById('registerForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      if (document.getElementById('password').value !== document.getElementById('passwordConfirm').value) {
+        showMsg('確認用パスワードが一致しません。', true); return;
+      }
+      const res = await fetch('/api/auth/register', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({token, password: document.getElementById('password').value, display_name: document.getElementById('displayName').value})
+      });
+      if (!res.ok) { showMsg('登録できませんでした。招待リンクをご確認ください。', true); return; }
+      showMsg('登録が完了しました。ログイン画面へ移動します。', false);
+      setTimeout(() => { location.href = '/w/login'; }, 1500);
+    });
+
+    loadInvitation();
+  </script>
+</body>
+</html>
