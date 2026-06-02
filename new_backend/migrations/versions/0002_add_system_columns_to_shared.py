@@ -58,7 +58,7 @@ def upgrade() -> None:
     op.execute("""
         UPDATE users
         SET allowed_systems = '[\"legacy\",\"new\"]'::jsonb
-        WHERE 'admin_master' = ANY(ARRAY(SELECT jsonb_array_elements_text(roles)))
+        WHERE 'admin_master' = ANY(ARRAY(SELECT json_array_elements_text(roles)))
            OR role = 'admin_master'
     """)
 
