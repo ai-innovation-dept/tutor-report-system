@@ -57,7 +57,7 @@ def generate_user_no(db: Session, role: str) -> str:
             value = s
         try:
             num = int(value)
-            if num >= start:
+            if start <= num <= start + 89999:
                 max_no = max(max_no, num)
         except ValueError:
             continue
