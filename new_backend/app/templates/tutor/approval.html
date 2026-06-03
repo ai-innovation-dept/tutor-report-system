@@ -22,19 +22,17 @@ const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const STEPS = [
   {key: 'request', label: '学校へ依頼'},
   {key: 'school', label: '学校 承認'},
-  {key: 'sales', label: '営業 承認'},
-  {key: 'office', label: '事務 承認'},
-  {key: 'finance', label: '最終 承認'}
+  {key: 'operation', label: '運営 承認'}
 ];
 const PHASE_CURRENT_STEP = {
   recording: 0,
   returned: 1,
   awaiting_school: 1,
   awaiting_sales: 2,
-  awaiting_office: 3,
-  awaiting_finance: 4,
-  completed: 5,
-  closed: 5
+  awaiting_office: 2,
+  awaiting_finance: 2,
+  completed: 3,
+  closed: 3
 };
 const STATUS_LABELS = {
   draft: '下書き',
@@ -180,7 +178,7 @@ function connectorClass(group, index) {
 }
 function renderStepper(group) {
   return `<div class="mt-5 overflow-x-auto">
-    <div class="grid min-w-[480px] grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
+    <div class="grid min-w-[300px] grid-cols-[repeat(3,minmax(0,1fr))] items-start gap-2">
     ${STEPS.map((step, index) => {
       const state = stepState(group, index);
       const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
