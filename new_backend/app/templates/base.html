@@ -9,7 +9,7 @@
 </head>
 <body class="bg-slate-100 text-slate-900">
   <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
-    先月以前の差戻し中未処理および未承認の報告があります。管理者へ連絡ください。
+    先月以前の差戻し中未処理および未承認の報告があります。経理へ連絡ください。
     （<span id="stale-count"></span>件）
     {% if active_role in ['sales', 'office', 'admin_master'] %}
     <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
@@ -57,7 +57,7 @@
           <span id="breadcrumb"></span>
         </div>
         <div class="flex flex-col items-end">
-          {% set role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '管理者'} %}
+          {% set role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理'} %}
           <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
           <span class="text-xs text-slate-400">{{ role_labels.get(active_role, active_role) }}{% if current_user.user_no %}・{{ current_user.user_no }}{% endif %}</span>
         </div>
@@ -126,7 +126,7 @@
       if (role === 'school') return '学校';
       if (role === 'sales') return '営業担当';
       if (role === 'office') return '事務担当';
-      if (role === 'admin_master') return '管理者';
+      if (role === 'admin_master') return '経理';
       return role;
     }
 
@@ -230,15 +230,15 @@
         items.push(navLink('/school/approval', '承認管理'));
       } else if (user.role === 'sales') {
         navHome.href = '/sales/queue';
-        items.push(navLink('/sales/queue', 'キューダッシュボード'));
+        items.push(navLink('/sales/queue', 'ダッシュボード'));
       } else if (user.role === 'office') {
         navHome.href = '/office/queue';
-        items.push(navLink('/office/queue', 'キューダッシュボード'));
+        items.push(navLink('/office/queue', 'ダッシュボード'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/finance/queue';
-        items.push(navLink('/finance/queue', 'キューダッシュボード'));
+        items.push(navLink('/finance/queue', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
-        items.push(navLink('/admin/assignments', '紐付け管理'));
+        items.push(navLink('/admin/assignments', 'システム設定'));
       }
       navItems.innerHTML = items.join('');
 

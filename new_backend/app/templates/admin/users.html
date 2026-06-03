@@ -44,7 +44,7 @@
           <option value="school">学校</option>
           <option value="sales">営業担当</option>
           <option value="office">事務担当</option>
-          <option value="admin_master">管理者</option>
+          <option value="admin_master">経理</option>
         </select>
       </label>
       <label id="displayNameField" class="block text-sm">
@@ -164,7 +164,7 @@ const ROLE_LABELS = {
   school: '学校',
   sales: '営業',
   office: '事務',
-  admin_master: '管理者'
+  admin_master: '経理'
 };
 const ROLE_ORDER = ['tutor', 'school', 'sales', 'office', 'admin_master'];
 const TABS = [
@@ -173,7 +173,7 @@ const TABS = [
   {key: 'school', label: '学校', countKey: 'school'},
   {key: 'sales', label: '営業', countKey: 'sales'},
   {key: 'office', label: '事務', countKey: 'office'},
-  {key: 'admin_master', label: '管理者', countKey: 'admin_master'}
+  {key: 'admin_master', label: '経理', countKey: 'admin_master'}
 ];
 
 function escapeHtml(value) {
@@ -228,7 +228,7 @@ function syncRoleFields() {
   studentNameInput.disabled = !schoolMode;
   if (role === 'tutor') roleHint.textContent = 'Noは自動で割り当てられます。';
   else if (schoolMode) roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。既存学校メールなら生徒を追加します。';
-  else roleHint.textContent = '管理スタッフは登録URLで本人がパスワードを設定します。';
+  else roleHint.textContent = '経理スタッフは登録URLで本人がパスワードを設定します。';
 }
 function renderInvitations() {
   invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
@@ -312,7 +312,7 @@ async function loadUsersPage(page = paginationState.page) {
   if (keyword) params.set('search', keyword);
   const [invitationRowsData, tutorRows, userRowsData] = await Promise.all([
     api('/api/w/invitations'),
-    api('/api/w/users?roles=tutor&per_page=100'),
+    api('/api/w/users?role=tutor&per_page=100'),
     api(`/api/w/users?${params.toString()}`)
   ]);
   invitations = invitationRowsData;
@@ -393,7 +393,7 @@ function renderDetailDrawer(id) {
   if (!user) return;
   const lastAdmin = isLastActiveAdmin(user);
   const statusButton = user.is_active
-    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため無効化できません"' : ''}>無効化する</button>`
+    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${lastAdmin ? 'disabled title="最後の経理のため無効化できません"' : ''}>無効化する</button>`
     : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;
   detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
     <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
@@ -423,7 +423,7 @@ function renderDetailDrawer(id) {
     <section class="rounded-lg border p-4" style="background:#FEF2F2;border-color:#FCA5A5;">
       <h3 class="font-semibold text-red-700">危険な操作</h3>
       <p class="mt-2 text-sm text-red-700">ユーザーを削除すると元に戻せません</p>
-      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため削除できません"' : ''}>このユーザーを削除する</button>
+      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の経理のため削除できません"' : ''}>このユーザーを削除する</button>
     </section>
   </div>`;
 }
