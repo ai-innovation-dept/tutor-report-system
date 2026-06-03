@@ -178,7 +178,7 @@ function connectorClass(group, index) {
 }
 function renderStepper(group) {
   return `<div class="mt-5 overflow-x-auto">
-    <div class="grid min-w-[300px] grid-cols-[repeat(3,minmax(0,1fr))] items-start gap-2">
+    <div class="grid min-w-[480px] grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
     ${STEPS.map((step, index) => {
       const state = stepState(group, index);
       const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
