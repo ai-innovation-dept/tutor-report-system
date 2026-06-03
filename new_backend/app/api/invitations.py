@@ -48,7 +48,7 @@ def _email_body(inv: Invitation, base_url: str) -> str:
     name = inv.display_name or inv.email.split("@", 1)[0]
     role_display = ROLE_LABELS.get(inv.role, inv.role)
     user_no = inv.tutor_no or ""
-    url = f"{base_url}/w/register?token={inv.token}"
+    url = f"{base_url}/register?token={inv.token}"
     if inv.role == "tutor":
         return (
             f"{name} 様\n\n"
