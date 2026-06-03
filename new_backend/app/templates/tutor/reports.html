@@ -39,7 +39,7 @@
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 class="font-semibold text-slate-800" id="formTitle">月次業務連絡表</h2>
-          <p class="mt-1 text-sm text-slate-500">26行の一覧形式で入力します。曜日は日付から自動表示されます。</p>
+          <p class="mt-1 text-sm text-slate-500">PDFの業務連絡表に合わせた月次一覧形式で入力します。</p>
         </div>
         <a href="/tutor/approval" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100">承認管理へ</a>
       </div>
@@ -48,6 +48,39 @@
       <div id="formMessage" class="mb-3 hidden rounded-lg px-3 py-2 text-sm"></div>
       <form id="reportForm" class="space-y-4">
         <input type="hidden" id="editingId">
+        <div class="rounded-lg border border-slate-300">
+          <div class="grid border-b border-slate-300 md:grid-cols-[1fr_220px]">
+            <div class="space-y-3 p-3">
+              <label class="block text-sm">
+                <span class="block mb-1 text-slate-700">派遣先事業所の名称・組織単位</span>
+                <input id="dispatchPlaceName" data-meta="dispatch_place_name" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center text-lg font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+              </label>
+              <label class="block text-sm">
+                <span class="block mb-1 text-slate-700">派遣先事業所の所在地</span>
+                <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+              </label>
+            </div>
+            <div class="flex flex-col items-center justify-center border-t border-slate-300 p-3 md:border-l md:border-t-0">
+              <div id="monthTitle" class="text-lg font-semibold text-slate-900">月分業務連絡表</div>
+              <div class="mt-2 text-xs text-slate-500">選択中の対象月から自動生成</div>
+            </div>
+          </div>
+          <div class="grid border-b border-slate-300 md:grid-cols-[220px_1fr_180px]">
+            <label class="block border-b border-slate-300 p-3 text-sm md:border-b-0 md:border-r">
+              <span class="block mb-1 text-slate-700">講師番号</span>
+              <input id="tutorNo" data-meta="tutor_no" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+            </label>
+            <label class="block border-b border-slate-300 p-3 text-sm md:border-b-0 md:border-r">
+              <span class="block mb-1 text-slate-700">従事業務内容</span>
+              <textarea id="workContent" data-meta="work_content" rows="2" class="meta-input w-full rounded border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></textarea>
+            </label>
+            <label class="block p-3 text-sm">
+              <span class="block mb-1 text-slate-700">お客様ID</span>
+              <input id="customerId" data-meta="customer_id" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+            </label>
+          </div>
+        </div>
+
         <div class="grid gap-3 md:grid-cols-2">
           <label class="block text-sm">
             <span class="mb-1 flex items-center gap-2">
@@ -64,28 +97,41 @@
 
         <div class="overflow-x-auto rounded-lg border border-slate-200">
           <table class="min-w-[1080px] w-full text-sm">
-            <thead class="bg-slate-50 text-xs font-medium text-slate-600">
-              <tr>
-                <th class="w-12 px-2 py-2 text-center">回数</th>
-                <th class="w-36 px-2 py-2 text-left">日付</th>
-                <th class="w-14 px-2 py-2 text-center">曜日</th>
-                <th class="w-48 px-2 py-2 text-left">業務開始時間〜業務終了時間</th>
-                <th class="w-28 px-2 py-2 text-left">担当時限</th>
-                <th class="w-24 px-2 py-2 text-left">指導分</th>
-                <th class="w-28 px-2 py-2 text-left">休憩時間</th>
-                <th class="w-32 px-2 py-2 text-left">往復交通費</th>
-                <th class="min-w-64 px-2 py-2 text-left">内容</th>
-              </tr>
-            </thead>
+            <thead id="lineHead" class="bg-slate-50 text-xs font-medium text-slate-600"></thead>
             <tbody id="lineRows"></tbody>
           </table>
         </div>
 
-        <div class="grid gap-3 rounded-lg bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-4">
+        <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-4">
           <div>勤務日数：<span id="summaryDays" class="font-semibold">0</span>日</div>
-          <div>指導分：<span id="summaryTeach" class="font-semibold">0</span>分</div>
+          <div>数学科指導（分）：<span id="summaryTeach" class="font-semibold">0</span>分</div>
           <div>休憩時間：<span id="summaryBreak" class="font-semibold">0</span>分</div>
-          <div>交通費：<span id="summaryFee" class="font-semibold">0</span>円</div>
+          <div>往復交通費（円）定期代含む：<span id="summaryFee" class="font-semibold">0</span>円</div>
+        </div>
+
+        <div class="grid gap-3 md:grid-cols-2">
+          <label class="block text-sm">
+            <span class="block mb-1 text-slate-700">備考欄</span>
+            <textarea data-meta="note_schedule" rows="3" placeholder="月(1)9:30〜10:20、(2)10:30〜11:20..." class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+          </label>
+          <label class="block text-sm">
+            <span class="block mb-1 text-slate-700">要望・連絡事項</span>
+            <textarea data-meta="requests" rows="3" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+          </label>
+          <label class="block text-sm">
+            <span class="block mb-1 text-slate-700">月固定分</span>
+            <div class="flex items-center gap-2">
+              <span>月</span>
+              <input data-meta="monthly_minutes_fixed" type="text" class="meta-input min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+              <span>分固定：週</span>
+              <input data-meta="weekly_lessons" type="text" class="meta-input w-20 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+              <span>コマ</span>
+            </div>
+          </label>
+          <label class="block text-sm">
+            <span class="block mb-1 text-slate-700">契約期間</span>
+            <input data-meta="contract_period" type="text" placeholder="2026年04月01日〜2027年03月31日" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+          </label>
         </div>
 
         <div class="flex flex-wrap gap-2">
@@ -117,6 +163,34 @@ const STATUS_LABELS = {
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const LINE_COUNT = 26;
 const EDITABLE_STATUSES = new Set(['draft', 'returned_to_tutor', 'returned_to_sales']);
+const DEFAULT_FORM_DEFINITION = {
+  form_type: 'monthly_dispatch',
+  label: '月次派遣報告',
+  max_lines: 26,
+  columns: [
+    {key: 'date', label: '日付', type: 'date', summable: false},
+    {key: 'start', label: '開始時刻', type: 'time', summable: false},
+    {key: 'end', label: '終了時刻', type: 'time', summable: false},
+    {key: 'subject_period', label: '担当時限', type: 'number', summable: false},
+    {key: 'teach_minutes', label: '数学科指導（分）', type: 'number', summable: true},
+    {key: 'break_minutes', label: '休憩時間（分）', type: 'number', summable: true},
+    {key: 'commute_fee', label: '往復交通費（円）', type: 'number', summable: true},
+    {key: 'note', label: '内容', type: 'text', summable: false}
+  ],
+  summable_keys: ['teach_minutes', 'break_minutes', 'commute_fee']
+};
+const DEFAULT_META = {
+  dispatch_place_name: '',
+  dispatch_place_address: '',
+  customer_id: '',
+  note_schedule: '',
+  work_content: '',
+  tutor_no: '',
+  requests: '',
+  monthly_minutes_fixed: '',
+  weekly_lessons: '',
+  contract_period: ''
+};
 let allReports = [];
 let allAssignments = [];
 const isSubmitPage = location.pathname === '/tutor/submit';
@@ -161,15 +235,33 @@ function durationLabel(minutes) {
 function selectedAssignment() {
   return allAssignments.find(a => a.id === selectedAssignmentId);
 }
+function selectedFormDefinition() {
+  return selectedAssignment()?.form_definition || DEFAULT_FORM_DEFINITION;
+}
+function selectedFormType() {
+  return selectedAssignment()?.form_type || DEFAULT_FORM_DEFINITION.form_type;
+}
 function assignmentName(id) {
   return allAssignments.find(a => a.id === id)?.student_name || '生徒未設定';
 }
-function emptyLine() {
-  return {date: '', start: '', end: '', subject_period: '', teach_minutes: '', break_minutes: '', commute_fee: '', note: ''};
+function emptyLine(form = selectedFormDefinition()) {
+  return Object.fromEntries((form.columns || DEFAULT_FORM_DEFINITION.columns).map(column => [column.key, '']));
 }
 function normalizedLines(report) {
+  const form = report ? (allAssignments.find(a => a.id === report.assignment_id)?.form_definition || DEFAULT_FORM_DEFINITION) : selectedFormDefinition();
   const lines = Array.isArray(report?.form_data?.lines) ? report.form_data.lines : [];
-  return Array.from({length: LINE_COUNT}, (_, index) => ({...emptyLine(), ...(lines[index] || {})}));
+  const count = form.max_lines || LINE_COUNT;
+  return Array.from({length: count}, (_, index) => ({...emptyLine(form), ...(lines[index] || {})}));
+}
+function defaultMeta() {
+  const assignment = selectedAssignment();
+  return {
+    ...DEFAULT_META,
+    tutor_no: assignment?.tutor?.tutor_no || assignment?.tutor?.user_no || ''
+  };
+}
+function normalizedMeta(report) {
+  return {...defaultMeta(), ...((report?.form_data || {}).meta || {})};
 }
 function lineHasData(line) {
   return Object.values(line).some(value => String(value ?? '').trim() !== '');
@@ -282,6 +374,7 @@ function renderMonthFilter() {
   monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
   monthFilter.value = selectedMonth;
   targetMonthLabel.value = monthLabel(selectedMonth);
+  monthTitle.textContent = `${Number(selectedMonth.split('-')[1])}月分業務連絡表`;
 }
 function renderAssignmentOptions() {
   assignment.innerHTML = ['<option value="">生徒を選択</option>', ...allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`)].join('');
@@ -291,26 +384,76 @@ function updateStudentBadge() {
   const current = selectedAssignment();
   studentBadge.textContent = `生徒：${current ? current.student_name : 'すべて'}`;
 }
+function columnLabel(column) {
+  if (column.key === 'subject_period') return '担当時限（1〜10の数値のみ入力可、それ以外は入力不可）';
+  return column.label;
+}
+function renderLineHeader(form) {
+  const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
+  const headers = ['<th class="w-12 px-2 py-2 text-center">回数</th>'];
+  for (let index = 0; index < columns.length; index += 1) {
+    const column = columns[index];
+    if (column.key === 'date') {
+      headers.push(`<th class="w-36 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push('<th class="w-14 px-2 py-2 text-center">曜日</th>');
+    } else if (column.key === 'start') {
+      const next = columns[index + 1];
+      if (next?.key === 'end') {
+        headers.push('<th class="w-48 px-2 py-2 text-left">業務開始時間〜業務終了時間</th>');
+        index += 1;
+      } else {
+        headers.push(`<th class="w-28 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      }
+    } else if (column.key === 'end') {
+      headers.push(`<th class="w-28 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+    } else if (column.key === 'note') {
+      headers.push(`<th class="min-w-64 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+    } else {
+      headers.push(`<th class="w-32 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+    }
+  }
+  lineHead.innerHTML = `<tr>${headers.join('')}</tr>`;
+}
+function inputType(column) {
+  if (column.key === 'subject_period') return 'number';
+  return column.type === 'number' ? 'number' : column.type === 'date' ? 'date' : column.type === 'time' ? 'time' : 'text';
+}
+function inputAttributes(column) {
+  if (column.key === 'subject_period') return 'min="1" max="10" step="1" inputmode="numeric"';
+  if (column.type === 'number') return 'min="0" step="1" inputmode="numeric"';
+  return '';
+}
+function inputClasses(width = 'w-full') {
+  return `line-input h-9 ${width} rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20`;
+}
+function renderCell(column, line) {
+  if (column.key === 'date') {
+    return `<td class="px-2 py-1"><input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses()}"></td>
+      <td class="px-2 py-1 text-center"><span data-weekday class="inline-flex min-w-7 justify-center rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">${escapeHtml(weekdayLabel(line.date))}</span></td>`;
+  }
+  if (column.key === 'start') {
+    return `<td class="px-2 py-1" data-time-range>
+      <div class="flex items-center gap-1">
+        <input type="time" data-field="start" value="${escapeHtml(line.start || '')}" class="${inputClasses('w-[82px]')}">
+        <span class="text-slate-500">〜</span>
+        <input type="time" data-field="end" value="${escapeHtml(line.end || '')}" class="${inputClasses('w-[82px]')}">
+      </div>
+    </td>`;
+  }
+  if (column.key === 'end') return '';
+  return `<td class="px-2 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
+}
 function buildLineRows(lines) {
+  const form = selectedFormDefinition();
+  const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
+  renderLineHeader(form);
   lineRows.innerHTML = lines.map((line, index) => `<tr class="border-t border-slate-100" data-index="${index}">
     <td class="px-2 py-1 text-center text-slate-600">${index + 1}</td>
-    <td class="px-2 py-1"><input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
-    <td class="px-2 py-1 text-center"><span data-weekday class="inline-flex min-w-7 justify-center rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">${escapeHtml(weekdayLabel(line.date))}</span></td>
-    <td class="px-2 py-1">
-      <div class="flex items-center gap-1">
-        <input type="time" data-field="start" value="${escapeHtml(line.start || '')}" class="line-input h-9 w-[82px] rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-        <span class="text-slate-500">〜</span>
-        <input type="time" data-field="end" value="${escapeHtml(line.end || '')}" class="line-input h-9 w-[82px] rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-      </div>
-    </td>
-    <td class="px-2 py-1"><input type="number" data-field="subject_period" min="1" max="10" step="1" value="${escapeHtml(line.subject_period || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
-    <td class="px-2 py-1"><input type="number" data-field="teach_minutes" min="0" step="1" value="${escapeHtml(line.teach_minutes || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
-    <td class="px-2 py-1"><input type="number" data-field="break_minutes" min="0" step="1" value="${escapeHtml(line.break_minutes || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
-    <td class="px-2 py-1"><input type="number" data-field="commute_fee" min="0" step="1" value="${escapeHtml(line.commute_fee || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
-    <td class="px-2 py-1"><input type="text" data-field="note" value="${escapeHtml(line.note || '')}" class="line-input h-9 w-full rounded border border-slate-300 px-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></td>
+    ${columns.map(column => renderCell(column, line)).join('')}
   </tr>`).join('');
   lineRows.querySelectorAll('.line-input').forEach(input => {
     input.addEventListener('input', () => {
+      if (input.dataset.field === 'subject_period') enforceSubjectPeriod(input);
       if (input.dataset.field === 'date') {
         input.closest('tr').querySelector('[data-weekday]').textContent = weekdayLabel(input.value);
       }
@@ -319,12 +462,19 @@ function buildLineRows(lines) {
   });
   updateLineSummary();
 }
+function enforceSubjectPeriod(input) {
+  if (input.value === '') return;
+  if (!/^\d+$/.test(input.value) || Number(input.value) < 1 || Number(input.value) > 10) {
+    input.value = '';
+  }
+}
 function collectLines() {
+  const numericKeys = new Set((selectedFormDefinition().columns || []).filter(column => column.type === 'number').map(column => column.key));
   return [...lineRows.querySelectorAll('tr')].map(row => {
-    const line = emptyLine();
+    const line = emptyLine(selectedFormDefinition());
     row.querySelectorAll('[data-field]').forEach(input => {
       const key = input.dataset.field;
-      if (['subject_period', 'teach_minutes', 'break_minutes', 'commute_fee'].includes(key)) {
+      if (numericKeys.has(key)) {
         line[key] = input.value === '' ? '' : Number(input.value);
       } else {
         line[key] = input.value.trim();
@@ -332,6 +482,18 @@ function collectLines() {
     });
     return line;
   });
+}
+function applyMeta(meta) {
+  document.querySelectorAll('.meta-input').forEach(input => {
+    input.value = meta[input.dataset.meta] ?? '';
+  });
+}
+function collectMeta() {
+  const meta = {...DEFAULT_META};
+  document.querySelectorAll('.meta-input').forEach(input => {
+    meta[input.dataset.meta] = input.value.trim();
+  });
+  return meta;
 }
 function updateLineSummary() {
   const lines = collectLines();
@@ -348,7 +510,7 @@ function updateLineSummary() {
   summaryFee.textContent = m.fee.toLocaleString();
 }
 function setReportInputsDisabled(disabled) {
-  reportForm.querySelectorAll('input, select, button').forEach(el => {
+  reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
     if (el.id !== 'assignment') el.disabled = disabled;
   });
   saveButton.classList.toggle('opacity-50', disabled);
@@ -370,7 +532,9 @@ function resetReportForm(keepAssignment = false) {
   saveButton.textContent = report ? '更新' : '保存';
   assignment.value = selectedAssignmentId;
   targetMonthLabel.value = monthLabel(selectedMonth);
-  buildLineRows(report ? normalizedLines(report) : Array.from({length: LINE_COUNT}, emptyLine));
+  monthTitle.textContent = `${Number(selectedMonth.split('-')[1])}月分業務連絡表`;
+  applyMeta(normalizedMeta(report));
+  buildLineRows(report ? normalizedLines(report) : Array.from({length: selectedFormDefinition().max_lines || LINE_COUNT}, () => emptyLine(selectedFormDefinition())));
   clearFormMessage();
   renderFormAvailability();
 }
@@ -463,7 +627,7 @@ reportForm.addEventListener('submit', async e => {
     showFormMessage('担当時限は1〜10で入力してください', true);
     return;
   }
-  const form_data = {lines};
+  const form_data = {lines, meta: collectMeta()};
   try {
     if (editingId.value) {
       await api(`/api/w/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify({form_data}), suppressFlash: true});
@@ -471,7 +635,7 @@ reportForm.addEventListener('submit', async e => {
     } else {
       await api('/api/w/reports', {
         method:'POST',
-        body: JSON.stringify({assignment_id: selectedAssignmentId, target_month: selectedMonth, form_type: 'monthly_dispatch', form_data}),
+        body: JSON.stringify({assignment_id: selectedAssignmentId, target_month: selectedMonth, form_type: selectedFormType(), form_data}),
         suppressFlash: true
       });
       showFormMessage('業務連絡表を作成しました');

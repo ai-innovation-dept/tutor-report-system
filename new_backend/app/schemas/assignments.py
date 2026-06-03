@@ -18,6 +18,7 @@ class TutorInfo(BaseModel):
     id: uuid.UUID
     display_name: str
     user_no: str | None = None
+    tutor_no: str | None = None
     model_config = {"from_attributes": True}
 
 
@@ -29,5 +30,7 @@ class AssignmentOut(BaseModel):
     system_type: str | None = None
     created_at: datetime
     tutor: TutorInfo | None = None
+    form_type: str = "monthly_dispatch"
+    form_definition: dict | None = None
 
     model_config = {"from_attributes": True}

@@ -7,18 +7,62 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.dependencies.auth import get_current_user, require_role
+from app.forms.definitions import FORM_REGISTRY
 from app.models.shared import Assignment, User
+from app.models.work import WorkAssignmentProfile
 from app.schemas.assignments import AssignmentCreate, AssignmentOut, AssignmentPatch
 
 router = APIRouter(prefix="/api/w/assignments", tags=["work-assignments"])
 
 
-def _get_assignment_out(db: Session, assignment_id) -> Assignment:
-    return db.scalar(
+def _form_definition(form_type: str) -> dict:
+    form = FORM_REGISTRY.get(form_type) or FORM_REGISTRY["monthly_dispatch"]
+    return {
+        "form_type": form.form_type,
+        "label": form.label,
+        "max_lines": form.max_lines,
+        "columns": [
+            {"key": c.key, "label": c.label, "type": c.type, "summable": c.summable}
+            for c in form.columns
+        ],
+        "summable_keys": sorted(form.summable_keys),
+    }
+
+
+def _assignment_form_type(db: Session, assignment_id) -> str:
+    profile = db.scalar(
+        select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.assignment_id == assignment_id,
+            WorkAssignmentProfile.is_active.is_(True),
+        )
+    )
+    if not profile or profile.form_type not in FORM_REGISTRY:
+        return "monthly_dispatch"
+    return profile.form_type
+
+
+def _assignment_out(db: Session, assignment: Assignment) -> dict:
+    form_type = _assignment_form_type(db, assignment.id)
+    return {
+        "id": assignment.id,
+        "tutor_id": assignment.tutor_id,
+        "student_name": assignment.student_name,
+        "is_active": assignment.is_active,
+        "system_type": assignment.system_type,
+        "created_at": assignment.created_at,
+        "tutor": assignment.tutor,
+        "form_type": form_type,
+        "form_definition": _form_definition(form_type),
+    }
+
+
+def _get_assignment_out(db: Session, assignment_id) -> dict:
+    assignment = db.scalar(
         select(Assignment)
         .options(selectinload(Assignment.tutor))
         .where(Assignment.id == assignment_id)
     )
+    return _assignment_out(db, assignment)
 
 
 @router.post("", response_model=AssignmentOut, status_code=201)
@@ -66,7 +110,7 @@ def list_assignments(
     roles = list(user.roles or []) or ([user.role] if user.role else [])
     if "tutor" in roles:
         stmt = stmt.where(Assignment.tutor_id == user.id, Assignment.is_active.is_(True))
-    return list(db.scalars(stmt).all())
+    return [_assignment_out(db, assignment) for assignment in db.scalars(stmt).all()]
 
 
 @router.patch("/{assignment_id}", response_model=AssignmentOut)
