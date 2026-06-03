@@ -203,12 +203,11 @@ function showInviteMessage(text, isError = false) {
 }
 function syncRoleFields() {
   const role = roleSelect.value;
-  const schoolMode = role === 'school';
-  displayNameField.classList.toggle('hidden', schoolMode);
-  displayNameInput.required = !schoolMode;
-  displayNameInput.disabled = schoolMode;
+  displayNameField.classList.remove('hidden');
+  displayNameInput.required = true;
+  displayNameInput.disabled = false;
   if (role === 'tutor') roleHint.textContent = 'Noは自動で割り当てられます。';
-  else if (schoolMode) roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。';
+  else if (role === 'school') roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。';
   else roleHint.textContent = '経理スタッフは登録URLで本人がパスワードを設定します。';
 }
 function renderInvitations() {
@@ -453,9 +452,6 @@ async function deleteSelectedUser() {
 inviteForm.addEventListener('submit', async event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(inviteForm));
-  if (data.role === 'school') {
-    delete data.display_name;
-  }
   try {
     const result = await api('/api/w/invitations', {method: 'POST', body: JSON.stringify(data)});
     inviteForm.reset();

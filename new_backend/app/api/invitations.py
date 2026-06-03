@@ -80,6 +80,8 @@ async def create_invitation(
         raise HTTPException(status_code=422, detail="role is invalid")
     if payload.display_name is not None and not payload.display_name.strip():
         raise HTTPException(status_code=422, detail="display_name cannot be blank")
+    if payload.role == "school" and not payload.display_name:
+        raise HTTPException(status_code=422, detail="display_name is required")
 
     existing_user = get_user_by_email(db, email)
     if existing_user and "new" in (existing_user.allowed_systems or []):
