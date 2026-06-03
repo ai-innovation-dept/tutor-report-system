@@ -28,10 +28,10 @@
               <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
                 class="meta-input w-full px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
             </div>
-            <div class="flex w-52 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
-              <div class="font-bold text-slate-900 leading-snug">
+            <div class="flex w-64 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
+              <div class="flex items-center justify-center gap-1 whitespace-nowrap font-bold leading-snug text-slate-900">
                 <select id="monthFilter"
-                  class="rounded border border-slate-400 px-1.5 py-1 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
+                  class="w-24 rounded border border-slate-400 px-1.5 py-1 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
                 <span class="text-sm">月分業務連絡表</span>
               </div>
               <div class="text-xs text-slate-400">対象月を選択してください</div>
@@ -71,16 +71,6 @@
             </div>
           </div>
 
-        </div>
-
-        <div>
-          <label class="block text-sm">
-            <span class="mb-1 flex items-center gap-2">
-              <span class="text-slate-700">生徒</span>
-              <span id="assignmentError" class="hidden text-xs text-red-600">※生徒を選択してください</span>
-            </span>
-            <select name="assignment_id" id="assignment" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
-          </label>
         </div>
 
         <div class="overflow-x-auto rounded-lg border border-slate-200">
@@ -330,10 +320,7 @@ function renderMonthFilter() {
   monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
   monthFilter.value = selectedMonth;
 }
-function renderAssignmentOptions() {
-  assignment.innerHTML = ['<option value="">生徒を選択</option>', ...allAssignments.map(a => `<option value="${a.id}">${escapeHtml(a.student_name)}</option>`)].join('');
-  assignment.value = selectedAssignmentId;
-}
+function renderAssignmentOptions() {}
 function updateStudentBadge() {}
 function columnLabel(column) {
   if (column.key === 'subject_period') return '担当時限（1〜10の数値のみ入力可、それ以外は入力不可）';
@@ -462,7 +449,7 @@ function updateLineSummary() {
 }
 function setReportInputsDisabled(disabled) {
   reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
-    if (el.id !== 'assignment') el.disabled = disabled;
+    if (el.id !== 'monthFilter') el.disabled = disabled;
   });
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
@@ -481,7 +468,6 @@ function resetReportForm(keepAssignment = false) {
   editingId.value = report?.id || '';
   formTitle.textContent = report ? `編集中：${assignmentName(report.assignment_id)} ${monthLabel(report.target_month)}` : '月次業務連絡表';
   saveButton.textContent = report ? '更新' : '保存';
-  assignment.value = selectedAssignmentId;
   applyMeta(normalizedMeta(report));
   buildLineRows(report ? normalizedLines(report) : Array.from({length: selectedFormDefinition().max_lines || LINE_COUNT}, () => emptyLine(selectedFormDefinition())));
   clearFormMessage();
@@ -493,12 +479,6 @@ function renderFormAvailability() {
     return;
   }
   formPanel.classList.remove('hidden');
-  document.getElementById('assignmentError').classList.toggle('hidden', Boolean(selectedAssignmentId));
-  if (!selectedAssignmentId) {
-    setReportInputsDisabled(true);
-    showFormMessage('生徒を選択してください', true);
-    return;
-  }
   const report = selectedReport();
   if (selectedMonth !== currentMonth) {
     setReportInputsDisabled(true);
@@ -548,6 +528,7 @@ async function loadTutor() {
   allAssignments = assignments;
   allReports = [...reports].sort((a, b) => `${a.target_month}${assignmentName(a.assignment_id)}`.localeCompare(`${b.target_month}${assignmentName(b.assignment_id)}`));
   if (selectedAssignmentId && !allAssignments.some(a => a.id === selectedAssignmentId)) selectedAssignmentId = '';
+  if (!selectedAssignmentId && allAssignments.length) selectedAssignmentId = allAssignments[0].id;
   renderAssignmentOptions();
   renderMonthFilter();
   updateStudentBadge();
@@ -562,10 +543,6 @@ async function loadTutor() {
 reportForm.addEventListener('submit', async e => {
   e.preventDefault();
   clearFormMessage();
-  if (!selectedAssignmentId) {
-    showFormMessage('生徒を選択してください', true);
-    return;
-  }
   const lines = collectLines();
   if (!lines.some(lineHasData)) {
     showFormMessage('少なくとも1行入力してください', true);
@@ -595,12 +572,6 @@ reportForm.addEventListener('submit', async e => {
     try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
     showFormMessage(`保存に失敗しました：${msg}`, true);
   }
-});
-assignment.addEventListener('change', () => {
-  selectedAssignmentId = assignment.value;
-  updateStudentBadge();
-  renderCurrentList();
-  resetReportForm(true);
 });
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;
