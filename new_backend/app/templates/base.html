@@ -28,7 +28,8 @@
     <div class="border-b border-slate-700 px-4 py-4">
       <p class="text-xs text-slate-400">ログイン中</p>
       <p class="mt-1 text-sm font-semibold text-white" id="sidebarUserName">{{ current_user.display_name }}</p>
-      <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole">{{ active_role }}</p>
+      {% set sidebar_role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理'} %}
+      <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole">{{ sidebar_role_labels.get(active_role, active_role) }}</p>
       <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="sidebarTutorNo">No：{{ current_user.user_no or '-' }}</p>
       <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="navTutorTotal">合計：0分</p>
     </div>

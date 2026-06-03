@@ -56,16 +56,6 @@
         <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
       </label>
     </div>
-    <div id="schoolFields" class="hidden grid gap-3 md:grid-cols-[1fr_1fr]">
-      <label class="block text-sm">
-        <span class="mb-1 block text-slate-700">担当講師</span>
-        <select name="tutor_id" id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
-      </label>
-      <label class="block text-sm">
-        <span class="mb-1 block text-slate-700">生徒名</span>
-        <input name="student_name" id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="100">
-      </label>
-    </div>
     <div class="flex flex-wrap items-center justify-between gap-3">
       <p id="roleHint" class="text-sm text-slate-500">Noは自動で割り当てられます。</p>
       <button class="rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white transition hover:bg-emerald-700">招待メールを送る</button>
@@ -148,7 +138,6 @@
 <script>
 setBreadcrumb('管理ポータル', 'ユーザー管理');
 let invitations = [];
-let tutors = [];
 let users = [];
 let paginationState = {page: 1, per_page: 50, total: 0, total_pages: 1, role_counts: {}, active_admin_master_count: 0};
 let activeRole = '';
@@ -212,22 +201,14 @@ function showInviteMessage(text, isError = false) {
   inviteMessage.textContent = text;
   inviteMessage.className = `mt-3 text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
 }
-function renderTutorOptions() {
-  tutorSelect.innerHTML = tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}（${escapeHtml(tutor.email)}）</option>`).join('');
-}
 function syncRoleFields() {
   const role = roleSelect.value;
   const schoolMode = role === 'school';
-  schoolFields.classList.toggle('hidden', !schoolMode);
   displayNameField.classList.toggle('hidden', schoolMode);
   displayNameInput.required = !schoolMode;
   displayNameInput.disabled = schoolMode;
-  tutorSelect.required = schoolMode;
-  tutorSelect.disabled = !schoolMode;
-  studentNameInput.required = schoolMode;
-  studentNameInput.disabled = !schoolMode;
   if (role === 'tutor') roleHint.textContent = 'Noは自動で割り当てられます。';
-  else if (schoolMode) roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。既存学校メールなら生徒を追加します。';
+  else if (schoolMode) roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。';
   else roleHint.textContent = '経理スタッフは登録URLで本人がパスワードを設定します。';
 }
 function renderInvitations() {
@@ -310,13 +291,11 @@ async function loadUsersPage(page = paginationState.page) {
   if (activeRole) params.set('roles', activeRole);
   const keyword = userSearch.value.trim();
   if (keyword) params.set('search', keyword);
-  const [invitationRowsData, tutorRows, userRowsData] = await Promise.all([
+  const [invitationRowsData, userRowsData] = await Promise.all([
     api('/api/w/invitations'),
-    api('/api/w/users?role=tutor&per_page=100'),
     api(`/api/w/users?${params.toString()}`)
   ]);
   invitations = invitationRowsData;
-  tutors = tutorRows.items || tutorRows;
   users = userRowsData.items || [];
   paginationState = {
     page: userRowsData.page || page,
@@ -327,7 +306,6 @@ async function loadUsersPage(page = paginationState.page) {
     active_admin_master_count: userRowsData.active_admin_master_count || 0
   };
   changedRoles = {};
-  renderTutorOptions();
   renderInvitations();
   renderUsers();
   syncRoleFields();
@@ -475,10 +453,7 @@ async function deleteSelectedUser() {
 inviteForm.addEventListener('submit', async event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(inviteForm));
-  if (data.role !== 'school') {
-    delete data.tutor_id;
-    delete data.student_name;
-  } else {
+  if (data.role === 'school') {
     delete data.display_name;
   }
   try {
@@ -498,9 +473,7 @@ async function resendInvitation(id) {
   const payload = {
     email: invitation.email,
     role: invitation.role,
-    display_name: invitation.display_name,
-    tutor_id: invitation.tutor_id,
-    student_name: invitation.student_name
+    display_name: invitation.display_name
   };
   await api('/api/w/invitations', {method: 'POST', body: JSON.stringify(payload)});
   showInviteMessage('招待メールを再送しました。');
