@@ -52,7 +52,7 @@ def apply_transition(
     report.current_approver_role = transition.next_approver_role
     report.updated_at = datetime.now(timezone.utc)
 
-    if action == WorkAction.SUBMIT and from_status in ("draft", "returned_to_tutor", "returned_to_sales"):
+    if action == WorkAction.SUBMIT and from_status in ("draft", "returned_to_tutor", "returned_to_office"):
         report.submitted_at = datetime.now(timezone.utc)
 
     event = WorkReportEvent(

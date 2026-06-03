@@ -78,7 +78,7 @@ class TestFindTransition:
     def test_school_can_approve_awaiting_school(self):
         t = find_transition(WorkStatus.AWAITING_SCHOOL, WorkAction.APPROVE, "school")
         assert t is not None
-        assert t.to_status == WorkStatus.AWAITING_SALES
+        assert t.to_status == WorkStatus.AWAITING_OFFICE
 
     def test_wrong_role_returns_none(self):
         assert find_transition(WorkStatus.AWAITING_SCHOOL, WorkAction.APPROVE, "tutor") is None
@@ -90,7 +90,7 @@ class TestFindTransition:
         for role in ("sales", "office", "admin_master"):
             t = find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, role)
             assert t is not None, f"skip_school should be allowed for {role}"
-            assert t.to_status == WorkStatus.AWAITING_SALES
+            assert t.to_status == WorkStatus.AWAITING_OFFICE
 
     def test_skip_school_not_allowed_for_tutor(self):
         assert find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, "tutor") is None
@@ -98,22 +98,22 @@ class TestFindTransition:
     def test_return_requires_comment(self):
         for from_status, role in [
             (WorkStatus.AWAITING_SCHOOL, "school"),
-            (WorkStatus.AWAITING_SALES, "sales"),
             (WorkStatus.AWAITING_OFFICE, "office"),
+            (WorkStatus.AWAITING_SALES, "sales"),
             (WorkStatus.AWAITING_FINANCE, "admin_master"),
         ]:
             t = find_transition(from_status, WorkAction.RETURN, role)
             assert t is not None
             assert t.comment_required is True
 
-    def test_office_return_goes_to_returned_to_sales(self):
-        t = find_transition(WorkStatus.AWAITING_OFFICE, WorkAction.RETURN, "office")
-        assert t.to_status == WorkStatus.RETURNED_TO_SALES
+    def test_sales_return_goes_to_returned_to_office(self):
+        t = find_transition(WorkStatus.AWAITING_SALES, WorkAction.RETURN, "sales")
+        assert t.to_status == WorkStatus.RETURNED_TO_OFFICE
 
-    def test_returned_to_sales_resubmit_by_sales(self):
-        t = find_transition(WorkStatus.RETURNED_TO_SALES, WorkAction.SUBMIT, "sales")
+    def test_returned_to_office_resubmit_by_office(self):
+        t = find_transition(WorkStatus.RETURNED_TO_OFFICE, WorkAction.SUBMIT, "office")
         assert t is not None
-        assert t.to_status == WorkStatus.AWAITING_OFFICE
+        assert t.to_status == WorkStatus.AWAITING_SALES
 
 
 # ---------------------------------------------------------------------------
@@ -128,9 +128,9 @@ class TestApplyTransition:
     def test_full_approval_chain(self):
         steps = [
             (WorkStatus.DRAFT, WorkAction.SUBMIT, "tutor", WorkStatus.AWAITING_SCHOOL),
-            (WorkStatus.AWAITING_SCHOOL, WorkAction.APPROVE, "school", WorkStatus.AWAITING_SALES),
-            (WorkStatus.AWAITING_SALES, WorkAction.APPROVE, "sales", WorkStatus.AWAITING_OFFICE),
-            (WorkStatus.AWAITING_OFFICE, WorkAction.APPROVE, "office", WorkStatus.AWAITING_FINANCE),
+            (WorkStatus.AWAITING_SCHOOL, WorkAction.APPROVE, "school", WorkStatus.AWAITING_OFFICE),
+            (WorkStatus.AWAITING_OFFICE, WorkAction.APPROVE, "office", WorkStatus.AWAITING_SALES),
+            (WorkStatus.AWAITING_SALES, WorkAction.APPROVE, "sales", WorkStatus.AWAITING_FINANCE),
             (WorkStatus.AWAITING_FINANCE, WorkAction.APPROVE, "admin_master", WorkStatus.APPROVED),
         ]
         for from_s, action, role, expected in steps:
@@ -156,14 +156,14 @@ class TestApplyTransition:
         to = _apply(WorkStatus.AWAITING_SCHOOL, WorkAction.RETURN, "school", comment="修正してください")
         assert to == WorkStatus.RETURNED_TO_TUTOR
 
-    def test_skip_school_then_return_from_office_goes_to_returned_to_sales(self):
+    def test_skip_school_then_return_from_sales_goes_to_returned_to_office(self):
         # スキップ後のフロー確認
-        to = _apply(WorkStatus.AWAITING_OFFICE, WorkAction.RETURN, "office", comment="要修正")
-        assert to == WorkStatus.RETURNED_TO_SALES
+        to = _apply(WorkStatus.AWAITING_SALES, WorkAction.RETURN, "sales", comment="要修正")
+        assert to == WorkStatus.RETURNED_TO_OFFICE
 
-    def test_returned_to_sales_resubmit_goes_to_awaiting_office(self):
-        to = _apply(WorkStatus.RETURNED_TO_SALES, WorkAction.SUBMIT, "sales")
-        assert to == WorkStatus.AWAITING_OFFICE
+    def test_returned_to_office_resubmit_goes_to_awaiting_sales(self):
+        to = _apply(WorkStatus.RETURNED_TO_OFFICE, WorkAction.SUBMIT, "office")
+        assert to == WorkStatus.AWAITING_SALES
 
     def test_403_when_valid_action_wrong_role(self):
         """同じアクションでも別のロールはPermissionDenied"""

@@ -69,30 +69,33 @@ class TestInvitationCreate:
         assert res.status_code == 201, res.text
         data = res.json()
         assert data["role"] == "tutor"
-        assert data["user_no"].startswith("T")
-        assert int(data["user_no"][1:]) >= 1001
+        assert data["user_no"].isdigit()
+        assert int(data["user_no"]) >= 10001
 
     def test_invite_school_ok(self, client, master_user):
         res = self._invite(client, "school", master_user)
         assert res.status_code == 201
         data = res.json()
-        assert data["user_no"].startswith("S")
-        assert int(data["user_no"][1:]) >= 2001
+        assert data["user_no"].isdigit()
+        assert int(data["user_no"]) >= 20001
 
     def test_invite_sales_ok(self, client, master_user):
         res = self._invite(client, "sales", master_user)
         assert res.status_code == 201
-        assert res.json()["user_no"].startswith("X")
+        assert res.json()["user_no"].isdigit()
+        assert int(res.json()["user_no"]) >= 30001
 
     def test_invite_office_ok(self, client, master_user):
         res = self._invite(client, "office", master_user)
         assert res.status_code == 201
-        assert res.json()["user_no"].startswith("X")
+        assert res.json()["user_no"].isdigit()
+        assert int(res.json()["user_no"]) >= 30001
 
     def test_invite_admin_master_ok(self, client, master_user):
         res = self._invite(client, "admin_master", master_user)
         assert res.status_code == 201
-        assert res.json()["user_no"].startswith("X")
+        assert res.json()["user_no"].isdigit()
+        assert int(res.json()["user_no"]) >= 30001
 
     def test_non_admin_cannot_invite(self, client, master_user):
         db = TestSession()
@@ -125,8 +128,8 @@ class TestInvitationCreate:
         r1 = client.post("/api/w/invitations", json={"role": "school", "email": "s1@x.example.com", "display_name": "学校1"}, headers=h)
         r2 = client.post("/api/w/invitations", json={"role": "school", "email": "s2@x.example.com", "display_name": "学校2"}, headers=h)
         assert r1.status_code == 201 and r2.status_code == 201
-        n1 = int(r1.json()["user_no"][1:])
-        n2 = int(r2.json()["user_no"][1:])
+        n1 = int(r1.json()["user_no"])
+        n2 = int(r2.json()["user_no"])
         assert n2 == n1 + 1
 
 
@@ -194,7 +197,8 @@ class TestRegistration:
         assert res.status_code == 200
         data = res.json()
         assert data["role"] == "tutor"
-        assert data["user_no"].startswith("T")
+        assert data["user_no"].isdigit()
+        assert int(data["user_no"]) >= 10001
 
     def test_register_info_invalid_token(self, client, master_user):
         res = client.get("/api/auth/register?token=invalid")
@@ -213,7 +217,8 @@ class TestRegistration:
         )
         assert user is not None
         assert user.role == "school"
-        assert user.user_no.startswith("S")
+        assert user.user_no.isdigit()
+        assert int(user.user_no) >= 20001
         assert user.allowed_systems == ["new"]
         db.close()
 

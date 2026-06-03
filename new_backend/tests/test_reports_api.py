@@ -194,14 +194,14 @@ class TestWorkflow:
         steps = [
             ("tutor@work.example.com", "submit"),
             ("school@work.example.com", "approve"),
-            ("sales@work.example.com", "approve"),
             ("office@work.example.com", "approve"),
+            ("sales@work.example.com", "approve"),
             ("master@work.example.com", "approve"),
         ]
         expected_statuses = [
             WorkStatus.AWAITING_SCHOOL,
-            WorkStatus.AWAITING_SALES,
             WorkStatus.AWAITING_OFFICE,
+            WorkStatus.AWAITING_SALES,
             WorkStatus.AWAITING_FINANCE,
             WorkStatus.APPROVED,
         ]
@@ -218,36 +218,36 @@ class TestWorkflow:
                           json={"action": "skip_school"},
                           headers=_auth(client, "sales@work.example.com"))
         assert res.status_code == 200
-        assert res.json()["status"] == WorkStatus.AWAITING_SALES
+        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
 
-    def test_return_from_office_goes_to_returned_to_sales(self, client, users):
+    def test_return_from_sales_goes_to_returned_to_office(self, client, users):
         report_id = self._create_report(client, users)
         for email, action in [
             ("tutor@work.example.com", "submit"),
             ("school@work.example.com", "approve"),
-            ("sales@work.example.com", "approve"),
+            ("office@work.example.com", "approve"),
         ]:
             client.post(f"/api/w/reports/{report_id}/action", json={"action": action},
                         headers=_auth(client, email))
         res = client.post(f"/api/w/reports/{report_id}/action",
                           json={"action": "return", "comment": "要修正"},
-                          headers=_auth(client, "office@work.example.com"))
+                          headers=_auth(client, "sales@work.example.com"))
         assert res.status_code == 200
-        assert res.json()["status"] == WorkStatus.RETURNED_TO_SALES
+        assert res.json()["status"] == WorkStatus.RETURNED_TO_OFFICE
 
-    def test_returned_to_sales_resubmit_by_sales_goes_to_awaiting_office(self, client, users):
+    def test_returned_to_office_resubmit_by_office_goes_to_awaiting_sales(self, client, users):
         report_id = self._create_report(client, users)
         for email, action, comment in [
             ("tutor@work.example.com", "submit", None),
             ("school@work.example.com", "approve", None),
-            ("sales@work.example.com", "approve", None),
-            ("office@work.example.com", "return", "要修正"),
+            ("office@work.example.com", "approve", None),
+            ("sales@work.example.com", "return", "要修正"),
         ]:
             client.post(f"/api/w/reports/{report_id}/action",
                         json={"action": action, "comment": comment},
                         headers=_auth(client, email))
         res = client.post(f"/api/w/reports/{report_id}/action",
                           json={"action": "submit"},
-                          headers=_auth(client, "sales@work.example.com"))
+                          headers=_auth(client, "office@work.example.com"))
         assert res.status_code == 200
-        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
+        assert res.json()["status"] == WorkStatus.AWAITING_SALES

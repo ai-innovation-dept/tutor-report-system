@@ -76,6 +76,7 @@ def _advance_to_sales(client, report_id):
     for email, action in [
         ("b-tutor@example.com", "submit"),
         ("b-school@example.com", "approve"),
+        ("b-office@example.com", "approve"),
     ]:
         res = client.post(f"/api/w/reports/{report_id}/action", json={"action": action}, headers=_auth(client, email))
         assert res.status_code == 200, res.text
@@ -130,7 +131,7 @@ def test_bulk_action_processes_valid_reports_and_skips_invalid(client, users):
     assert data["skipped"] == 1
     assert data["skip_ids"] == [invalid_id]
 
-    assert client.get(f"/api/w/reports/{valid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.AWAITING_OFFICE
+    assert client.get(f"/api/w/reports/{valid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.AWAITING_FINANCE
     assert client.get(f"/api/w/reports/{invalid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.DRAFT
 
 

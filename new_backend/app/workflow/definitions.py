@@ -14,12 +14,12 @@ class WorkStatus:
     AWAITING_FINANCE = "awaiting_finance"
     APPROVED = "approved"
     RETURNED_TO_TUTOR = "returned_to_tutor"
-    RETURNED_TO_SALES = "returned_to_sales"
+    RETURNED_TO_OFFICE = "returned_to_office"
     CLOSED = "closed"
 
     ALL = {
         DRAFT, AWAITING_SCHOOL, AWAITING_SALES, AWAITING_OFFICE,
-        AWAITING_FINANCE, APPROVED, RETURNED_TO_TUTOR, RETURNED_TO_SALES, CLOSED,
+        AWAITING_FINANCE, APPROVED, RETURNED_TO_TUTOR, RETURNED_TO_OFFICE, CLOSED,
     }
 
 
@@ -56,13 +56,6 @@ TRANSITIONS: list[Transition] = [
         from_status=WorkStatus.AWAITING_SCHOOL,
         action=WorkAction.APPROVE,
         allowed_roles=frozenset({"school"}),
-        to_status=WorkStatus.AWAITING_SALES,
-        next_approver_role="sales",
-    ),
-    Transition(
-        from_status=WorkStatus.AWAITING_SALES,
-        action=WorkAction.APPROVE,
-        allowed_roles=frozenset({"sales"}),
         to_status=WorkStatus.AWAITING_OFFICE,
         next_approver_role="office",
     ),
@@ -70,6 +63,13 @@ TRANSITIONS: list[Transition] = [
         from_status=WorkStatus.AWAITING_OFFICE,
         action=WorkAction.APPROVE,
         allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.AWAITING_SALES,
+        next_approver_role="sales",
+    ),
+    Transition(
+        from_status=WorkStatus.AWAITING_SALES,
+        action=WorkAction.APPROVE,
+        allowed_roles=frozenset({"sales"}),
         to_status=WorkStatus.AWAITING_FINANCE,
         next_approver_role="admin_master",
     ),
@@ -85,8 +85,8 @@ TRANSITIONS: list[Transition] = [
         from_status=WorkStatus.DRAFT,
         action=WorkAction.SKIP_SCHOOL,
         allowed_roles=frozenset({"sales", "office", "admin_master"}),
-        to_status=WorkStatus.AWAITING_SALES,
-        next_approver_role="sales",
+        to_status=WorkStatus.AWAITING_OFFICE,
+        next_approver_role="office",
     ),
     # 差戻し
     Transition(
@@ -98,28 +98,28 @@ TRANSITIONS: list[Transition] = [
         next_approver_role="tutor",
     ),
     Transition(
-        from_status=WorkStatus.AWAITING_SALES,
+        from_status=WorkStatus.AWAITING_OFFICE,
         action=WorkAction.RETURN,
-        allowed_roles=frozenset({"sales"}),
+        allowed_roles=frozenset({"office"}),
         to_status=WorkStatus.RETURNED_TO_TUTOR,
         comment_required=True,
         next_approver_role="tutor",
     ),
     Transition(
-        from_status=WorkStatus.AWAITING_OFFICE,
+        from_status=WorkStatus.AWAITING_SALES,
         action=WorkAction.RETURN,
-        allowed_roles=frozenset({"office"}),
-        to_status=WorkStatus.RETURNED_TO_SALES,
+        allowed_roles=frozenset({"sales"}),
+        to_status=WorkStatus.RETURNED_TO_OFFICE,
         comment_required=True,
-        next_approver_role="sales",
+        next_approver_role="office",
     ),
     Transition(
         from_status=WorkStatus.AWAITING_FINANCE,
         action=WorkAction.RETURN,
         allowed_roles=frozenset({"admin_master"}),
-        to_status=WorkStatus.RETURNED_TO_SALES,
+        to_status=WorkStatus.RETURNED_TO_OFFICE,
         comment_required=True,
-        next_approver_role="sales",
+        next_approver_role="office",
     ),
     # 再提出
     Transition(
@@ -130,11 +130,11 @@ TRANSITIONS: list[Transition] = [
         next_approver_role="school",
     ),
     Transition(
-        from_status=WorkStatus.RETURNED_TO_SALES,
+        from_status=WorkStatus.RETURNED_TO_OFFICE,
         action=WorkAction.SUBMIT,
-        allowed_roles=frozenset({"sales"}),
-        to_status=WorkStatus.AWAITING_OFFICE,
-        next_approver_role="office",
+        allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.AWAITING_SALES,
+        next_approver_role="sales",
     ),
 ]
 

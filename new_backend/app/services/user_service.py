@@ -17,17 +17,17 @@ ROLE_LABELS = {
 
 # (最小番号, プレフィックス)
 _NO_RANGE: dict[str, tuple[int, str]] = {
-    "tutor":        (1001, "T"),
-    "school":       (2001, "S"),
-    "sales":        (3001, "X"),
-    "office":       (3001, "X"),
-    "admin_master": (3001, "X"),
+    "tutor":        (10001, ""),
+    "school":       (20001, ""),
+    "sales":        (30001, ""),
+    "office":       (30001, ""),
+    "admin_master": (30001, ""),
 }
 
 
 def generate_user_no(db: Session, role: str) -> str:
     """ロール別番号帯でuser_noを採番する。既存user_noと未受諾招待を参照して重複を防ぐ。"""
-    start, prefix = _NO_RANGE.get(role, (1001, "X"))
+    start, prefix = _NO_RANGE.get(role, (10001, ""))
 
     existing: list[str | None] = list(db.scalars(select(User.user_no).where(User.user_no.is_not(None))).all())
     # tutor は legacy の tutor_no も参照して衝突を防ぐ
@@ -47,13 +47,20 @@ def generate_user_no(db: Session, role: str) -> str:
     max_no = start - 1
     for no in [*existing, *pending]:
         s = str(no) if no else ""
-        if s.startswith(prefix):
-            try:
-                num = int(s[len(prefix):])
-                if num >= start:
-                    max_no = max(max_no, num)
-            except ValueError:
+        if prefix:
+            if not s.startswith(prefix):
                 continue
+            value = s[len(prefix):]
+        else:
+            if not s.isdigit():
+                continue
+            value = s
+        try:
+            num = int(value)
+            if num >= start:
+                max_no = max(max_no, num)
+        except ValueError:
+            continue
 
     return f"{prefix}{max_no + 1}"
 

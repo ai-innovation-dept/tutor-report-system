@@ -87,7 +87,7 @@ class TestPhase2Pages:
 
 
 class TestPhase2Api:
-    def test_sales_bulk_approve_moves_to_awaiting_office(self, client, users):
+    def test_office_bulk_approve_moves_to_awaiting_sales(self, client, users):
         report_id = _create_report(client, users)
         for email, action in [
             ("p2-tutor@example.com", "submit"),
@@ -99,13 +99,13 @@ class TestPhase2Api:
         res = client.post(
             "/api/w/reports/bulk-action",
             json={"report_ids": [report_id], "action": "approve"},
-            headers=_login(client, "p2-sales@example.com"),
+            headers=_login(client, "p2-office@example.com"),
         )
         assert res.status_code == 200, res.text
         assert res.json()["updated"] == 1
 
         res = client.get(f"/api/w/reports/{report_id}", headers=_login(client, "p2-sales@example.com"))
-        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
+        assert res.json()["status"] == WorkStatus.AWAITING_SALES
 
     def test_tutor_monthly_summary(self, client, users):
         _create_report(client, users)

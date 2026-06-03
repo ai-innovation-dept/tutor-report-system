@@ -24,15 +24,16 @@ _SUBMITTED_TO_ADMIN_SUBJECT = "【業務連絡表】報告書が提出されま�
 _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("submit", "draft"): (("school",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("submit", "returned_to_tutor"): (("school",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
-    ("skip_school", "draft"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("submit", "returned_to_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("skip_school", "draft"): (("office",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "awaiting_school"): (("tutor",), "approved_by_school", _APPROVED_BY_SCHOOL_SUBJECT),
-    ("approve", "awaiting_sales"): (("office",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
-    ("approve", "awaiting_office"): (("admin_master",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("approve", "awaiting_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("approve", "awaiting_sales"): (("admin_master",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "awaiting_finance"): (("tutor", "school"), "final_approved", _FINAL_APPROVED_SUBJECT),
     ("return", "awaiting_school"): (("tutor",), "returned", _RETURNED_SUBJECT),
-    ("return", "awaiting_sales"): (("tutor",), "returned", _RETURNED_SUBJECT),
-    ("return", "awaiting_office"): (("sales",), "returned", _RETURNED_SUBJECT),
-    ("return", "awaiting_finance"): (("sales",), "returned", _RETURNED_SUBJECT),
+    ("return", "awaiting_office"): (("tutor",), "returned", _RETURNED_SUBJECT),
+    ("return", "awaiting_sales"): (("office",), "returned", _RETURNED_SUBJECT),
+    ("return", "awaiting_finance"): (("office",), "returned", _RETURNED_SUBJECT),
 }
 
 
@@ -297,7 +298,8 @@ async def _send_group_notification(
                 },
             )
             return
-        receivers = _staff_users(db, "sales")
+        receiver_role = "sales" if report.status == WorkStatus.AWAITING_SALES else "office"
+        receivers = _staff_users(db, receiver_role)
         await _send_email_to_users(
             db,
             receivers,
@@ -325,8 +327,8 @@ async def _send_group_notification(
                 },
             )
             return
-        if report.status == WorkStatus.RETURNED_TO_SALES:
-            receivers = _staff_users(db, "sales")
+        if report.status == WorkStatus.RETURNED_TO_OFFICE:
+            receivers = _staff_users(db, "office")
             await _send_email_to_users(
                 db,
                 receivers,
@@ -341,7 +343,7 @@ async def _send_group_notification(
             return
 
     if action == WorkAction.APPROVE:
-        if report.status == WorkStatus.AWAITING_SALES:
+        if report.status == WorkStatus.AWAITING_OFFICE:
             tutor = _tutor(report)
             await _send_email(
                 db,
@@ -354,10 +356,10 @@ async def _send_group_notification(
                 },
             )
             return
-        if report.status == WorkStatus.AWAITING_OFFICE:
+        if report.status == WorkStatus.AWAITING_SALES:
             await _send_email_to_users(
                 db,
-                _staff_users(db, "office"),
+                _staff_users(db, "sales"),
                 _APPROVAL_REQUEST_SUBJECT,
                 "notify_submitted_to_admin.txt",
                 context | {

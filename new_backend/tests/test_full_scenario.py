@@ -72,9 +72,9 @@ class TestScenario:
         # 各ステップで正しいステータスに遷移するか
         steps = [
             ("tutor@scenario.example.com", "submit", None, WorkStatus.AWAITING_SCHOOL),
-            ("school@scenario.example.com", "approve", None, WorkStatus.AWAITING_SALES),
-            ("sales@scenario.example.com", "approve", None, WorkStatus.AWAITING_OFFICE),
-            ("office@scenario.example.com", "approve", None, WorkStatus.AWAITING_FINANCE),
+            ("school@scenario.example.com", "approve", None, WorkStatus.AWAITING_OFFICE),
+            ("office@scenario.example.com", "approve", None, WorkStatus.AWAITING_SALES),
+            ("sales@scenario.example.com", "approve", None, WorkStatus.AWAITING_FINANCE),
             ("master@scenario.example.com", "approve", None, WorkStatus.APPROVED),
         ]
         for email, action, comment, expected in steps:
@@ -85,7 +85,7 @@ class TestScenario:
             assert res.json()["status"] == expected
 
     def test_skip_school_then_full_approval(self, client, scenario):
-        """skip_school → awaiting_sales から続けて完全承認"""
+        """skip_school → awaiting_office から続けて完全承認"""
         tutor_h = _tok(client, "tutor@scenario.example.com")
         sales_h = _tok(client, "sales@scenario.example.com")
 
@@ -102,12 +102,12 @@ class TestScenario:
         res = client.post(f"/api/w/reports/{report_id}/action",
                           json={"action": "skip_school"}, headers=sales_h)
         assert res.status_code == 200
-        assert res.json()["status"] == WorkStatus.AWAITING_SALES
+        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
 
         # 残りを承認
         for email, action in [
-            ("sales@scenario.example.com", "approve"),
             ("office@scenario.example.com", "approve"),
+            ("sales@scenario.example.com", "approve"),
             ("master@scenario.example.com", "approve"),
         ]:
             r = client.post(f"/api/w/reports/{report_id}/action",
@@ -116,8 +116,8 @@ class TestScenario:
 
         assert r.json()["status"] == WorkStatus.APPROVED
 
-    def test_return_from_office_then_resubmit_by_sales(self, client, scenario):
-        """office 差戻し → returned_to_sales → sales が再提出 → awaiting_office"""
+    def test_return_from_sales_then_resubmit_by_office(self, client, scenario):
+        """sales 差戻し → returned_to_office → office が再提出 → awaiting_sales"""
         tutor_h = _tok(client, "tutor@scenario.example.com")
         res = client.post("/api/w/reports", json={
             "assignment_id": scenario["assignment_id"],
@@ -130,24 +130,24 @@ class TestScenario:
         for email, action, comment in [
             ("tutor@scenario.example.com", "submit", None),
             ("school@scenario.example.com", "approve", None),
-            ("sales@scenario.example.com", "approve", None),
-            ("office@scenario.example.com", "return", "明細に誤りがあります"),
+            ("office@scenario.example.com", "approve", None),
+            ("sales@scenario.example.com", "return", "明細に誤りがあります"),
         ]:
             client.post(f"/api/w/reports/{report_id}/action",
                         json={"action": action, "comment": comment},
                         headers=_tok(client, email))
 
-        # returned_to_sales 確認
+        # returned_to_office 確認
         res = client.get(f"/api/w/reports/{report_id}",
-                         headers=_tok(client, "sales@scenario.example.com"))
-        assert res.json()["status"] == WorkStatus.RETURNED_TO_SALES
+                         headers=_tok(client, "office@scenario.example.com"))
+        assert res.json()["status"] == WorkStatus.RETURNED_TO_OFFICE
 
-        # sales が再提出
+        # office が再提出
         res = client.post(f"/api/w/reports/{report_id}/action",
                           json={"action": "submit"},
-                          headers=_tok(client, "sales@scenario.example.com"))
+                          headers=_tok(client, "office@scenario.example.com"))
         assert res.status_code == 200
-        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
+        assert res.json()["status"] == WorkStatus.AWAITING_SALES
 
     def test_duplicate_month_blocked_at_db(self, client, scenario):
         """同月二重作成は 409 で弾かれる"""

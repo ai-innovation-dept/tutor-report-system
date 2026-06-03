@@ -52,7 +52,7 @@ def create_report(
 
 
 def update_report_data(db: Session, report: WorkReport, form_data: dict) -> WorkReport:
-    if report.status not in (WorkStatus.DRAFT, WorkStatus.RETURNED_TO_TUTOR, WorkStatus.RETURNED_TO_SALES):
+    if report.status not in (WorkStatus.DRAFT, WorkStatus.RETURNED_TO_TUTOR, WorkStatus.RETURNED_TO_OFFICE):
         from fastapi import HTTPException
         raise HTTPException(status_code=409, detail="report cannot be edited in current status")
     report.form_data = form_data
