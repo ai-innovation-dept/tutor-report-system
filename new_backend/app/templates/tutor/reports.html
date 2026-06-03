@@ -625,9 +625,13 @@ reportForm.addEventListener('submit', async e => {
   }
   const form_data = {lines, meta: collectMeta()};
   const schoolSel = document.getElementById('dispatchPlaceSchool');
+  const schoolId = schoolSel?.value || '';
   if (schoolSel) {
     const opt = schoolSel.options[schoolSel.selectedIndex];
     form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
+  }
+  if (schoolId && selectedAssignmentId) {
+    await api(`/api/w/assignments/${selectedAssignmentId}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId}), suppressFlash: true});
   }
   try {
     if (editingId.value) {

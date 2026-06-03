@@ -188,7 +188,7 @@ function groupReports(reports) {
         tutor_id: report.tutor_id,
         target_month: report.target_month,
         student_name: report.student_name || studentName(report.assignment_id),
-        tutor_name: report.tutor_name || tutorName(report.tutor_id),
+        tutor_name: report.tutor_name || allAssignments.find(a => a.id === report.assignment_id)?.tutor?.display_name || tutorName(report.tutor_id),
         reports: []
       };
     }
@@ -587,7 +587,7 @@ async function loadAdmin() {
   const [reports, assignments, tutors] = await Promise.all([
     api('/api/w/reports'),
     api('/api/w/assignments'),
-    api('/api/w/users?roles=tutor&per_page=100')
+    api('/api/w/users?role=tutor&per_page=100')
   ]);
   allReports = reports;
   allAssignments = assignments;

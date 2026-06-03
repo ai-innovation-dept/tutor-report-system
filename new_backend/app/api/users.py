@@ -30,7 +30,7 @@ def list_users(
     user: User = Depends(get_current_user),
 ):
     user_roles = list(user.roles or []) or ([user.role] if user.role else [])
-    if "admin_master" not in user_roles and role != "school":
+    if "admin_master" not in user_roles and role is None:
         raise HTTPException(status_code=403, detail="forbidden")
     page = max(1, page)
     per_page = min(max(1, per_page), 100)
