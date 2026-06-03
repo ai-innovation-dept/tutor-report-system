@@ -6,7 +6,6 @@
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 class="font-semibold text-slate-800" id="formTitle">月次業務連絡表</h2>
-          <p class="mt-1 text-sm text-slate-500">PDFの業務連絡表に合わせた月次一覧形式で入力します。</p>
         </div>
         <a href="/tutor/approval" class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100">承認管理へ</a>
       </div>
@@ -87,13 +86,22 @@
           <div>往復交通費（円）定期代含む：<span id="summaryFee" class="font-semibold">0</span>円</div>
         </div>
 
+        <div class="space-y-3">
+          <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-2 lg:grid-cols-5">
+            <div>お客様ID：<span class="font-semibold text-slate-900">9999</span></div>
+            <div>委託業務ID：<span class="font-semibold text-slate-900">11111</span></div>
+            <div>個別契約ID：<span class="font-semibold text-slate-900">99992601</span></div>
+            <div>弊社担当：<span class="font-semibold text-slate-900">佐藤麻子</span></div>
+          </div>
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+            <div class="mb-1 font-medium text-slate-800">備考欄</div>
+            <div>月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。</div>
+          </div>
+        </div>
+
         <div class="grid gap-3 md:grid-cols-2">
           <label class="block text-sm">
-            <span class="block mb-1 text-slate-700">備考欄</span>
-            <textarea data-meta="note_schedule" rows="3" placeholder="月(1)9:30〜10:20、(2)10:30〜11:20..." class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
-          </label>
-          <label class="block text-sm">
-            <span class="block mb-1 text-slate-700">要望・連絡事項</span>
+            <span class="block mb-1 text-slate-700">要望連絡事項</span>
             <textarea data-meta="requests" rows="3" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
           </label>
           <label class="block text-sm">
@@ -110,6 +118,40 @@
             <span class="block mb-1 text-slate-700">契約期間</span>
             <input data-meta="contract_period" type="text" placeholder="2026年04月01日〜2027年03月31日" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
           </label>
+        </div>
+
+        <div class="rounded-lg border border-slate-200 p-3 text-sm">
+          <div class="mb-3 font-medium text-slate-800">定期代セクション</div>
+          <div class="mb-3 text-slate-700">購入時のみ記入</div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <div>
+              <span class="mb-1 block text-slate-700">期間選択・金額</span>
+              <div class="flex flex-wrap items-center gap-3">
+                <label class="inline-flex items-center gap-1"><input class="meta-input" data-meta="commuter_pass_months" name="commuter_pass_months" type="radio" value="1">1ヶ月</label>
+                <label class="inline-flex items-center gap-1"><input class="meta-input" data-meta="commuter_pass_months" name="commuter_pass_months" type="radio" value="3">3ヶ月</label>
+                <label class="inline-flex items-center gap-1"><input class="meta-input" data-meta="commuter_pass_months" name="commuter_pass_months" type="radio" value="6">6ヶ月</label>
+                <input data-meta="commuter_pass_amount" type="number" min="0" step="1" placeholder="金額" class="meta-input w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                <span>円</span>
+              </div>
+            </div>
+            <label class="block">
+              <span class="block mb-1 text-slate-700">区間（経路）</span>
+              <input data-meta="commuter_pass_route" type="text" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+            </label>
+            <label class="block">
+              <span class="block mb-1 text-slate-700">購入日</span>
+              <input data-meta="commuter_pass_purchase_date" type="date" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+            </label>
+            <div>
+              <span class="block mb-1 text-slate-700">期間（from〜to）</span>
+              <div class="flex items-center gap-2">
+                <input data-meta="commuter_pass_from" type="date" class="meta-input min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+                <span>〜</span>
+                <input data-meta="commuter_pass_to" type="date" class="meta-input min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 text-xs text-slate-500">実費の方が安い場合は購入不可</div>
         </div>
 
         <div class="flex flex-wrap gap-2">
@@ -161,13 +203,19 @@ const DEFAULT_META = {
   dispatch_place_name: '',
   dispatch_place_address: '',
   customer_id: '',
-  note_schedule: '',
+  note_schedule: '月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。',
   work_content: '',
   tutor_no: '',
   requests: '',
   monthly_minutes_fixed: '',
   weekly_lessons: '',
-  contract_period: ''
+  contract_period: '',
+  commuter_pass_months: '',
+  commuter_pass_amount: '',
+  commuter_pass_route: '',
+  commuter_pass_purchase_date: '',
+  commuter_pass_from: '',
+  commuter_pass_to: ''
 };
 let allReports = [];
 let allAssignments = [];
@@ -423,13 +471,21 @@ function collectLines() {
 }
 function applyMeta(meta) {
   document.querySelectorAll('.meta-input').forEach(input => {
-    input.value = meta[input.dataset.meta] ?? '';
+    if (input.type === 'radio') {
+      input.checked = String(meta[input.dataset.meta] ?? '') === input.value;
+    } else {
+      input.value = meta[input.dataset.meta] ?? '';
+    }
   });
 }
 function collectMeta() {
   const meta = {...DEFAULT_META};
   document.querySelectorAll('.meta-input').forEach(input => {
-    meta[input.dataset.meta] = input.value.trim();
+    if (input.type === 'radio') {
+      if (input.checked) meta[input.dataset.meta] = input.value;
+    } else {
+      meta[input.dataset.meta] = input.value.trim();
+    }
   });
   return meta;
 }
