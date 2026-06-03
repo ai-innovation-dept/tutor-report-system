@@ -13,8 +13,10 @@
           <div class="flex border-b border-slate-300">
             <div class="flex-1 border-r border-slate-300">
               <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の名称・組織単位</div>
-              <input id="dispatchPlaceName" data-meta="dispatch_place_name" type="text"
+              <select id="dispatchPlaceSchool" data-meta="dispatch_place_school_id"
                 class="meta-input w-full border-b border-slate-200 px-3 py-2 text-center text-base font-semibold focus:bg-emerald-50 focus:outline-none">
+                <option value="">選択してください</option>
+              </select>
               <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の所在地</div>
               <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
                 class="meta-input w-full px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
@@ -193,6 +195,7 @@ const DEFAULT_FORM_DEFINITION = {
 };
 const DEFAULT_META = {
   dispatch_place_name: '',
+  dispatch_place_school_id: '',
   dispatch_place_address: '',
   customer_id: '',
   note_schedule: '月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。',
@@ -211,6 +214,7 @@ const DEFAULT_META = {
 };
 let allReports = [];
 let allAssignments = [];
+let schoolUsers = [];
 const isSubmitPage = location.pathname === '/tutor/submit';
 const currentMonth = getCurrentMonth();
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
@@ -552,7 +556,26 @@ function editReport(id) {
   resetReportForm(true);
   formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
+async function loadSchoolUsers() {
+  const result = await api('/api/w/users?role=school');
+  schoolUsers = Array.isArray(result?.items) ? result.items : [];
+  const sel = document.getElementById('dispatchPlaceSchool');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">選択してください</option>' +
+    schoolUsers.map(u => `<option value="${escapeHtml(String(u.id))}">${escapeHtml(u.display_name)}</option>`).join('');
+  sel.value = prev;
+}
 async function submitReport(id) {
+  const schoolSel = document.getElementById('dispatchPlaceSchool');
+  const schoolId = schoolSel?.value;
+  if (!schoolId) {
+    showFormMessage('派遣先事業所（学校）を選択してください', true);
+    return;
+  }
+  const report = allReports.find(r => r.id === id);
+  if (!report) return;
+  await api(`/api/w/assignments/${report.assignment_id}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId})});
   await api(`/api/w/reports/${id}/action`, {method:'POST', body:JSON.stringify({action: 'submit'})});
   await loadTutor();
 }
@@ -601,6 +624,11 @@ reportForm.addEventListener('submit', async e => {
     return;
   }
   const form_data = {lines, meta: collectMeta()};
+  const schoolSel = document.getElementById('dispatchPlaceSchool');
+  if (schoolSel) {
+    const opt = schoolSel.options[schoolSel.selectedIndex];
+    form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
+  }
   try {
     if (editingId.value) {
       await api(`/api/w/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify({form_data}), suppressFlash: true});
@@ -627,6 +655,7 @@ monthFilter.addEventListener('change', () => {
 });
 window.authReady.then(user => {
   if (!user) return;
+  loadSchoolUsers();
   loadTutor();
 });
 </script>

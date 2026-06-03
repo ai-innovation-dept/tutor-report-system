@@ -118,12 +118,22 @@ def patch_assignment(
     assignment_id: UUID,
     payload: AssignmentPatch,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    user: User = Depends(get_current_user),
 ):
     a = db.get(Assignment, assignment_id)
     if not a or a.system_type != "new":
         raise HTTPException(status_code=404, detail="assignment not found")
-    data = payload.model_dump(exclude_unset=True)
+    roles = list(user.roles or []) or ([user.role] if user.role else [])
+    is_master = "admin_master" in roles
+    is_tutor = "tutor" in roles
+    if not is_master and not is_tutor:
+        raise HTTPException(status_code=403, detail="forbidden")
+    if is_tutor and not is_master:
+        if a.tutor_id != user.id:
+            raise HTTPException(status_code=403, detail="not your assignment")
+        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k == "parent_id"}
+    else:
+        data = payload.model_dump(exclude_unset=True)
     for key, value in data.items():
         setattr(a, key, value)
     db.commit()

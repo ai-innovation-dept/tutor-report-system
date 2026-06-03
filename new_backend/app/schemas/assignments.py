@@ -12,6 +12,7 @@ class AssignmentCreate(BaseModel):
 class AssignmentPatch(BaseModel):
     student_name: str | None = None
     is_active: bool | None = None
+    parent_id: uuid.UUID | None = None
 
 
 class TutorInfo(BaseModel):

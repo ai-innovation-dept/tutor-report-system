@@ -27,8 +27,11 @@ def list_users(
     role: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    user: User = Depends(get_current_user),
 ):
+    user_roles = list(user.roles or []) or ([user.role] if user.role else [])
+    if "admin_master" not in user_roles and role != "school":
+        raise HTTPException(status_code=403, detail="forbidden")
     page = max(1, page)
     per_page = min(max(1, per_page), 100)
     stmt = select(User).where(User.deleted_at.is_(None))
