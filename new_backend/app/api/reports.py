@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
@@ -12,6 +13,7 @@ from app.models.work import WorkReport, WorkReportEvent
 from app.schemas.reports import (
     BulkReportAction,
     BulkReportActionOut,
+    CloseRequest,
     MonthlySummaryOut,
     ReportCreate,
     ReportEventOut,
@@ -27,10 +29,22 @@ from app.services.report_service import (
     list_reports_for_tutor,
     update_report_data,
 )
-from app.workflow.engine import apply_transition
+from app.services.notification_service import send_transition_notifications
+from app.services.workflow_service import execute_transition
+from app.workflow.definitions import WorkAction, WorkStatus
 from app.workflow.exceptions import CommentRequired, InvalidTransition, PermissionDenied
 
 router = APIRouter(prefix="/api/w/reports", tags=["work-reports"])
+stale_router = APIRouter(prefix="/api/w", tags=["work-stale"])
+
+_ACTION_ALLOWED_ROLES: dict[str, set[str]] = {
+    WorkAction.SUBMIT: {"tutor"},
+    WorkAction.APPROVE: {"school", "sales", "office", "admin_master"},
+    WorkAction.RETURN: {"school", "sales", "office", "admin_master"},
+    WorkAction.SKIP_SCHOOL: {"sales", "office", "admin_master"},
+}
+_CLOSE_ROLES = {"sales", "office", "admin_master"}
+_TERMINAL_STATUSES = {WorkStatus.APPROVED, WorkStatus.CLOSED}
 
 
 def _get_assignment(db: Session, assignment_id: uuid.UUID) -> Assignment:
@@ -50,6 +64,89 @@ def _report_scope_stmt(user: User, active_role: str, target_month: str | None = 
     if target_month:
         stmt = stmt.where(WorkReport.target_month == target_month)
     return stmt
+
+
+def _current_month() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
+
+def _user_roles(user: User) -> list[str]:
+    return list(user.roles or []) or ([user.role] if user.role else [])
+
+
+def _resolve_actor_role(user: User, active_role: str, requested_role: str | None) -> str:
+    actor_role = requested_role or active_role
+    if actor_role not in _user_roles(user):
+        raise HTTPException(status_code=403, detail="actor_role is not assigned to this user")
+    return actor_role
+
+
+def _ensure_action_role_allowed(action: str, actor_role: str) -> None:
+    allowed = _ACTION_ALLOWED_ROLES.get(action)
+    if allowed is not None and actor_role not in allowed:
+        raise HTTPException(status_code=403, detail="actor_role is not allowed for this action")
+
+
+def _report_in_role_scope(db: Session, report: WorkReport, user: User, actor_role: str) -> bool:
+    if actor_role == "admin_master":
+        return True
+    if actor_role in {"sales", "office"}:
+        return True
+    if actor_role == "tutor":
+        return report.tutor_id == user.id
+    if actor_role == "school":
+        assignment = report.assignment or db.get(Assignment, report.assignment_id)
+        if assignment and assignment.parent_id:
+            return assignment.parent_id == user.id
+        return report.current_approver_role == "school"
+    return False
+
+
+def _stale_stmt(user: User, active_role: str):
+    stmt = (
+        select(WorkReport)
+        .where(WorkReport.target_month < _current_month())
+        .where(WorkReport.status.notin_([WorkStatus.APPROVED, WorkStatus.CLOSED]))
+    )
+    if active_role == "tutor":
+        stmt = stmt.where(WorkReport.tutor_id == user.id)
+    elif active_role == "school":
+        stmt = stmt.join(Assignment, Assignment.id == WorkReport.assignment_id).where(Assignment.parent_id == user.id)
+    elif active_role not in {"sales", "office", "admin_master"}:
+        stmt = stmt.where(False)
+    return stmt
+
+
+def _close_report(db: Session, report: WorkReport, actor: User, actor_role: str, close_reason: str) -> WorkReport:
+    if not close_reason or not close_reason.strip():
+        raise HTTPException(status_code=422, detail="close_reason is required")
+    if actor_role not in _CLOSE_ROLES:
+        raise HTTPException(status_code=403, detail="actor_role is not allowed to close reports")
+    if report.target_month >= _current_month():
+        raise HTTPException(status_code=422, detail="current month reports cannot be closed")
+    if report.status in _TERMINAL_STATUSES:
+        raise HTTPException(status_code=409, detail="terminal reports cannot be closed")
+
+    from_status = report.status
+    now = datetime.now(timezone.utc)
+    report.status = WorkStatus.CLOSED
+    report.current_approver_role = None
+    report.closed_at = now
+    report.closed_by = actor.id
+    report.close_reason = close_reason.strip()
+    report.updated_at = now
+    db.add(
+        WorkReportEvent(
+            report_id=report.id,
+            actor_id=actor.id,
+            action=WorkAction.CLOSE,
+            from_status=from_status,
+            to_status=WorkStatus.CLOSED,
+            comment=report.close_reason,
+        )
+    )
+    db.flush()
+    return report
 
 
 def _numeric_sum(lines: list[dict], key: str) -> int:
@@ -105,6 +202,7 @@ def monthly_summary(
     user: User = Depends(get_current_user),
     active_role: str = Depends(get_active_role),
 ):
+    target_month = target_month or _current_month()
     if active_role not in {"tutor", "admin_master"}:
         raise HTTPException(status_code=403, detail="monthly summary is only available to tutor/admin_master")
     reports = list(db.scalars(_report_scope_stmt(user, active_role, target_month)))
@@ -121,6 +219,8 @@ def monthly_summary(
     return MonthlySummaryOut(
         target_month=target_month,
         total_reports=len(reports),
+        by_status=status_counts,
+        pending_action=any(report.current_approver_role == active_role for report in reports),
         status_counts=status_counts,
         total_teach_minutes=total_teach,
         total_break_minutes=total_break,
@@ -129,39 +229,51 @@ def monthly_summary(
 
 
 @router.post("/bulk-action", response_model=BulkReportActionOut)
-def bulk_action(
+async def bulk_action(
     payload: BulkReportAction,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
     active_role: str = Depends(get_active_role),
 ):
-    if active_role not in {"sales", "office", "admin_master"}:
-        raise HTTPException(status_code=403, detail="bulk action is not available for this role")
-    if payload.action not in {"approve", "return"}:
-        raise HTTPException(status_code=422, detail="action must be approve or return")
+    actor_role = _resolve_actor_role(user, active_role, payload.actor_role)
+    if payload.action not in _ACTION_ALLOWED_ROLES:
+        raise HTTPException(status_code=422, detail="unsupported bulk action")
+    _ensure_action_role_allowed(payload.action, actor_role)
     if not payload.report_ids:
         raise HTTPException(status_code=422, detail="report_ids is required")
 
     reports = list(db.scalars(select(WorkReport).where(WorkReport.id.in_(payload.report_ids))))
-    found_ids = {report.id for report in reports}
-    missing = [rid for rid in payload.report_ids if rid not in found_ids]
-    if missing:
-        raise HTTPException(status_code=404, detail="one or more reports were not found")
+    reports_by_id = {report.id: report for report in reports}
+    processed_ids: list[uuid.UUID] = []
+    processed_reports: list[WorkReport] = []
+    skip_ids: list[uuid.UUID] = []
 
-    try:
-        for report in reports:
-            apply_transition(db, report, user, payload.action, active_role, payload.comment)
-    except PermissionDenied as exc:
-        db.rollback()
-        raise HTTPException(status_code=403, detail=str(exc))
-    except InvalidTransition as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail=str(exc))
-    except CommentRequired as exc:
-        db.rollback()
-        raise HTTPException(status_code=422, detail=str(exc))
+    for report_id in payload.report_ids:
+        report = reports_by_id.get(report_id)
+        if (
+            report is None
+            or (payload.target_month and report.target_month != payload.target_month)
+            or not _report_in_role_scope(db, report, user, actor_role)
+        ):
+            skip_ids.append(report_id)
+            continue
+
+        try:
+            execute_transition(db, report, user, actor_role, payload.action, payload.comment)
+            processed_ids.append(report_id)
+            processed_reports.append(report)
+        except (PermissionDenied, InvalidTransition, CommentRequired):
+            skip_ids.append(report_id)
+
     db.commit()
-    return BulkReportActionOut(updated=len(reports), report_ids=payload.report_ids)
+    await send_transition_notifications(db, payload.action, processed_reports, user, payload.comment)
+    return BulkReportActionOut(
+        processed=len(processed_ids),
+        skipped=len(skip_ids),
+        skip_ids=skip_ids,
+        updated=len(processed_ids),
+        report_ids=processed_ids,
+    )
 
 
 @router.get("/{report_id}", response_model=ReportOut)
@@ -190,7 +302,7 @@ def patch_report(
 
 
 @router.post("/{report_id}/action", response_model=ReportOut)
-def workflow_action(
+async def workflow_action(
     report_id: uuid.UUID,
     payload: WorkflowAction,
     db: Session = Depends(get_db),
@@ -198,8 +310,13 @@ def workflow_action(
     active_role: str = Depends(get_active_role),
 ):
     report = get_report_or_404(db, report_id)
+    notify_action = payload.action
     try:
-        apply_transition(db, report, user, payload.action, active_role, payload.comment)
+        actor_role = _resolve_actor_role(user, active_role, payload.actor_role)
+        if payload.action == WorkAction.CLOSE:
+            _close_report(db, report, user, actor_role, payload.comment or "")
+        else:
+            execute_transition(db, report, user, actor_role, payload.action, payload.comment)
     except PermissionDenied as exc:
         raise HTTPException(status_code=403, detail=str(exc))
     except InvalidTransition as exc:
@@ -207,6 +324,24 @@ def workflow_action(
     except CommentRequired as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     db.commit()
+    await send_transition_notifications(db, notify_action, [report], user, payload.comment)
+    db.refresh(report)
+    return report
+
+
+@router.post("/{report_id}/close", response_model=ReportOut)
+async def close_report(
+    report_id: uuid.UUID,
+    payload: CloseRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
+):
+    actor_role = _resolve_actor_role(user, active_role, None)
+    report = get_report_or_404(db, report_id)
+    _close_report(db, report, user, actor_role, payload.close_reason)
+    db.commit()
+    await send_transition_notifications(db, WorkAction.CLOSE, [report], user, payload.close_reason)
     db.refresh(report)
     return report
 
@@ -250,3 +385,26 @@ def export_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
     )
+
+
+@stale_router.get("/stale-count")
+def stale_count(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
+):
+    actor_role = _resolve_actor_role(user, active_role, None)
+    count = len(list(db.scalars(_stale_stmt(user, actor_role))))
+    return {"count": count}
+
+
+@stale_router.get("/stale-reports", response_model=list[ReportOut])
+def stale_reports(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
+):
+    actor_role = _resolve_actor_role(user, active_role, None)
+    if actor_role not in _CLOSE_ROLES:
+        raise HTTPException(status_code=403, detail="stale reports are only available to admin roles")
+    return list(db.scalars(_stale_stmt(user, actor_role).order_by(WorkReport.target_month, WorkReport.created_at)))

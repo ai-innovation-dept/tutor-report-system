@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     BASE_URL: str = "http://localhost:8001"
     SMTP_HOST: str = "mailhog"
     SMTP_PORT: int = 1025
+    SMTP_FROM: str = "noreply@work-system.local"
+    REMINDER_DAYS_BEFORE_MONTH_END: int = 3
 
     model_config = {"env_file": "../.env", "extra": "ignore"}
 

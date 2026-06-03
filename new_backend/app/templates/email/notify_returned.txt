@@ -1,0 +1,7 @@
+{tutor_name} 様
+{actor_name} より差戻しがありました。
+対象生徒：{student_name}
+指導日：{lesson_date}
+コメント：{comment}
+以下のURLから内容をご確認ください。
+{base_url}/w/tutor/reports

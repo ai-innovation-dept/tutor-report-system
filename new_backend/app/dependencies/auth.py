@@ -78,3 +78,8 @@ def require_new_system_access(user: User = Depends(get_current_user)) -> User:
     if not any(r in NEW_SYSTEM_ROLES for r in roles):
         raise HTTPException(status_code=403, detail="new system access not granted")
     return user
+
+
+def has_role(user: User, role: str) -> bool:
+    roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
+    return role in roles

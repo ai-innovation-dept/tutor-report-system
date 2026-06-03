@@ -26,26 +26,38 @@ class ReportPatch(BaseModel):
 class WorkflowAction(BaseModel):
     action: str
     comment: str | None = None
+    actor_role: str | None = None
 
 
 class BulkReportAction(BaseModel):
     report_ids: list[uuid.UUID]
     action: str
     comment: str | None = None
+    actor_role: str | None = None
+    target_month: str | None = None
 
 
 class BulkReportActionOut(BaseModel):
-    updated: int
-    report_ids: list[uuid.UUID]
+    processed: int
+    skipped: int
+    skip_ids: list[uuid.UUID]
+    updated: int | None = None
+    report_ids: list[uuid.UUID] | None = None
 
 
 class MonthlySummaryOut(BaseModel):
-    target_month: str | None
+    target_month: str
     total_reports: int
+    by_status: dict[str, int]
+    pending_action: bool
     status_counts: dict[str, int]
     total_teach_minutes: int
     total_break_minutes: int
     total_commute_fee: int
+
+
+class CloseRequest(BaseModel):
+    close_reason: str
 
 
 class ReportOut(BaseModel):
@@ -58,6 +70,9 @@ class ReportOut(BaseModel):
     status: str
     current_approver_role: str | None
     submitted_at: datetime | None
+    closed_at: datetime | None = None
+    closed_by: uuid.UUID | None = None
+    close_reason: str | None = None
     created_at: datetime
     updated_at: datetime
 

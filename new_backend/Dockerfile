@@ -25,6 +25,7 @@ RUN pip install --no-cache-dir -e ".[dev]" 2>/dev/null || pip install --no-cache
     "email-validator>=2.1" \
     "httpx>=0.27" \
     "reportlab>=4.2" \
+    "apscheduler>=3.10" \
     "pytest>=8.0" \
     "pytest-asyncio>=0.23"
 
