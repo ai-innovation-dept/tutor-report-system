@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.dependencies.auth import get_current_user, require_role
 from app.forms.definitions import FORM_REGISTRY
 from app.models.shared import Assignment, User
-from app.models.work import WorkAssignmentProfile
+from app.models.work import WorkAssignmentProfile, WorkReport
 from app.schemas.assignments import AssignmentCreate, AssignmentOut, AssignmentPatch
 
 router = APIRouter(prefix="/api/w/assignments", tags=["work-assignments"])
@@ -53,13 +53,19 @@ def _assignment_out(db: Session, assignment: Assignment) -> dict:
         "tutor": assignment.tutor,
         "form_type": form_type,
         "form_definition": _form_definition(form_type),
+        "parent_id": assignment.parent_id,
+        "school_name": assignment.parent.display_name if assignment.parent else None,
+        "skip_school_approval": assignment.skip_parent_approval,
+        "reminder_enabled": assignment.reminder_enabled,
+        "reminder_days_after": assignment.reminder_days_after,
+        "reminder_count": assignment.reminder_count,
     }
 
 
 def _get_assignment_out(db: Session, assignment_id) -> dict:
     assignment = db.scalar(
         select(Assignment)
-        .options(selectinload(Assignment.tutor))
+        .options(selectinload(Assignment.tutor), selectinload(Assignment.parent))
         .where(Assignment.id == assignment_id)
     )
     return _assignment_out(db, assignment)
@@ -103,7 +109,7 @@ def list_assignments(
 ):
     stmt = (
         select(Assignment)
-        .options(selectinload(Assignment.tutor))
+        .options(selectinload(Assignment.tutor), selectinload(Assignment.parent))
         .where(Assignment.system_type == "new")
         .order_by(Assignment.created_at.desc())
     )
@@ -134,7 +140,26 @@ def patch_assignment(
         data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k == "parent_id"}
     else:
         data = payload.model_dump(exclude_unset=True)
+    _FIELD_MAP = {"skip_school_approval": "skip_parent_approval"}
     for key, value in data.items():
-        setattr(a, key, value)
+        setattr(a, _FIELD_MAP.get(key, key), value)
     db.commit()
     return _get_assignment_out(db, a.id)
+
+
+@router.delete("/{assignment_id}", status_code=204)
+def delete_assignment(
+    assignment_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    a = db.get(Assignment, assignment_id)
+    if not a or a.system_type != "new":
+        raise HTTPException(status_code=404, detail="assignment not found")
+    has_reports = db.scalar(
+        select(WorkReport).where(WorkReport.assignment_id == assignment_id).limit(1)
+    )
+    if has_reports:
+        raise HTTPException(status_code=409, detail="reports exist for this assignment")
+    db.delete(a)
+    db.commit()
