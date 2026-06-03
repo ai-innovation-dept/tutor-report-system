@@ -134,8 +134,8 @@ function buildGroup(assignment, reports) {
   return {
     assignment_id: assignment?.id || sorted[0]?.assignment_id,
     student_name: assignment?.student_name || '生徒未設定',
-    school_id: assignment?.school_id || sorted[0]?.school_id || null,
-    school_display_name: assignment?.school_display_name || '',
+    school_id: assignment?.parent_id || sorted[0]?.parent_id || null,
+    school_display_name: assignment?.parent?.display_name || '',
     skip_school_approval: Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval)),
     reminder_enabled: Boolean(assignment?.reminder_enabled),
     reminder_days_after: assignment?.reminder_days_after || 1,
