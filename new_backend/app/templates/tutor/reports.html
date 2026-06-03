@@ -15,37 +15,62 @@
       <div id="formMessage" class="mb-3 hidden rounded-lg px-3 py-2 text-sm"></div>
       <form id="reportForm" class="space-y-4">
         <input type="hidden" id="editingId">
-        <div class="rounded-lg border border-slate-300">
-          <div class="grid border-b border-slate-300 md:grid-cols-[1fr_220px]">
-            <div class="space-y-3 p-3">
-              <label class="block text-sm">
-                <span class="block mb-1 text-slate-700">派遣先事業所の名称・組織単位</span>
-                <input id="dispatchPlaceName" data-meta="dispatch_place_name" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center text-lg font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-              </label>
-              <label class="block text-sm">
-                <span class="block mb-1 text-slate-700">派遣先事業所の所在地</span>
-                <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-              </label>
+        <!-- 業務連絡表ヘッダー（サンプル紙面レイアウト準拠） -->
+        <div class="overflow-hidden rounded-lg border border-slate-300 text-sm">
+
+          <!-- 行1: 派遣先名称・所在地（左）＋ 月分業務連絡表（右） -->
+          <div class="flex border-b border-slate-300">
+            <div class="flex-1 border-r border-slate-300">
+              <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の名称・組織単位</div>
+              <input id="dispatchPlaceName" data-meta="dispatch_place_name" type="text"
+                class="meta-input w-full border-b border-slate-200 px-3 py-2 text-center text-base font-semibold focus:bg-emerald-50 focus:outline-none">
+              <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の所在地</div>
+              <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
+                class="meta-input w-full px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
             </div>
-            <div class="flex flex-col items-center justify-center border-t border-slate-300 p-3 md:border-l md:border-t-0">
-              <div class="text-lg font-semibold text-slate-900"><select id="monthFilter" class="rounded border border-slate-300 px-2 py-1 text-base font-semibold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></select>分業務連絡表</div>
-              <div class="mt-2 text-xs text-slate-500">対象月を選択してください</div>
+            <div class="flex w-52 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
+              <div class="font-bold text-slate-900 leading-snug">
+                <select id="monthFilter"
+                  class="rounded border border-slate-400 px-1.5 py-1 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
+                <span class="text-sm">月分業務連絡表</span>
+              </div>
+              <div class="text-xs text-slate-400">対象月を選択してください</div>
             </div>
           </div>
-          <div class="grid border-b border-slate-300 md:grid-cols-[220px_1fr_180px]">
-            <label class="block border-b border-slate-300 p-3 text-sm md:border-b-0 md:border-r">
-              <span class="block mb-1 text-slate-700">講師番号</span>
-              <input id="tutorNo" data-meta="tutor_no" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-            </label>
-            <label class="block border-b border-slate-300 p-3 text-sm md:border-b-0 md:border-r">
-              <span class="block mb-1 text-slate-700">従事業務内容</span>
-              <textarea id="workContent" data-meta="work_content" rows="2" class="meta-input w-full rounded border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></textarea>
-            </label>
-            <label class="block p-3 text-sm">
-              <span class="block mb-1 text-slate-700">お客様ID</span>
-              <input id="customerId" data-meta="customer_id" type="text" class="meta-input w-full rounded border border-slate-300 px-3 py-2 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
-            </label>
+
+          <!-- 行2: 氏名 | 値 | 従事業務内容（縦結合） | 内容テキスト -->
+          <div class="flex border-b border-slate-300">
+            <!-- 左ブロック: 氏名 + 講師番号・お客様ID（2段） -->
+            <div class="flex flex-col border-r border-slate-300" style="flex: 0 0 420px">
+              <!-- 氏名 row -->
+              <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
+                <div class="flex w-24 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-700">氏名</div>
+                <div id="tutorNameDisplay" class="flex flex-1 items-center justify-center px-3 py-1 text-center font-semibold text-slate-800">-</div>
+              </div>
+              <!-- 講師番号 + お客様ID row -->
+              <div class="flex min-h-[46px] flex-1">
+                <div class="flex w-24 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-700">講師番号</div>
+                <div class="flex flex-1 items-center border-r border-slate-300 px-2 py-1">
+                  <input id="tutorNo" data-meta="tutor_no" type="text"
+                    class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-center font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+                </div>
+                <div class="flex w-20 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-700">お客様ID</div>
+                <div class="flex flex-1 items-center px-2 py-1">
+                  <input id="customerId" data-meta="customer_id" type="text"
+                    class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-center focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+                </div>
+              </div>
+            </div>
+            <!-- 右ブロック: 従事業務内容（左の2段分を縦に占有） -->
+            <div class="flex flex-1">
+              <div class="flex w-16 flex-shrink-0 items-start justify-center bg-slate-50 px-1 py-2 text-center text-xs leading-tight text-slate-700">従事業務内容</div>
+              <div class="flex-1 p-2">
+                <textarea id="workContent" data-meta="work_content" rows="3"
+                  class="meta-input h-full min-h-[80px] w-full resize-none rounded border border-slate-300 px-2 py-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20"></textarea>
+              </div>
+            </div>
           </div>
+
         </div>
 
         <div>
@@ -517,6 +542,8 @@ function renderBulkSubmit(reports) {
     : '<div class="text-sm text-slate-600">再提出できる報告書はありません。</div>';
 }
 async function loadTutor() {
+  const nameEl = document.getElementById('tutorNameDisplay');
+  if (nameEl) nameEl.textContent = window.currentUser?.display_name || '-';
   const [reports, assignments] = await Promise.all([api('/api/w/reports'), api('/api/w/assignments')]);
   allAssignments = assignments;
   allReports = [...reports].sort((a, b) => `${a.target_month}${assignmentName(a.assignment_id)}`.localeCompare(`${b.target_month}${assignmentName(b.assignment_id)}`));
