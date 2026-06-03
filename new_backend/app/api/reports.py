@@ -1,13 +1,14 @@
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
-from app.dependencies.auth import get_active_role, get_current_user, require_role
+from app.dependencies.auth import get_active_role, get_current_user, has_role, is_admin, require_role
 from app.models.shared import Assignment, User
 from app.models.work import WorkReport, WorkReportEvent
 from app.schemas.reports import (
@@ -30,6 +31,7 @@ from app.services.report_service import (
     update_report_data,
 )
 from app.services.notification_service import send_transition_notifications
+from app.services.export_service import build_report_pdf, build_reports_pdf
 from app.services.workflow_service import execute_transition
 from app.workflow.definitions import WorkAction, WorkStatus
 from app.workflow.exceptions import CommentRequired, InvalidTransition, PermissionDenied
@@ -159,6 +161,14 @@ def _numeric_sum(lines: list[dict], key: str) -> int:
     return total
 
 
+def _student_name(report: WorkReport) -> str:
+    return report.assignment.student_name if report.assignment else "生徒未設定"
+
+
+def _tutor_name(report: WorkReport) -> str:
+    return report.tutor.display_name if report.tutor else "講師未設定"
+
+
 @router.post("", response_model=ReportOut, status_code=201)
 def create(
     payload: ReportCreate,
@@ -276,6 +286,88 @@ async def bulk_action(
     )
 
 
+@router.get("/export")
+def export_reports(
+    target_month: str,
+    assignment_id: uuid.UUID | None = None,
+    tutor_id: uuid.UUID | None = None,
+    scope: str | None = None,
+    format: str = "pdf",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if format != "pdf":
+        raise HTTPException(status_code=422, detail="format must be pdf")
+    if scope and scope not in {"all", "approved_only"}:
+        raise HTTPException(status_code=422, detail="scope must be all or approved_only")
+
+    stmt = (
+        select(WorkReport)
+        .options(selectinload(WorkReport.assignment), selectinload(WorkReport.tutor))
+        .where(WorkReport.target_month == target_month)
+    )
+    assignment = db.get(Assignment, assignment_id) if assignment_id else None
+    if assignment_id and not assignment:
+        raise HTTPException(status_code=404, detail="assignment not found")
+
+    if has_role(user, "tutor"):
+        if tutor_id and tutor_id != user.id:
+            raise HTTPException(status_code=403, detail="cannot export other tutor reports")
+        if assignment and assignment.tutor_id != user.id:
+            raise HTTPException(status_code=403, detail="access denied")
+        stmt = stmt.where(
+            WorkReport.tutor_id == user.id,
+            WorkReport.status == WorkStatus.APPROVED,
+        )
+    elif has_role(user, "school"):
+        if assignment and assignment.parent_id != user.id:
+            raise HTTPException(status_code=403, detail="access denied")
+        stmt = stmt.join(Assignment, WorkReport.assignment_id == Assignment.id).where(
+            Assignment.parent_id == user.id,
+            WorkReport.status == WorkStatus.APPROVED,
+        )
+    elif is_admin(user):
+        if scope in {"all", "approved_only"}:
+            stmt = stmt.where(WorkReport.status == WorkStatus.APPROVED)
+    else:
+        raise HTTPException(status_code=403, detail="not allowed")
+
+    if assignment_id:
+        stmt = stmt.where(WorkReport.assignment_id == assignment_id)
+    elif tutor_id:
+        stmt = stmt.where(WorkReport.tutor_id == tutor_id)
+
+    reports = db.scalars(stmt.order_by(WorkReport.assignment_id, WorkReport.created_at)).all()
+    if not reports:
+        raise HTTPException(status_code=404, detail="no reports found")
+
+    year, month_str = target_month.split("-")
+    month_label = f"{year}年{int(month_str):02d}月"
+    if assignment_id:
+        filename_base = f"指導実績_{assignment.student_name}_{month_label}" if assignment else f"指導実績_生徒_{month_label}"
+    elif tutor_id:
+        tutor = db.get(User, tutor_id)
+        filename_base = f"指導実績_{tutor.display_name if tutor else '講師'}_全生徒_{month_label}"
+    elif has_role(user, "school"):
+        filename_base = f"指導実績_{user.display_name}_全生徒_{month_label}"
+    else:
+        filename_base = f"指導実績_全体_{month_label}"
+
+    if len(reports) == 1:
+        report = reports[0]
+        content = build_report_pdf(report, _student_name(report), _tutor_name(report))
+    else:
+        content = build_reports_pdf(
+            [(report, _student_name(report), _tutor_name(report)) for report in reports],
+            target_month,
+        )
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename_base + '.pdf')}"},
+    )
+
+
 @router.get("/{report_id}", response_model=ReportOut)
 def get_report(
     report_id: uuid.UUID,
@@ -366,9 +458,6 @@ def export_pdf(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    from urllib.parse import quote
-    from app.services.export_service import build_report_pdf
-
     report = get_report_or_404(db, report_id)
     assignment = db.get(Assignment, report.assignment_id)
     student_name = assignment.student_name if assignment else "生徒"

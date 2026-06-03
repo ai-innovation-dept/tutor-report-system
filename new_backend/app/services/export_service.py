@@ -116,3 +116,90 @@ def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> 
     story.append(table)
     doc.build(story)
     return buf.getvalue()
+
+
+def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: str) -> bytes:
+    """複数報告書分を1つのPDFにまとめて返す。"""
+    font_name = _register_font()
+
+    year, month_str = target_month.split("-")
+    month_label = f"{year}年{int(month_str):02d}月"
+
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.units import mm
+        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    except ModuleNotFoundError as exc:
+        raise RuntimeError("reportlab is not installed") from exc
+
+    styles = getSampleStyleSheet()
+    for style in styles.byName.values():
+        style.fontName = font_name
+    styles["Title"].fontSize = 14
+    styles["Normal"].fontSize = 9
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf,
+        pagesize=A4,
+        rightMargin=16 * mm,
+        leftMargin=16 * mm,
+        topMargin=20 * mm,
+        bottomMargin=20 * mm,
+        title="指導実績",
+    )
+    story = []
+
+    for index, (report, student_name, tutor_name) in enumerate(reports):
+        if index:
+            story.append(PageBreak())
+
+        form = get_form(report.form_type)
+        lines: list[dict] = (report.form_data or {}).get("lines", [])
+        header: dict = (report.form_data or {}).get("header", {})
+        col_widths = [22 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 22 * mm, None]
+        col_labels = [c.label for c in form.columns]
+
+        rows = [col_labels]
+        for line in lines:
+            rows.append([str(line.get(c.key, "")) for c in form.columns])
+
+        totals = ["合計", "", "", "", "", "", ""]
+        for key in form.summable_keys:
+            col_index = next((i for i, c in enumerate(form.columns) if c.key == key), None)
+            if col_index is not None:
+                try:
+                    totals[col_index] = str(sum(int(line.get(key, 0) or 0) for line in lines))
+                except (ValueError, TypeError):
+                    pass
+        while len(totals) < len(form.columns):
+            totals.append("")
+        rows.append(totals)
+
+        avail_width = A4[0] - 32 * mm
+        filled = sum(w for w in col_widths if w is not None)
+        col_widths[-1] = avail_width - filled
+        table = Table(rows, colWidths=col_widths, repeatRows=1)
+        table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
+            ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
+        ]))
+
+        story.extend([
+            Paragraph(f"指導実績　{student_name}　{tutor_name}　{month_label}", styles["Title"]),
+            Spacer(1, 4 * mm),
+        ])
+        if header:
+            header_text = "　".join(f"{k}：{v}" for k, v in header.items())
+            story.append(Paragraph(header_text, styles["Normal"]))
+            story.append(Spacer(1, 3 * mm))
+        story.append(table)
+
+    doc.build(story)
+    return buf.getvalue()

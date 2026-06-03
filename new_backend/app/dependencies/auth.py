@@ -83,3 +83,8 @@ def require_new_system_access(user: User = Depends(get_current_user)) -> User:
 def has_role(user: User, role: str) -> bool:
     roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
     return role in roles
+
+
+def is_admin(user: User) -> bool:
+    roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
+    return bool({"sales", "office", "admin_master"}.intersection(roles))
