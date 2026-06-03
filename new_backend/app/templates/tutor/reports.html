@@ -630,20 +630,20 @@ reportForm.addEventListener('submit', async e => {
     const opt = schoolSel.options[schoolSel.selectedIndex];
     form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
   }
-  if (schoolId && selectedAssignmentId) {
-    await api(`/api/w/assignments/${selectedAssignmentId}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId}), suppressFlash: true});
+  if (selectedAssignmentId) {
+    await api(`/api/w/assignments/${selectedAssignmentId}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId || null}), suppressFlash: true});
   }
   try {
     if (editingId.value) {
       await api(`/api/w/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify({form_data}), suppressFlash: true});
-      showFormMessage('業務連絡表を更新しました');
+      showToast('業務連絡表を更新しました', 'success');
     } else {
       await api('/api/w/reports', {
         method:'POST',
         body: JSON.stringify({assignment_id: selectedAssignmentId, target_month: selectedMonth, form_type: selectedFormType(), form_data}),
         suppressFlash: true
       });
-      showFormMessage('業務連絡表を作成しました');
+      showToast('業務連絡表を作成しました', 'success');
     }
     await loadTutor();
   } catch (error) {
