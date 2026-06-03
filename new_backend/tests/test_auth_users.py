@@ -217,14 +217,14 @@ class TestRegistration:
         assert user.allowed_systems == ["new"]
         db.close()
 
-    def test_register_admin_master_gets_both_systems(self, client, master_user):
+    def test_register_admin_master_gets_new_system(self, client, master_user):
         token = self._create_invitation(role="admin_master", email="am_reg@x.example.com")
         client.post("/api/auth/register",
                     json={"token": token, "password": "Passw0rd!!", "display_name": "管理者テスト"})
         db = TestSession()
         from sqlalchemy import select as sa_select
         user = db.scalar(sa_select(User).where(User.email == "am_reg@x.example.com"))
-        assert set(user.allowed_systems) == {"legacy", "new"}
+        assert user.allowed_systems == ["new"]
         db.close()
 
     def test_register_used_token_returns_409(self, client, master_user):

@@ -16,7 +16,6 @@ from app.services.notification_service import send_email
 from app.services.user_service import (
     ALLOWED_INVITATION_ROLES,
     ROLE_LABELS,
-    allowed_systems_for_role,
     generate_user_no,
     get_user_by_email,
 )
@@ -82,7 +81,8 @@ async def create_invitation(
     if payload.display_name is not None and not payload.display_name.strip():
         raise HTTPException(status_code=422, detail="display_name cannot be blank")
 
-    if get_user_by_email(db, email):
+    existing_user = get_user_by_email(db, email)
+    if existing_user and "new" in (existing_user.allowed_systems or []):
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
 
     now = datetime.now(timezone.utc)

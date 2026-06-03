@@ -25,7 +25,6 @@ from app.schemas.users import UserOut
 from app.services.notification_service import send_email
 from app.services.user_service import (
     ROLE_LABELS,
-    allowed_systems_for_role,
     authenticate,
     effective_roles,
     has_new_system_role,
@@ -150,14 +149,32 @@ def register_info(token: str, db: Session = Depends(get_db)):
 @router.post("/register", response_model=RegisterOut)
 def register(payload: RegisterIn, db: Session = Depends(get_db)):
     inv = _valid_invitation(payload.token, db)
-    if db.scalar(select(User).where(User.email == inv.email)):
-        raise HTTPException(status_code=409, detail="email already exists")
+    existing_user = db.scalar(select(User).where(User.email == inv.email))
 
     display_name = (payload.display_name or inv.display_name or inv.email.split("@", 1)[0]).strip()
     if not display_name:
         raise HTTPException(status_code=422, detail="display_name is required")
 
     user_no = inv.tutor_no  # generate_user_no の結果が格納済み
+    if existing_user:
+        systems = list(existing_user.allowed_systems or [])
+        if "new" not in systems:
+            systems.append("new")
+        existing_user.allowed_systems = systems
+        roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
+        if inv.role not in roles:
+            roles.append(inv.role)
+        existing_user.roles = roles
+        if not existing_user.role:
+            existing_user.role = inv.role
+        if not existing_user.user_no:
+            existing_user.user_no = user_no
+        if inv.role == "tutor" and not existing_user.tutor_no:
+            existing_user.tutor_no = user_no
+        inv.accepted_at = datetime.now(timezone.utc)
+        db.commit()
+        return RegisterOut(message="registered")
+
     user = User(
         email=inv.email,
         role=inv.role,
@@ -165,7 +182,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         display_name=display_name,
         user_no=user_no,
         tutor_no=user_no if inv.role == "tutor" else None,  # legacy 互換
-        allowed_systems=allowed_systems_for_role(inv.role),
+        allowed_systems=["new"],
         password_hash=hash_password(payload.password),
         is_active=True,
     )

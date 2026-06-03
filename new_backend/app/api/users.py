@@ -38,6 +38,7 @@ def list_users(
             or_(func.lower(User.display_name).like(kw), func.lower(User.email).like(kw))
         )
     users = db.scalars(stmt.order_by(User.created_at.desc())).all()
+    users = [u for u in users if u.allowed_systems and "new" in u.allowed_systems]
     if role:
         users = [u for u in users if role in (list(u.roles or []) or [u.role])]
     total = len(users)
