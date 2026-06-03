@@ -39,7 +39,7 @@ def _active_role(request: Request, user: User) -> str:
 
 
 def _login_redirect() -> RedirectResponse:
-    return RedirectResponse(url="/w/login", status_code=302)
+    return RedirectResponse(url="/login", status_code=302)
 
 
 def _ctx(request: Request, user: User) -> dict:
@@ -67,31 +67,31 @@ def _require_page_role(request: Request, role: str, db: Session) -> tuple[User |
 # ルート
 # ---------------------------------------------------------------------------
 
-@router.get("/w/", include_in_schema=False)
+@router.get("/", include_in_schema=False)
 def root(request: Request, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
     role = _active_role(request, user)
     destinations = {
-        "tutor": "/w/tutor/reports",
-        "school": "/w/school/approval",
-        "sales": "/w/sales/queue",
-        "office": "/w/office/queue",
-        "admin_master": "/w/finance/queue",
+        "tutor": "/tutor/reports",
+        "school": "/school/approval",
+        "sales": "/sales/queue",
+        "office": "/office/queue",
+        "admin_master": "/finance/queue",
     }
-    return RedirectResponse(url=destinations.get(role, "/w/login"), status_code=302)
+    return RedirectResponse(url=destinations.get(role, "/login"), status_code=302)
 
 
-@router.get("/w/login", response_class=HTMLResponse)
+@router.get("/login", response_class=HTMLResponse)
 def login_page(request: Request, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if user:
-        return RedirectResponse(url="/w/", status_code=302)
+        return RedirectResponse(url="/", status_code=302)
     return templates.TemplateResponse(request, "login.html", {"request": request})
 
 
-@router.get("/w/select-role", response_class=HTMLResponse)
+@router.get("/select-role", response_class=HTMLResponse)
 def select_role_page(request: Request, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if not user:
@@ -99,7 +99,7 @@ def select_role_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "select_role.html", _ctx(request, user))
 
 
-@router.get("/w/tutor/reports", response_class=HTMLResponse)
+@router.get("/tutor/reports", response_class=HTMLResponse)
 def tutor_reports(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "tutor", db)
     if redirect:
@@ -107,7 +107,7 @@ def tutor_reports(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/reports.html", _ctx(request, user))
 
 
-@router.get("/w/tutor/reports/new", response_class=HTMLResponse)
+@router.get("/tutor/reports/new", response_class=HTMLResponse)
 def tutor_reports_new(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "tutor", db)
     if redirect:
@@ -115,12 +115,12 @@ def tutor_reports_new(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/reports.html", _ctx(request, user))
 
 
-@router.get("/w/tutor/submit", include_in_schema=False)
+@router.get("/tutor/submit", include_in_schema=False)
 def tutor_submit_redirect():
-    return RedirectResponse(url="/w/tutor/reports", status_code=301)
+    return RedirectResponse(url="/tutor/reports", status_code=301)
 
 
-@router.get("/w/tutor/reports/{report_id}", response_class=HTMLResponse)
+@router.get("/tutor/reports/{report_id}", response_class=HTMLResponse)
 def tutor_report_detail(request: Request, report_id: str, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "tutor", db)
     if redirect:
@@ -130,7 +130,7 @@ def tutor_report_detail(request: Request, report_id: str, db: Session = Depends(
     return templates.TemplateResponse(request, "tutor/report_detail.html", context)
 
 
-@router.get("/w/tutor/approval", response_class=HTMLResponse)
+@router.get("/tutor/approval", response_class=HTMLResponse)
 def tutor_approval(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "tutor", db)
     if redirect:
@@ -138,7 +138,7 @@ def tutor_approval(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/approval.html", _ctx(request, user))
 
 
-@router.get("/w/school/approval", response_class=HTMLResponse)
+@router.get("/school/approval", response_class=HTMLResponse)
 def school_approval(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "school", db)
     if redirect:
@@ -146,12 +146,12 @@ def school_approval(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "school/approval.html", _ctx(request, user))
 
 
-@router.get("/w/school/reports", include_in_schema=False)
+@router.get("/school/reports", include_in_schema=False)
 def school_reports_redirect():
-    return RedirectResponse(url="/w/school/approval", status_code=301)
+    return RedirectResponse(url="/school/approval", status_code=301)
 
 
-@router.get("/w/sales/queue", response_class=HTMLResponse)
+@router.get("/sales/queue", response_class=HTMLResponse)
 def sales_queue(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "sales", db)
     if redirect:
@@ -159,7 +159,7 @@ def sales_queue(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "sales/queue.html", _ctx(request, user))
 
 
-@router.get("/w/office/queue", response_class=HTMLResponse)
+@router.get("/office/queue", response_class=HTMLResponse)
 def office_queue(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "office", db)
     if redirect:
@@ -167,7 +167,7 @@ def office_queue(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "office/queue.html", _ctx(request, user))
 
 
-@router.get("/w/finance/queue", response_class=HTMLResponse)
+@router.get("/finance/queue", response_class=HTMLResponse)
 def finance_queue(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)
     if redirect:
@@ -175,7 +175,7 @@ def finance_queue(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "finance/queue.html", _ctx(request, user))
 
 
-@router.get("/w/admin/dashboard", response_class=HTMLResponse)
+@router.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)
     if redirect:
@@ -183,7 +183,7 @@ def admin_dashboard(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "admin/dashboard.html", _ctx(request, user))
 
 
-@router.get("/w/admin/reports/{report_id}", response_class=HTMLResponse)
+@router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
 def admin_report_detail(request: Request, report_id: str, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if not user:
@@ -195,7 +195,7 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
     return templates.TemplateResponse(request, "admin/report_detail.html", context)
 
 
-@router.get("/w/admin/users", response_class=HTMLResponse)
+@router.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)
     if redirect:
@@ -203,7 +203,7 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
 
 
-@router.get("/w/admin/assignments", response_class=HTMLResponse)
+@router.get("/admin/assignments", response_class=HTMLResponse)
 def admin_assignments(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)
     if redirect:
@@ -211,7 +211,7 @@ def admin_assignments(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "admin/assignments.html", _ctx(request, user))
 
 
-@router.get("/w/admin/stale-reports", response_class=HTMLResponse)
+@router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)
     if redirect:
@@ -219,16 +219,16 @@ def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "admin/stale_reports.html", _ctx(request, user))
 
 
-@router.get("/w/register", response_class=HTMLResponse)
+@router.get("/register", response_class=HTMLResponse)
 def register_page(request: Request):
     return templates.TemplateResponse(request, "register.html", {"request": request})
 
 
-@router.get("/w/forgot-password", response_class=HTMLResponse)
+@router.get("/forgot-password", response_class=HTMLResponse)
 def forgot_password_page(request: Request):
     return templates.TemplateResponse(request, "forgot_password.html", {"request": request})
 
 
-@router.get("/w/reset-password", response_class=HTMLResponse)
+@router.get("/reset-password", response_class=HTMLResponse)
 def reset_password_page(request: Request):
     return templates.TemplateResponse(request, "reset_password.html", {"request": request})

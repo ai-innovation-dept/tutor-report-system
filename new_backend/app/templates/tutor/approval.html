@@ -251,7 +251,7 @@ function actionArea(group) {
     const label = group.skip_school_approval ? '修正済みの報告書を管理へまとめて再提出' : '修正済みの報告書を学校へまとめて再依頼';
     return `<div class="mt-5 flex flex-wrap items-center gap-3">
       <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
-      <a class="text-sm text-rose-700 underline" href="/w/tutor/reports?month=${group.target_month}">報告書を修正する</a>
+      <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
     </div>`;
   }
   if (group.can_submit) {

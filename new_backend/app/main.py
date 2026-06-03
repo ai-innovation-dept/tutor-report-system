@@ -21,6 +21,6 @@ def on_startup() -> None:
     start_scheduler()
 
 
-@app.get("/w/health")
+@app.get("/health")
 def health():
     return {"status": "ok", "system": "new"}

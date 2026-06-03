@@ -3,4 +3,4 @@
 対象生徒：{student_name}
 件数：{count} 件
 運営への提出をお願いいたします。
-{base_url}/w/tutor/approval
+{base_url}/tutor/approval

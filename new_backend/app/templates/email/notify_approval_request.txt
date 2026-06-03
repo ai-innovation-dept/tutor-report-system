@@ -4,4 +4,4 @@
 件数：{count} 件
 合計時間：{total_hours}
 以下のURLからご確認承認をお願いいたします。
-{base_url}/w/school/reports
+{base_url}/school/reports

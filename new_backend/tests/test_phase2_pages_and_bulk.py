@@ -62,17 +62,17 @@ class TestPhase2Pages:
     @pytest.mark.parametrize(
         ("path", "email"),
         [
-            ("/w/tutor/approval", "p2-tutor@example.com"),
-            ("/w/sales/queue", "p2-sales@example.com"),
-            ("/w/office/queue", "p2-office@example.com"),
-            ("/w/finance/queue", "p2-master@example.com"),
+            ("/tutor/approval", "p2-tutor@example.com"),
+            ("/sales/queue", "p2-sales@example.com"),
+            ("/office/queue", "p2-office@example.com"),
+            ("/finance/queue", "p2-master@example.com"),
         ],
     )
     def test_pages_redirect_when_anonymous_and_200_when_authenticated(self, client, users, path, email):
         anon = TestClient(app)
         res = anon.get(path, follow_redirects=False)
         assert res.status_code == 302
-        assert res.headers["location"] == "/w/login"
+        assert res.headers["location"] == "/login"
 
         _login(client, email)
         res = client.get(path)
@@ -81,9 +81,9 @@ class TestPhase2Pages:
     def test_admin_report_detail_anonymous_redirects(self, client, users):
         report_id = _create_report(client, users)
         anon = TestClient(app)
-        res = anon.get(f"/w/admin/reports/{report_id}", follow_redirects=False)
+        res = anon.get(f"/admin/reports/{report_id}", follow_redirects=False)
         assert res.status_code == 302
-        assert res.headers["location"] == "/w/login"
+        assert res.headers["location"] == "/login"
 
 
 class TestPhase2Api:

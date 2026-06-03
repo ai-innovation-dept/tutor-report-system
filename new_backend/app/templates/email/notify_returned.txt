@@ -4,4 +4,4 @@
 指導日：{lesson_date}
 コメント：{comment}
 以下のURLから内容をご確認ください。
-{base_url}/w/tutor/reports
+{base_url}/tutor/reports

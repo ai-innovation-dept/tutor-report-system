@@ -57,7 +57,7 @@
           return;
         }
         const json = await res.json();
-        location.href = json.redirect_url || '/w/';
+        location.href = json.redirect_url || '/';
       } catch {
         errorEl.textContent = 'ネットワークエラーが発生しました';
         errorEl.classList.remove('hidden');

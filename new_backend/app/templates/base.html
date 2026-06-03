@@ -12,14 +12,14 @@
     先月以前の差戻し中未処理および未承認の報告があります。管理者へ連絡ください。
     （<span id="stale-count"></span>件）
     {% if active_role in ['sales', 'office', 'admin_master'] %}
-    <a href="/w/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
+    <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
     {% endif %}
   </div>
   <div id="sidebarBackdrop" class="fixed inset-0 z-30 hidden bg-slate-900/50 md:hidden" onclick="closeSidebar()"></div>
 
   <aside id="sidebarPanel" class="fixed inset-y-0 left-0 z-40 flex w-56 -translate-x-full transform flex-col bg-[#1a2e1a] text-white shadow-2xl transition-transform duration-300 md:translate-x-0">
     <div class="border-b border-slate-700 px-6 py-5">
-      <a href="/w/login" class="block" id="navHome">
+      <a href="/login" class="block" id="navHome">
         <h1 class="text-lg font-bold text-white">業務連絡表</h1>
         <p class="mt-1 text-xs text-slate-400">指導実績報告システム</p>
       </a>
@@ -183,9 +183,9 @@
 
     function isActiveNavLink(href) {
       const path = window.location.pathname;
-      if (href === '/w/tutor/reports') return path === '/w/tutor/reports' || path.startsWith('/w/tutor/reports/');
-      if (href === '/w/tutor/students') return path === '/w/tutor/students';
-      if (href === '/w/admin/dashboard') return path === '/w/admin/dashboard';
+      if (href === '/tutor/reports') return path === '/tutor/reports' || path.startsWith('/tutor/reports/');
+      if (href === '/tutor/students') return path === '/tutor/students';
+      if (href === '/admin/dashboard') return path === '/admin/dashboard';
       return path === href;
     }
 
@@ -196,7 +196,7 @@
         headers: {'Content-Type': 'application/json', ...(options.headers || {})}
       });
       if (res.status === 401) {
-        location.href = '/w/login';
+        location.href = '/login';
         return null;
       }
       if (!res.ok) {
@@ -209,7 +209,7 @@
 
     async function logout() {
       await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
-      location.href = '/w/login';
+      location.href = '/login';
     }
 
     async function renderNav(user) {
@@ -220,25 +220,25 @@
 
       const items = [];
       if (user.role === 'tutor') {
-        navHome.href = '/w/tutor/reports';
-        items.push(navLink('/w/tutor/reports', '報告書一覧'));
-        items.push(navLink('/w/tutor/approval', '承認管理'));
+        navHome.href = '/tutor/reports';
+        items.push(navLink('/tutor/reports', '報告書一覧'));
+        items.push(navLink('/tutor/approval', '承認管理'));
         // 生徒管理機能は将来リリース予定のため一時非表示
-        // items.push(navLink('/w/tutor/students', '生徒管理'));
+        // items.push(navLink('/tutor/students', '生徒管理'));
       } else if (user.role === 'school') {
-        navHome.href = '/w/school/approval';
-        items.push(navLink('/w/school/approval', '承認管理'));
+        navHome.href = '/school/approval';
+        items.push(navLink('/school/approval', '承認管理'));
       } else if (user.role === 'sales') {
-        navHome.href = '/w/sales/queue';
-        items.push(navLink('/w/sales/queue', 'キューダッシュボード'));
+        navHome.href = '/sales/queue';
+        items.push(navLink('/sales/queue', 'キューダッシュボード'));
       } else if (user.role === 'office') {
-        navHome.href = '/w/office/queue';
-        items.push(navLink('/w/office/queue', 'キューダッシュボード'));
+        navHome.href = '/office/queue';
+        items.push(navLink('/office/queue', 'キューダッシュボード'));
       } else if (user.role === 'admin_master') {
-        navHome.href = '/w/finance/queue';
-        items.push(navLink('/w/finance/queue', 'キューダッシュボード'));
-        items.push(navLink('/w/admin/users', 'ユーザー管理'));
-        items.push(navLink('/w/admin/assignments', '紐付け管理'));
+        navHome.href = '/finance/queue';
+        items.push(navLink('/finance/queue', 'キューダッシュボード'));
+        items.push(navLink('/admin/users', 'ユーザー管理'));
+        items.push(navLink('/admin/assignments', '紐付け管理'));
       }
       navItems.innerHTML = items.join('');
 

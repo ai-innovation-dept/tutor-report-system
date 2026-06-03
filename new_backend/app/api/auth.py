@@ -42,16 +42,16 @@ ROLE_LABELS = {
 }
 
 _DASHBOARD = {
-    "tutor": "/w/tutor/reports",
-    "school": "/w/school/approval",
-    "sales": "/w/sales/queue",
-    "office": "/w/office/queue",
-    "admin_master": "/w/admin/dashboard",
+    "tutor": "/tutor/reports",
+    "school": "/school/approval",
+    "sales": "/sales/queue",
+    "office": "/office/queue",
+    "admin_master": "/admin/dashboard",
 }
 
 
 def _dashboard(role: str) -> str:
-    return _DASHBOARD.get(role, "/w/")
+    return _DASHBOARD.get(role, "/")
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -74,7 +74,7 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
             roles=roles,
             redirect_url=_dashboard(roles[0]),
         )
-    return TokenResponse(access_token=token, roles=roles, redirect_url="/w/select-role")
+    return TokenResponse(access_token=token, roles=roles, redirect_url="/select-role")
 
 
 @router.post("/select-role", response_model=TokenResponse)
@@ -199,7 +199,7 @@ async def forgot_password(
         f"{user.display_name} 様\n\n"
         f"パスワードリセットのリクエストを受け付けました。\n"
         f"以下のURLから新しいパスワードを設定してください。\n\n"
-        f"【パスワードリセットURL】\n{base_url}/w/reset-password?token={token_obj.token}\n\n"
+        f"【パスワードリセットURL】\n{base_url}/reset-password?token={token_obj.token}\n\n"
         f"このURLの有効期限は1時間です\n"
         f"このメールに心当たりがない場合は無視してください\n"
     )

@@ -84,7 +84,7 @@
       });
       if (!res.ok) { showMsg('登録できませんでした。招待リンクをご確認ください。', true); return; }
       showMsg('登録が完了しました。ログイン画面へ移動します。', false);
-      setTimeout(() => { location.href = '/w/login'; }, 1500);
+      setTimeout(() => { location.href = '/login'; }, 1500);
     });
 
     loadInvitation();

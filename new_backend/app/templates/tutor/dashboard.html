@@ -10,14 +10,14 @@
       <span class="ml-3 text-sm text-gray-500">{{ report.form_type }}</span>
       <span class="ml-3 text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800">{{ report.status }}</span>
     </div>
-    <a href="/w/tutor/reports/{{ report.id }}" class="text-emerald-600 text-sm hover:underline">詳細</a>
+    <a href="/tutor/reports/{{ report.id }}" class="text-emerald-600 text-sm hover:underline">詳細</a>
   </div>
   {% else %}
   <p class="text-gray-500">報告書がありません。</p>
   {% endfor %}
 </div>
 <div class="mt-6">
-  <a href="/w/tutor/reports/new" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700">新規作成</a>
+  <a href="/tutor/reports/new" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700">新規作成</a>
 </div>
 {% endblock %}
 
