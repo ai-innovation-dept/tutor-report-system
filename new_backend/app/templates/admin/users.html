@@ -1,181 +1,530 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="mb-6 flex items-center justify-between">
-  <h1 class="text-xl font-bold text-slate-800">ユーザー管理</h1>
-</div>
-
-<!-- 招待フォーム -->
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 70px;
+    margin-right: 8px;
+  }
+  .mobile-cards tbody td .min-w-72 { min-width: 0; }
+}
+</style>
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <h2 class="font-semibold text-slate-800">新規ユーザー招待</h2>
+  <h2 class="font-semibold text-slate-800">新規ユーザー登録</h2>
   <form id="inviteForm" class="mt-4 space-y-3">
-    <div class="grid gap-3 md:grid-cols-3">
+    <div class="grid gap-3 md:grid-cols-[150px_1fr_1.4fr]">
       <label class="block text-sm">
         <span class="mb-1 block text-slate-700">ロール</span>
-        <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none">
+        <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
           <option value="tutor">講師</option>
-          <option value="school">学校担当</option>
+          <option value="school">学校</option>
           <option value="sales">営業担当</option>
           <option value="office">事務担当</option>
           <option value="admin_master">管理者</option>
         </select>
       </label>
-      <label class="block text-sm">
+      <label id="displayNameField" class="block text-sm">
         <span class="mb-1 block text-slate-700">氏名</span>
-        <input name="display_name" id="displayNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none" maxlength="100">
+        <input name="display_name" id="displayNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="100">
       </label>
       <label class="block text-sm">
         <span class="mb-1 block text-slate-700">メール</span>
-        <input name="email" type="email" id="emailInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none" required>
+        <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
       </label>
     </div>
-    <div class="flex items-center justify-between">
-      <p class="text-xs text-slate-500">No は自動採番されます。招待メールが送信されます。</p>
-      <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">招待メールを送る</button>
+    <div id="schoolFields" class="hidden grid gap-3 md:grid-cols-[1fr_1fr]">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">担当講師</span>
+        <select name="tutor_id" id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">生徒名</span>
+        <input name="student_name" id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="100">
+      </label>
     </div>
-    <p id="inviteMessage" class="hidden text-sm"></p>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p id="roleHint" class="text-sm text-slate-500">Noは自動で割り当てられます。</p>
+      <button class="rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white transition hover:bg-emerald-700">招待メールを送る</button>
+    </div>
   </form>
+  <p id="inviteMessage" class="mt-3 text-sm"></p>
 </section>
 
-<!-- 招待済み一覧 -->
-<section class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
-    <h2 class="font-semibold text-slate-800">招待済み（未受諾）</h2>
-    <button onclick="loadInvitations()" class="text-xs text-slate-500 hover:text-slate-700">更新</button>
-  </div>
-  <div id="invitationList" class="p-4 text-sm text-slate-500">読み込み中…</div>
-</section>
-
-<!-- ユーザー一覧 -->
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 p-4">
+  <div class="border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">招待済み一覧</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="mobile-cards w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">メール</th>
+          <th class="px-4 py-3 text-left">役割</th>
+          <th class="px-4 py-3 text-left">担当講師</th>
+          <th class="px-4 py-3 text-left">担当生徒</th>
+          <th class="px-4 py-3 text-left">送信日時</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="invitationRows"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
     <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
-    <div class="flex gap-2">
-      <input id="searchInput" placeholder="名前・メール" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" oninput="loadUsers()">
-      <select id="roleFilter" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none" onchange="loadUsers()">
-        <option value="">全ロール</option>
-        <option value="tutor">講師</option>
-        <option value="school">学校担当</option>
-        <option value="sales">営業担当</option>
-        <option value="office">事務担当</option>
-        <option value="admin_master">管理者</option>
-      </select>
+    <div class="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+      <div id="roleTabs" class="flex flex-wrap gap-2"></div>
+      <label class="text-sm">
+        <span class="sr-only">検索</span>
+        <input id="userSearch" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 sm:w-64" placeholder="名前・メールアドレス">
+      </label>
     </div>
   </div>
-  <div id="userList" class="divide-y divide-slate-100 text-sm">読み込み中…</div>
+  <div class="overflow-x-auto">
+    <table class="mobile-cards w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">ロール</th>
+          <th class="px-4 py-3 text-left">名前</th>
+          <th class="px-4 py-3 text-left">メール</th>
+          <th class="px-4 py-3 text-left">No</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="userRows"></tbody>
+    </table>
+  </div>
+  <div id="pagination" class="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 p-4"></div>
 </section>
-{% endblock %}
 
+<div id="detailOverlay" class="fixed inset-0 z-[1000] hidden bg-slate-900/40" onclick="closeDetailDrawer()"></div>
+<aside id="detailDrawer" class="fixed inset-y-0 right-0 z-[1001] hidden w-full max-w-xl translate-x-full overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200" onclick="event.stopPropagation()"></aside>
+
+<div id="deleteConfirmOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeDeleteConfirm()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">ユーザー削除の確認</h2>
+    </div>
+    <div class="p-5">
+      <p class="text-sm text-slate-700">本当に削除しますか？削除するには下にメールアドレスを入力してください</p>
+      <input id="deleteEmailInput" class="mt-4 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <div class="mt-4 flex justify-end gap-2">
+        <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeDeleteConfirm()">キャンセル</button>
+        <button id="confirmDeleteButton" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="deleteSelectedUser()" disabled>削除する</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
 {% block scripts %}
 <script>
-  const ROLE_LABELS = {tutor:'講師', school:'学校担当', sales:'営業担当', office:'事務担当', admin_master:'管理者'};
+setBreadcrumb('管理ポータル', 'ユーザー管理');
+let invitations = [];
+let tutors = [];
+let users = [];
+let paginationState = {page: 1, per_page: 50, total: 0, total_pages: 1, role_counts: {}, active_admin_master_count: 0};
+let activeRole = '';
+let searchTimer = null;
+let changedRoles = {};
+let updatingUsers = new Set();
+let selectedUser = null;
+let deleteTarget = null;
 
-  function navEscapeLocal(v) {
-    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
+const ROLE_LABELS = {
+  all: '全て',
+  tutor: '講師',
+  school: '学校',
+  sales: '営業',
+  office: '事務',
+  admin_master: '管理者'
+};
+const ROLE_ORDER = ['tutor', 'school', 'sales', 'office', 'admin_master'];
+const TABS = [
+  {key: '', label: '全て', countKey: 'all'},
+  {key: 'tutor', label: '講師', countKey: 'tutor'},
+  {key: 'school', label: '学校', countKey: 'school'},
+  {key: 'sales', label: '営業', countKey: 'sales'},
+  {key: 'office', label: '事務', countKey: 'office'},
+  {key: 'admin_master', label: '管理者', countKey: 'admin_master'}
+];
 
-  async function loadInvitations() {
-    const el = document.getElementById('invitationList');
-    try {
-      const res = await fetch('/api/w/invitations', {credentials: 'same-origin'});
-      const data = await res.json();
-      const pending = data.filter(i => !i.accepted_at);
-      if (!pending.length) { el.innerHTML = '<p class="text-slate-400">未受諾の招待はありません</p>'; return; }
-      el.innerHTML = pending.map(i => `
-        <div class="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-          <div>
-            <span class="font-medium text-slate-800">${navEscapeLocal(i.email)}</span>
-            <span class="ml-2 text-xs text-slate-500">${ROLE_LABELS[i.role] || i.role}</span>
-            ${i.user_no ? `<span class="ml-1 text-xs text-slate-400">No:${navEscapeLocal(i.user_no)}</span>` : ''}
-          </div>
-          <button onclick="deleteInvitation('${i.id}')" class="text-xs text-rose-500 hover:text-rose-700">取消</button>
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function roleLabel(role) { return ROLE_LABELS[role] || role; }
+function userRoles(user) { return user.roles && user.roles.length ? user.roles : [user.role]; }
+function primaryRole(user) { return userRoles(user)[0] || user.role; }
+function canEditAdminRoles(user) { return userRoles(user).every(role => ['sales', 'office'].includes(role)); }
+function rolesKey(roles) { return [...roles].sort().join('|'); }
+function currentEditedRoles(user) { return changedRoles[user.id] || userRoles(user); }
+function userHasRoleChanges(user) { return rolesKey(currentEditedRoles(user)) !== rolesKey(userRoles(user)); }
+function isLastActiveAdmin(user) {
+  return user.is_active && userRoles(user).includes('admin_master') && paginationState.active_admin_master_count <= 1;
+}
+function formatDate(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function formatDateTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function statusText(invitation) {
+  if (invitation.accepted_at) return '登録済み';
+  const expires = new Date(invitation.expires_at);
+  const diffHours = Math.max(0, Math.ceil((expires.getTime() - Date.now()) / 3600000));
+  if (diffHours <= 0) return '期限切れ';
+  return `未登録（残り${diffHours}時間）`;
+}
+function showInviteMessage(text, isError = false) {
+  inviteMessage.textContent = text;
+  inviteMessage.className = `mt-3 text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
+}
+function renderTutorOptions() {
+  tutorSelect.innerHTML = tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}（${escapeHtml(tutor.email)}）</option>`).join('');
+}
+function syncRoleFields() {
+  const role = roleSelect.value;
+  const schoolMode = role === 'school';
+  schoolFields.classList.toggle('hidden', !schoolMode);
+  displayNameField.classList.toggle('hidden', schoolMode);
+  displayNameInput.required = !schoolMode;
+  displayNameInput.disabled = schoolMode;
+  tutorSelect.required = schoolMode;
+  tutorSelect.disabled = !schoolMode;
+  studentNameInput.required = schoolMode;
+  studentNameInput.disabled = !schoolMode;
+  if (role === 'tutor') roleHint.textContent = 'Noは自動で割り当てられます。';
+  else if (schoolMode) roleHint.textContent = '学校は登録URLで本人がパスワードを設定します。既存学校メールなら生徒を追加します。';
+  else roleHint.textContent = '管理スタッフは登録URLで本人がパスワードを設定します。';
+}
+function renderInvitations() {
+  invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
+    const action = invitation.accepted_at
+      ? ''
+      : `<button class="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendInvitation('${invitation.id}')">再送</button>
+         <button class="ml-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
+      <td class="px-4 py-3" data-label="役割">${escapeHtml(roleLabel(invitation.role))}</td>
+      <td class="px-4 py-3" data-label="担当講師">${invitation.role === 'school' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
+      <td class="px-4 py-3" data-label="担当生徒">${invitation.role === 'school' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
+      <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
+      <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
+      <td class="px-4 py-3" data-label="操作">${action}</td>
+    </tr>`;
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
+}
+function roleCheckboxes(user, location = 'row') {
+  const roles = new Set(currentEditedRoles(user));
+  const editable = canEditAdminRoles(user);
+  return ROLE_ORDER.map(role => {
+    const enabled = editable && ['sales', 'office'].includes(role);
+    return `<label class="mr-3 inline-flex items-center gap-1 whitespace-nowrap text-xs ${enabled ? 'text-slate-700' : 'text-slate-400'}">
+      <input type="checkbox" data-role-user="${user.id}" data-role-location="${location}" value="${role}" ${roles.has(role) ? 'checked' : ''} ${enabled ? '' : 'disabled'} class="rounded border-slate-300" onchange="onRoleCheckboxChange('${user.id}', '${location}')">
+      <span>${escapeHtml(roleLabel(role))}</span>
+    </label>`;
+  }).join('');
+}
+function renderRoleTabs() {
+  const counts = paginationState.role_counts || {};
+  roleTabs.innerHTML = TABS.map(tab => {
+    const active = activeRole === tab.key;
+    return `<button type="button" class="rounded-lg border px-3 py-2 text-sm font-medium transition ${active ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="selectRoleTab('${tab.key}')">
+      ${tab.label}<span class="ml-2 rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}">${counts[tab.countKey] || 0}</span>
+    </button>`;
+  }).join('');
+}
+function renderUsers() {
+  renderRoleTabs();
+  userRows.innerHTML = users.length ? users.map(user => {
+    const active = user.is_active ? '有効' : '無効';
+    const updating = updatingUsers.has(user.id);
+    const changed = userHasRoleChanges(user);
+    const updateClasses = changed ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-slate-200 text-slate-500';
+    return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
+      <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
+      <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
+      <td class="px-4 py-3" data-label="No">${escapeHtml(user.user_no || '-')}</td>
+      <td class="px-4 py-3" data-label="状態">${active}</td>
+      <td class="px-4 py-3" data-label="操作">
+        <div class="flex flex-wrap gap-2">
+          <button class="min-h-[44px] rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
+          <button class="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
         </div>
-      `).join('');
-    } catch { el.innerHTML = '<p class="text-rose-500">読み込みに失敗しました</p>'; }
-  }
-
-  async function deleteInvitation(id) {
-    if (!confirm('この招待を取り消しますか？')) return;
-    const res = await fetch(`/api/w/invitations/${id}`, {method: 'DELETE', credentials: 'same-origin'});
-    if (!res.ok) { showToast('取消に失敗しました', 'error'); return; }
-    showToast('招待を取り消しました', 'success');
-    loadInvitations();
-  }
-
-  async function loadUsers() {
-    const el = document.getElementById('userList');
-    const search = document.getElementById('searchInput').value;
-    const role = document.getElementById('roleFilter').value;
-    let url = '/api/w/users?per_page=100';
-    if (search) url += `&search=${encodeURIComponent(search)}`;
-    if (role) url += `&role=${encodeURIComponent(role)}`;
-    try {
-      const res = await fetch(url, {credentials: 'same-origin'});
-      const data = await res.json();
-      if (!data.items.length) { el.innerHTML = '<p class="p-4 text-slate-400">該当するユーザーはありません</p>'; return; }
-      el.innerHTML = data.items.map(u => `
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <span class="font-medium text-slate-800">${navEscapeLocal(u.display_name)}</span>
-            <span class="ml-2 text-xs text-slate-500">${navEscapeLocal(u.email)}</span>
-            <span class="ml-2 rounded-full px-2 py-0.5 text-xs ${u.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${ROLE_LABELS[u.role] || u.role}</span>
-            ${u.user_no ? `<span class="ml-1 text-xs text-slate-400">${navEscapeLocal(u.user_no)}</span>` : ''}
-          </div>
-          <div class="flex gap-2">
-            <button onclick="toggleActive('${u.id}', ${u.is_active})"
-              class="text-xs ${u.is_active ? 'text-amber-600 hover:text-amber-800' : 'text-emerald-600 hover:text-emerald-800'}">
-              ${u.is_active ? '無効化' : '有効化'}
-            </button>
-            <button onclick="resetPassword('${u.id}')" class="text-xs text-slate-500 hover:text-slate-700">PW初期化</button>
-          </div>
-        </div>
-      `).join('');
-    } catch { el.innerHTML = '<p class="p-4 text-rose-500">読み込みに失敗しました</p>'; }
-  }
-
-  async function toggleActive(id, isActive) {
-    const res = await fetch(`/api/w/users/${id}`, {
-      method: 'PATCH', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({is_active: !isActive}), credentials: 'same-origin'
-    });
-    if (!res.ok) { showToast('操作に失敗しました', 'error'); return; }
-    showToast(isActive ? 'ユーザーを無効化しました' : 'ユーザーを有効化しました', 'success');
-    loadUsers();
-  }
-
-  async function resetPassword(id) {
-    if (!confirm('パスワードを初期化しますか？')) return;
-    const res = await fetch(`/api/w/users/${id}/reset-password`, {method: 'POST', credentials: 'same-origin'});
-    if (!res.ok) { showToast('初期化に失敗しました', 'error'); return; }
-    const data = await res.json();
-    alert(`初期パスワード: ${data.initial_password}`);
-  }
-
-  document.getElementById('inviteForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const msgEl = document.getElementById('inviteMessage');
-    const payload = {
-      role: document.getElementById('roleSelect').value,
-      display_name: document.getElementById('displayNameInput').value || null,
-      email: document.getElementById('emailInput').value,
-    };
-    const res = await fetch('/api/w/invitations', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(payload), credentials: 'same-origin'
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      msgEl.textContent = err.detail || '招待に失敗しました';
-      msgEl.className = 'text-sm text-rose-600'; msgEl.classList.remove('hidden'); return;
-    }
-    msgEl.textContent = '招待メールを送信しました';
-    msgEl.className = 'text-sm text-emerald-700'; msgEl.classList.remove('hidden');
-    e.target.reset();
-    loadInvitations();
+      </td>
+    </tr>`;
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">登録済みユーザーはありません。</td></tr>';
+  renderPagination();
+}
+function renderPagination() {
+  const {page, total, total_pages} = paginationState;
+  const buttons = [];
+  const pageButton = (value, label = value) => `<button class="rounded-lg border px-3 py-1.5 text-sm ${page === value ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="goToPage(${value})">${label}</button>`;
+  buttons.push(`<button class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:opacity-40" ${page <= 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})">&lt; 前へ</button>`);
+  const visible = new Set([1, total_pages, page - 1, page, page + 1].filter(value => value >= 1 && value <= total_pages));
+  let last = 0;
+  [...visible].sort((a, b) => a - b).forEach(value => {
+    if (value - last > 1) buttons.push('<span class="px-1 text-slate-400">...</span>');
+    buttons.push(pageButton(value));
+    last = value;
   });
-
-  setBreadcrumb('管理者', 'ユーザー管理');
-  loadInvitations();
-  loadUsers();
+  buttons.push(`<button class="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-700 disabled:opacity-40" ${page >= total_pages ? 'disabled' : ''} onclick="goToPage(${page + 1})">次へ &gt;</button>`);
+  pagination.innerHTML = `<div class="text-sm text-slate-500">全${total}件 / ${total_pages}ページ</div><div class="flex flex-wrap items-center gap-2">${buttons.join('')}</div>`;
+}
+async function loadUsersPage(page = paginationState.page) {
+  const params = new URLSearchParams({page, per_page: 50});
+  if (activeRole) params.set('roles', activeRole);
+  const keyword = userSearch.value.trim();
+  if (keyword) params.set('search', keyword);
+  const [invitationRowsData, tutorRows, userRowsData] = await Promise.all([
+    api('/api/w/invitations'),
+    api('/api/w/users?roles=tutor&per_page=100'),
+    api(`/api/w/users?${params.toString()}`)
+  ]);
+  invitations = invitationRowsData;
+  tutors = tutorRows.items || tutorRows;
+  users = userRowsData.items || [];
+  paginationState = {
+    page: userRowsData.page || page,
+    per_page: userRowsData.per_page || 50,
+    total: userRowsData.total || 0,
+    total_pages: userRowsData.total_pages || 1,
+    role_counts: userRowsData.role_counts || {},
+    active_admin_master_count: userRowsData.active_admin_master_count || 0
+  };
+  changedRoles = {};
+  renderTutorOptions();
+  renderInvitations();
+  renderUsers();
+  syncRoleFields();
+}
+function selectRoleTab(role) {
+  activeRole = role;
+  loadUsersPage(1);
+}
+function goToPage(page) {
+  if (page < 1 || page > paginationState.total_pages) return;
+  loadUsersPage(page);
+}
+function onRoleCheckboxChange(userId, location) {
+  const user = users.find(item => item.id === userId) || selectedUser;
+  if (!user) return;
+  const checked = [...document.querySelectorAll(`input[data-role-user="${userId}"][data-role-location="${location}"]:checked`)].map(input => input.value);
+  changedRoles[userId] = checked;
+  if (location === 'drawer') renderDetailDrawer(userId);
+  renderUsers();
+}
+async function updateUserRoles(id, options = {}) {
+  const user = users.find(item => item.id === id) || selectedUser;
+  if (!user) return;
+  const roles = changedRoles[id] || userRoles(user);
+  if (!roles.length) {
+    showToast('少なくとも1つの管理ロールを選択してください', 'error');
+    return;
+  }
+  updatingUsers.add(id);
+  renderUsers();
+  if (selectedUser?.id === id) renderDetailDrawer(id);
+  try {
+    const updated = await api(`/api/w/users/${id}/roles`, {method: 'PATCH', body: JSON.stringify({roles})});
+    showToast('ユーザー情報を更新しました', 'success');
+    if (selectedUser?.id === id) selectedUser = updated;
+    await loadUsersPage(paginationState.page);
+    if (options.keepDrawer && selectedUser) renderDetailDrawer(id);
+  } catch (error) {
+    showToast(error.message || 'ユーザー情報を更新できませんでした', 'error');
+  } finally {
+    updatingUsers.delete(id);
+    renderUsers();
+  }
+}
+function openDetailDrawer(id) {
+  selectedUser = users.find(item => item.id === id);
+  if (!selectedUser) return;
+  renderDetailDrawer(id);
+  detailOverlay.classList.remove('hidden');
+  detailDrawer.classList.remove('hidden');
+  requestAnimationFrame(() => detailDrawer.classList.remove('translate-x-full'));
+}
+function closeDetailDrawer() {
+  detailDrawer.classList.add('translate-x-full');
+  setTimeout(() => {
+    detailOverlay.classList.add('hidden');
+    detailDrawer.classList.add('hidden');
+    selectedUser = null;
+  }, 200);
+}
+function renderDetailDrawer(id) {
+  const user = selectedUser && selectedUser.id === id ? selectedUser : users.find(item => item.id === id);
+  if (!user) return;
+  const lastAdmin = isLastActiveAdmin(user);
+  const statusButton = user.is_active
+    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため無効化できません"' : ''}>無効化する</button>`
+    : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;
+  detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+    <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
+    <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeDetailDrawer()">閉じる</button>
+  </div>
+  <div class="space-y-5 p-5">
+    <section>
+      <h3 class="font-semibold text-slate-800">ユーザー基本情報</h3>
+      <dl class="mt-3 grid grid-cols-[120px_1fr] gap-2 text-sm">
+        <dt class="text-slate-500">名前</dt><dd>${escapeHtml(user.display_name)}</dd>
+        <dt class="text-slate-500">メール</dt><dd>${escapeHtml(user.email)}</dd>
+        <dt class="text-slate-500">No</dt><dd>${escapeHtml(user.user_no || '-')}</dd>
+        <dt class="text-slate-500">登録日</dt><dd>${formatDate(user.created_at)}</dd>
+        <dt class="text-slate-500">最終ログイン日</dt><dd>${formatDateTime(user.last_login_at)}</dd>
+      </dl>
+    </section>
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">ロール設定</h3>
+      <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
+      <button class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
+    </section>
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">状態管理</h3>
+      <p class="mt-2 text-sm text-slate-700">現在の状態：${user.is_active ? '有効' : '無効'}</p>
+      <div class="mt-3">${statusButton}</div>
+    </section>
+    <section class="rounded-lg border p-4" style="background:#FEF2F2;border-color:#FCA5A5;">
+      <h3 class="font-semibold text-red-700">危険な操作</h3>
+      <p class="mt-2 text-sm text-red-700">ユーザーを削除すると元に戻せません</p>
+      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため削除できません"' : ''}>このユーザーを削除する</button>
+    </section>
+  </div>`;
+}
+async function disableUser(id) {
+  try {
+    await api(`/api/w/users/${id}/disable`, {method: 'PATCH'});
+    showToast('ユーザーを無効化しました', 'success');
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを無効化できませんでした', 'error');
+  }
+}
+async function enableUser(id) {
+  try {
+    await api(`/api/w/users/${id}/enable`, {method: 'PATCH'});
+    showToast('ユーザーを有効化しました', 'success');
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを有効化できませんでした', 'error');
+  }
+}
+function openDeleteConfirm(id) {
+  deleteTarget = users.find(item => item.id === id) || selectedUser;
+  if (!deleteTarget) return;
+  deleteEmailInput.value = '';
+  confirmDeleteButton.disabled = true;
+  deleteConfirmOverlay.classList.remove('hidden');
+  deleteConfirmOverlay.classList.add('flex');
+}
+function closeDeleteConfirm() {
+  deleteTarget = null;
+  deleteConfirmOverlay.classList.add('hidden');
+  deleteConfirmOverlay.classList.remove('flex');
+}
+async function deleteSelectedUser() {
+  if (!deleteTarget || deleteEmailInput.value.trim() !== deleteTarget.email) return;
+  try {
+    await api(`/api/w/users/${deleteTarget.id}`, {method: 'DELETE'});
+    showToast('ユーザーを削除しました', 'success');
+    closeDeleteConfirm();
+    closeDetailDrawer();
+    await loadUsersPage(paginationState.page);
+  } catch (error) {
+    showToast(error.message || 'ユーザーを削除できませんでした', 'error');
+  }
+}
+inviteForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const data = Object.fromEntries(new FormData(inviteForm));
+  if (data.role !== 'school') {
+    delete data.tutor_id;
+    delete data.student_name;
+  } else {
+    delete data.display_name;
+  }
+  try {
+    const result = await api('/api/w/invitations', {method: 'POST', body: JSON.stringify(data)});
+    inviteForm.reset();
+    roleSelect.value = data.role;
+    syncRoleFields();
+    showInviteMessage(result.message || '招待メールを送信しました。');
+    await loadUsersPage(1);
+  } catch (error) {
+    showInviteMessage(error.message || '招待メールを送信できませんでした。', true);
+  }
+});
+async function resendInvitation(id) {
+  const invitation = invitations.find(item => item.id === id);
+  if (!invitation) return;
+  const payload = {
+    email: invitation.email,
+    role: invitation.role,
+    display_name: invitation.display_name,
+    tutor_id: invitation.tutor_id,
+    student_name: invitation.student_name
+  };
+  await api('/api/w/invitations', {method: 'POST', body: JSON.stringify(payload)});
+  showInviteMessage('招待メールを再送しました。');
+  await loadUsersPage();
+}
+async function deleteInvitation(id) {
+  if (!confirm('この招待を取り消しますか。')) return;
+  await api(`/api/w/invitations/${id}`, {method: 'DELETE'});
+  showInviteMessage('招待を取り消しました。');
+  await loadUsersPage();
+}
+roleSelect.addEventListener('change', syncRoleFields);
+userSearch.addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => loadUsersPage(1), 250);
+});
+deleteEmailInput.addEventListener('input', () => {
+  confirmDeleteButton.disabled = !deleteTarget || deleteEmailInput.value.trim() !== deleteTarget.email;
+});
+window.authReady.then(user => {
+  if (!user) return;
+  loadUsersPage(1);
+});
 </script>
 {% endblock %}
+
+

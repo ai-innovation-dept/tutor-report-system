@@ -1,192 +1,260 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="mb-6 flex items-center justify-between">
-  <h1 class="text-xl font-bold text-slate-800">紐付け管理</h1>
-  <button onclick="openCreateModal()" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">＋ 新規作成</button>
-</div>
+<!-- # === Phase 9: 紐付け管理 START === -->
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 80px;
+    margin-right: 8px;
+  }
+}
+</style>
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div class="grid gap-3 md:grid-cols-[1fr_180px]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">検索</span>
+      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="生徒名・講師名・学校名">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">状態</span>
+      <select id="statusFilter" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+        <option value="all">すべて</option>
+        <option value="active">有効</option>
+        <option value="inactive">無効</option>
+      </select>
+    </label>
+  </div>
+</section>
 
-<!-- 紐付け一覧 -->
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="border-b border-slate-200 bg-slate-50 p-4">
     <h2 class="font-semibold text-slate-800">紐付け一覧</h2>
   </div>
-  <div id="assignmentList" class="divide-y divide-slate-100 text-sm">読み込み中…</div>
+  <div class="overflow-x-auto">
+    <table class="mobile-cards w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">学校名</th>
+          <th class="px-4 py-3 text-left">メール</th>
+          <th class="px-4 py-3 text-left">学校スキップ</th>
+          <th class="px-4 py-3 text-left">リマインド設定</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="assignmentRows"></tbody>
+    </table>
+  </div>
 </section>
 
-<!-- 新規作成モーダル -->
-<div id="createModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeCreateModal()">
-  <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-slate-800">紐付け新規作成</h2>
-      <button onclick="closeCreateModal()" class="text-sm text-slate-500 hover:text-slate-700">閉じる</button>
-    </div>
-    <form id="createForm" class="space-y-4">
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">担当講師</label>
-        <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required>
-          <option value="">選択してください</option>
-        </select>
-      </div>
-      <div>
-        <label class="mb-1 block text-sm font-medium text-slate-700">生徒名</label>
-        <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" required maxlength="100">
-      </div>
-      <p id="createError" class="hidden text-sm text-rose-600"></p>
-      <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">作成する</button>
-    </form>
-  </div>
-</div>
+<section class="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <button id="toggleCreateForm" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規紐付けを追加</button>
+  <form id="createForm" class="mt-4 hidden grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">生徒名</span>
+      <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">担当講師</span>
+      <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required></select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">学校メールアドレス</span>
+      <input id="schoolEmailInput" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <button class="self-end rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">追加する</button>
+  </form>
+</section>
 
-<!-- フォーム割り当てモーダル -->
-<div id="profileModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeProfileModal()">
-  <div class="w-full max-w-md rounded-xl bg-white p-6 shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between mb-4">
-      <h2 class="font-semibold text-slate-800">フォーム割り当て</h2>
-      <button onclick="closeProfileModal()" class="text-sm text-slate-500 hover:text-slate-700">閉じる</button>
+<div id="reminderModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReminderModal()">
+  <form id="reminderForm" class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">リマインド設定</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeReminderModal()">閉じる</button>
     </div>
-    <div id="profileContent" class="space-y-4 text-sm"></div>
-  </div>
+    <div class="grid gap-4 p-5">
+      <label class="flex items-center gap-2 text-sm text-slate-700">
+        <input id="reminderEnabledInput" type="checkbox" class="h-4 w-4 rounded border-slate-300">
+        リマインドを有効にする
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">承認依頼から何日後</span>
+        <input id="reminderDaysInput" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">送付回数</span>
+        <input id="reminderCountInput" type="number" min="1" class="w-full rounded-lg border border-slate-300 px-3 py-2">
+      </label>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+      <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeReminderModal()">キャンセル</button>
+      <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">保存</button>
+    </div>
+  </form>
 </div>
 {% endblock %}
-
 {% block scripts %}
 <script>
-  let tutors = [];
-  let currentAssignmentId = null;
+setBreadcrumb('管理ポータル', 'システム設定');
+let assignments = [];
+let tutors = [];
+let editingReminderId = '';
 
-  function navEscapeLocal(v) {
-    return String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  }
-
-  async function loadTutors() {
-    try {
-      const res = await fetch('/api/w/users?role=tutor&per_page=100', {credentials: 'same-origin'});
-      const data = await res.json();
-      tutors = data.items || [];
-      const sel = document.getElementById('tutorSelect');
-      sel.innerHTML = '<option value="">選択してください</option>';
-      tutors.forEach(t => {
-        const opt = document.createElement('option');
-        opt.value = t.id;
-        opt.textContent = `${t.display_name}${t.user_no ? ' (' + t.user_no + ')' : ''}`;
-        sel.appendChild(opt);
-      });
-    } catch {}
-  }
-
-  async function loadAssignments() {
-    const el = document.getElementById('assignmentList');
-    try {
-      const res = await fetch('/api/w/assignments', {credentials: 'same-origin'});
-      const data = await res.json();
-      if (!data.length) { el.innerHTML = '<p class="p-4 text-slate-400">紐付けはまだありません</p>'; return; }
-      el.innerHTML = data.map(a => `
-        <div class="flex items-center justify-between px-4 py-3">
-          <div>
-            <span class="font-medium text-slate-800">${navEscapeLocal(a.student_name)}</span>
-            <span class="ml-2 text-xs text-slate-500">講師：${navEscapeLocal(a.tutor?.display_name || '-')}</span>
-            <span class="ml-2 rounded-full px-2 py-0.5 text-xs ${a.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}">${a.is_active ? '有効' : '無効'}</span>
-          </div>
-          <div class="flex gap-2">
-            <button onclick="openProfileModal('${a.id}')" class="text-xs text-emerald-600 hover:text-emerald-800">フォーム割当</button>
-            <button onclick="toggleAssignment('${a.id}', ${a.is_active})" class="text-xs ${a.is_active ? 'text-amber-600 hover:text-amber-800' : 'text-slate-500 hover:text-slate-700'}">${a.is_active ? '無効化' : '有効化'}</button>
-          </div>
-        </div>
-      `).join('');
-    } catch { el.innerHTML = '<p class="p-4 text-rose-500">読み込みに失敗しました</p>'; }
-  }
-
-  async function toggleAssignment(id, isActive) {
-    const res = await fetch(`/api/w/assignments/${id}`, {
-      method: 'PATCH', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({is_active: !isActive}), credentials: 'same-origin'
-    });
-    if (!res.ok) { showToast('操作に失敗しました', 'error'); return; }
-    loadAssignments();
-  }
-
-  async function openProfileModal(assignmentId) {
-    currentAssignmentId = assignmentId;
-    const el = document.getElementById('profileContent');
-    el.innerHTML = '<p class="text-slate-500">読み込み中…</p>';
-    document.getElementById('profileModal').classList.remove('hidden');
-    document.getElementById('profileModal').classList.add('flex');
-
-    try {
-      const res = await fetch('/api/w/admin/profiles', {credentials: 'same-origin'});
-      const profiles = await res.json();
-      const profile = profiles.find(p => p.assignment_id === assignmentId);
-
-      if (profile) {
-        el.innerHTML = `
-          <p class="text-slate-700">フォーム種別：<strong>${navEscapeLocal(profile.form_type)}</strong></p>
-          <p class="text-slate-700 mt-1">契約メモ：<span class="text-slate-500">${navEscapeLocal(JSON.stringify(profile.contract_meta))}</span></p>
-          <p class="text-xs text-slate-400 mt-2">既に割り当てがあります</p>
-        `;
-      } else {
-        el.innerHTML = `
-          <form id="profileForm" class="space-y-3">
-            <div>
-              <label class="mb-1 block text-sm font-medium text-slate-700">フォーム種別</label>
-              <select id="formTypeSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none">
-                <option value="monthly_dispatch">月次派遣報告</option>
-              </select>
-            </div>
-            <p id="profileError" class="hidden text-sm text-rose-600"></p>
-            <button type="submit" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700 transition">割り当てる</button>
-          </form>
-        `;
-        document.getElementById('profileForm').addEventListener('submit', async ev => {
-          ev.preventDefault();
-          const r = await fetch('/api/w/admin/profiles', {
-            method: 'POST', headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({assignment_id: assignmentId, form_type: document.getElementById('formTypeSelect').value}),
-            credentials: 'same-origin'
-          });
-          if (!r.ok) { const err = await r.json(); document.getElementById('profileError').textContent = err.detail || 'エラー'; document.getElementById('profileError').classList.remove('hidden'); return; }
-          showToast('フォームを割り当てました', 'success');
-          closeProfileModal();
-        });
-      }
-    } catch { el.innerHTML = '<p class="text-rose-500">読み込みに失敗しました</p>'; }
-  }
-
-  function openCreateModal() {
-    document.getElementById('createError').classList.add('hidden');
-    document.getElementById('studentNameInput').value = '';
-    document.getElementById('createModal').classList.remove('hidden');
-    document.getElementById('createModal').classList.add('flex');
-  }
-
-  function closeCreateModal() {
-    document.getElementById('createModal').classList.add('hidden');
-    document.getElementById('createModal').classList.remove('flex');
-  }
-
-  function closeProfileModal() {
-    document.getElementById('profileModal').classList.add('hidden');
-    document.getElementById('profileModal').classList.remove('flex');
-    currentAssignmentId = null;
-  }
-
-  document.getElementById('createForm').addEventListener('submit', async e => {
-    e.preventDefault();
-    const errEl = document.getElementById('createError');
-    errEl.classList.add('hidden');
-    const res = await fetch('/api/w/assignments', {
-      method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({tutor_id: document.getElementById('tutorSelect').value, student_name: document.getElementById('studentNameInput').value}),
-      credentials: 'same-origin'
-    });
-    if (!res.ok) { const err = await res.json(); errEl.textContent = err.detail || '作成に失敗しました'; errEl.classList.remove('hidden'); return; }
-    showToast('紐付けを作成しました', 'success');
-    closeCreateModal();
-    loadAssignments();
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function tutorLabel(tutor) {
+  return `${tutor.display_name}${tutor.user_no ? `（${tutor.user_no}）` : `（${tutor.email}）`}`;
+}
+function filteredAssignments() {
+  const keyword = searchInput.value.trim().toLowerCase();
+  const status = statusFilter.value;
+  return assignments.filter(assignment => {
+    const text = [assignment.student_name, assignment.tutor_name, assignment.school_name, assignment.school_email].join(' ').toLowerCase();
+    if (keyword && !text.includes(keyword)) return false;
+    if (status === 'active' && !assignment.is_active) return false;
+    if (status === 'inactive' && assignment.is_active) return false;
+    return true;
   });
-
-  setBreadcrumb('管理者', '紐付け管理');
-  loadTutors();
-  loadAssignments();
+}
+function toggleHtml(assignment) {
+  const checked = assignment.skip_school_approval ? 'checked' : '';
+  return `<button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full transition ${assignment.skip_school_approval ? 'bg-emerald-600' : 'bg-slate-300'}" onclick="toggleSkip('${assignment.id}', ${!assignment.skip_school_approval})" aria-label="学校スキップ">
+    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${assignment.skip_school_approval ? 'translate-x-5' : 'translate-x-1'}"></span>
+  </button>`;
+}
+function reminderLabel(assignment) {
+  if (!assignment.reminder_enabled) return 'OFF';
+  return `${assignment.reminder_days_after}日後 ${assignment.reminder_count}回`;
+}
+function renderAssignments() {
+  const rows = filteredAssignments();
+  assignmentRows.innerHTML = rows.length ? rows.map(assignment => {
+    const action = assignment.is_active
+      ? `<button class="min-h-[44px] w-full rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', false)">無効化</button>`
+      : `<button class="min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
+    const schoolName = assignment.school_name || '未登録';
+    const schoolEmail = assignment.school_email || '-';
+    return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="学校名">${escapeHtml(schoolName)}</td>
+      <td class="px-4 py-3" data-label="メール">${escapeHtml(schoolEmail)}</td>
+      <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
+      <td class="px-4 py-3" data-label="リマインド">${assignment.skip_school_approval
+        ? `<span class="inline-block min-h-[44px] rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-400 opacity-50 cursor-not-allowed">${escapeHtml(reminderLabel(assignment))}</span>`
+        : `<button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button>`
+      }</td>
+      <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
+      <td class="px-4 py-3" data-label="操作">${action}</td>
+    </tr>`;
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">紐付けはありません。</td></tr>';
+}
+function renderTutorOptions() {
+  tutorSelect.innerHTML = tutors
+    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'))
+    .map(tutor => `<option value="${tutor.id}">${escapeHtml(tutorLabel(tutor))}</option>`)
+    .join('');
+}
+async function patchAssignment(id, payload, successMessage) {
+  try {
+    await api(`/api/w/assignments/${id}`, {method: 'PATCH', body: JSON.stringify(payload)});
+    showToast(successMessage, 'success');
+    await loadAssignmentsPage();
+  } catch (error) {
+    showToast(error.message || '更新できませんでした', 'error');
+  }
+}
+async function toggleSkip(id, value) {
+  await patchAssignment(id, {skip_school_approval: value}, '学校スキップを更新しました');
+}
+async function setAssignmentActive(id, value) {
+  await patchAssignment(id, {is_active: value}, value ? '紐付けを有効化しました' : '紐付けを無効化しました');
+}
+function openReminderModal(id) {
+  const assignment = assignments.find(item => item.id === id);
+  if (!assignment || assignment.skip_school_approval) return;
+  editingReminderId = id;
+  reminderEnabledInput.checked = assignment.reminder_enabled;
+  reminderDaysInput.value = assignment.reminder_days_after || 1;
+  reminderCountInput.value = assignment.reminder_count || 1;
+  reminderModal.classList.remove('hidden');
+  reminderModal.classList.add('flex');
+}
+function closeReminderModal() {
+  reminderModal.classList.add('hidden');
+  reminderModal.classList.remove('flex');
+  editingReminderId = '';
+}
+async function loadAssignmentsPage() {
+  const [assignmentRows, tutorRows] = await Promise.all([
+    api('/api/w/assignments'),
+    api('/api/w/users?roles=tutor&per_page=100')
+  ]);
+  assignments = assignmentRows;
+  tutors = tutorRows.items || tutorRows;
+  renderTutorOptions();
+  renderAssignments();
+}
+toggleCreateForm.addEventListener('click', () => createForm.classList.toggle('hidden'));
+createForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  try {
+    await api('/api/w/assignments', {
+      method: 'POST',
+      body: JSON.stringify({
+        tutor_id: tutorSelect.value,
+        student_name: studentNameInput.value.trim(),
+        school_email: schoolEmailInput.value.trim() || null
+      })
+    });
+    createForm.reset();
+    createForm.classList.add('hidden');
+    showToast('紐付けを追加しました', 'success');
+    await loadAssignmentsPage();
+  } catch (error) {
+    showToast(error.message || '紐付けを追加できませんでした', 'error');
+  }
+});
+reminderForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!editingReminderId) return;
+  await patchAssignment(editingReminderId, {
+    reminder_enabled: reminderEnabledInput.checked,
+    reminder_days_after: Number(reminderDaysInput.value || 1),
+    reminder_count: Number(reminderCountInput.value || 1)
+  }, 'リマインド設定を更新しました');
+  closeReminderModal();
+});
+searchInput.addEventListener('input', renderAssignments);
+statusFilter.addEventListener('change', renderAssignments);
+window.authReady.then(user => {
+  if (!user) return;
+  loadAssignmentsPage();
+});
 </script>
+<!-- # === Phase 9 END === -->
 {% endblock %}
+
+

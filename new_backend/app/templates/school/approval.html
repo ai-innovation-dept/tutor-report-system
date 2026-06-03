@@ -1,138 +1,304 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="mb-6">
-  <h1 class="text-xl font-bold text-slate-800">承認管理（学校担当）</h1>
-  <p class="mt-1 text-sm text-slate-500">学校確認待ちの報告書を確認・承認してください</p>
-</div>
-
-<!-- 月選択 -->
-<div class="mb-4 flex items-center gap-3">
-  <label class="text-sm font-medium text-slate-600">対象月</label>
-  <input type="month" id="monthPicker" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-800 focus:border-emerald-500 focus:outline-none">
-</div>
-
-<div id="reportList" class="space-y-3">
-  <p class="text-slate-500 text-sm">読み込み中…</p>
-</div>
-
-<!-- 差戻しモーダル -->
-<div id="returnModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnModal()">
-  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">差戻しコメント</h2>
-      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeReturnModal()">閉じる</button>
-    </div>
-    <div class="p-5 space-y-4">
-      <input type="hidden" id="returnReportId">
-      <div>
-        <label class="block text-sm font-medium text-slate-700 mb-1">コメント <span class="text-rose-500">*</span></label>
-        <textarea id="returnComment" rows="4"
-          class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
-          placeholder="差戻し理由を記入してください"></textarea>
-      </div>
-      <p id="returnError" class="hidden text-sm text-rose-600"></p>
-      <button onclick="submitReturn()"
-        class="w-full rounded-lg bg-rose-600 px-4 py-2 text-sm font-medium text-white hover:bg-rose-700 transition">
-        差戻す
-      </button>
-    </div>
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+    <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+      <span class="text-slate-600">表示月</span>
+      <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+    </label>
   </div>
 </div>
-{% endblock %}
 
+<div id="studentTabs" class="mb-4 hidden flex-wrap gap-2"></div>
+<div id="selectedStudentLabel" class="mb-4 hidden text-sm font-medium text-slate-700"></div>
+
+<section id="exportArea" class="mb-4 hidden rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+  <div id="exportButtons" class="flex flex-col gap-2 sm:flex-row sm:flex-wrap"></div>
+</section>
+
+<div id="approvalContent" class="grid gap-4"></div>
+{% endblock %}
 {% block scripts %}
 <script>
-  function currentMonthValue() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  }
+setBreadcrumb('学校ポータル', '承認管理');
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const currentMonth = new Date().toISOString().slice(0, 7);
+const schoolAssignments = {{ assignments | default([]) | tojson }};
+let allReports = [];
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
+let selectedAssignmentId = new URLSearchParams(location.search).get('assignment_id') || '';
+let expandedReturnMonth = null;
 
-  async function loadReports(month) {
-    const listEl = document.getElementById('reportList');
-    listEl.innerHTML = '<p class="text-slate-500 text-sm">読み込み中…</p>';
-    try {
-      const res = await fetch(`/api/w/reports?target_month=${month}`, {credentials: 'same-origin'});
-      if (!res.ok) { listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>'; return; }
-      const reports = await res.json();
-      if (!reports.length) { listEl.innerHTML = '<p class="text-slate-500 text-sm">該当する報告書はありません</p>'; return; }
-      listEl.innerHTML = reports.map(r => `
-        <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-          <div class="flex items-center justify-between">
-            <div>
-              <span class="text-sm font-semibold text-slate-800">${navEscape(r.target_month)}</span>
-              <span class="ml-2 rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700">学校確認待ち</span>
-            </div>
-          </div>
-          <div class="mt-3 flex gap-2">
-            <button onclick="approveReport('${r.id}')"
-              class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition">
-              承認する
-            </button>
-            <button onclick="openReturnModal('${r.id}')"
-              class="rounded-lg border border-rose-300 px-3 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50 transition">
-              差戻す
-            </button>
-          </div>
-        </div>
-      `).join('');
-    } catch {
-      listEl.innerHTML = '<p class="text-rose-500 text-sm">読み込みに失敗しました</p>';
-    }
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function timeText(value) { return (value || '').slice(0, 5); }
+function dateLabel(value) {
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function dateTimeLabel(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function monthOptionLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月`;
+}
+function minutesBetween(start, end) {
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function statusBadge(status) {
+  if (status === 'awaiting_school') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
+  if (status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
+  if (status === 'awaiting_sales') return '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">承認済み</span>';
+  if (status === 'approved') return '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">最終承認済み</span>';
+  return '';
+}
+function sortReportsOldestFirst(reports) {
+  return [...reports].sort((a, b) => {
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+}
+function filteredReports() {
+  return allReports.filter(report => !selectedAssignmentId || report.assignment_id === selectedAssignmentId);
+}
+function selectedAssignment() {
+  return schoolAssignments.find(assignment => assignment.id === selectedAssignmentId) || schoolAssignments[0] || null;
+}
+function renderStudentTabs() {
+  if (!schoolAssignments.length) {
+    selectedAssignmentId = '';
+    studentTabs.classList.add('hidden');
+    selectedStudentLabel.classList.add('hidden');
+    return;
   }
-
-  async function approveReport(reportId) {
-    if (!confirm('承認してよいですか？')) return;
-    const res = await fetch(`/api/w/reports/${reportId}/action`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'approve'}),
-      credentials: 'same-origin'
-    });
-    if (!res.ok) { showToast('承認に失敗しました', 'error'); return; }
-    showToast('承認しました', 'success');
-    loadReports(document.getElementById('monthPicker').value);
+  if (!selectedAssignmentId || !schoolAssignments.some(assignment => assignment.id === selectedAssignmentId)) {
+    selectedAssignmentId = schoolAssignments[0].id;
   }
-
-  function openReturnModal(reportId) {
-    document.getElementById('returnReportId').value = reportId;
-    document.getElementById('returnComment').value = '';
-    document.getElementById('returnError').classList.add('hidden');
-    document.getElementById('returnModal').classList.remove('hidden');
-    document.getElementById('returnModal').classList.add('flex');
+  if (schoolAssignments.length <= 1) {
+    studentTabs.classList.add('hidden');
+    selectedStudentLabel.classList.add('hidden');
+    return;
   }
-
-  function closeReturnModal() {
-    document.getElementById('returnModal').classList.add('hidden');
-    document.getElementById('returnModal').classList.remove('flex');
+  const current = selectedAssignment();
+  selectedStudentLabel.textContent = `選択中：${current.student_name}（担当講師：${current.tutor_name || '講師'}）`;
+  selectedStudentLabel.classList.remove('hidden');
+  studentTabs.classList.remove('hidden');
+  studentTabs.classList.add('flex');
+  studentTabs.innerHTML = schoolAssignments.map(assignment => {
+    const active = assignment.id === selectedAssignmentId;
+    const cardClass = active ? 'border border-emerald-600 bg-emerald-50 shadow-md' : 'border border-slate-200 bg-white hover:border-emerald-300 hover:shadow-md';
+    return `<button type="button" class="rounded-xl ${cardClass} w-full px-4 py-3 text-left shadow-sm transition sm:w-auto sm:min-w-36" onclick="selectStudent('${assignment.id}')">
+      <div class="text-sm text-slate-600">講師：<span class="font-medium text-slate-800">${escapeHtml(assignment.tutor_name || '講師')}</span></div>
+      <div class="text-sm text-slate-600">生徒：<span class="font-medium text-slate-800">${escapeHtml(assignment.student_name)}</span></div>
+    </button>`;
+  }).join('');
+}
+function renderMonthFilter() {
+  const months = [...new Set([...filteredReports().map(report => report.target_month), currentMonth])].filter(month => month <= currentMonth).sort().reverse();
+  if (!months.includes(selectedMonth)) selectedMonth = months.includes(currentMonth) ? currentMonth : months[0];
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+  monthFilter.disabled = !months.length;
+}
+function renderExportArea() {
+  const hasApproved = filteredReports().some(report => report.target_month === selectedMonth && report.status === 'approved');
+  if (!hasApproved) {
+    exportArea.classList.add('hidden');
+    exportButtons.innerHTML = '';
+    return;
   }
-
-  async function submitReturn() {
-    const reportId = document.getElementById('returnReportId').value;
-    const comment = document.getElementById('returnComment').value.trim();
-    const errorEl = document.getElementById('returnError');
-    if (!comment) { errorEl.textContent = 'コメントは必須です'; errorEl.classList.remove('hidden'); return; }
-    const res = await fetch(`/api/w/reports/${reportId}/action`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({action: 'return', comment}),
-      credentials: 'same-origin'
-    });
-    if (!res.ok) {
-      const err = await res.json();
-      errorEl.textContent = err.detail || '差戻しに失敗しました';
-      errorEl.classList.remove('hidden');
-      return;
-    }
-    showToast('差戻しました', 'success');
-    closeReturnModal();
-    loadReports(document.getElementById('monthPicker').value);
+  const assignmentParam = selectedAssignmentId ? `&assignment_id=${selectedAssignmentId}` : '&scope=all';
+  exportArea.classList.remove('hidden');
+  exportButtons.innerHTML = `<a href="/api/w/reports/export?target_month=${selectedMonth}&format=pdf${assignmentParam}" class="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white transition hover:bg-emerald-700 sm:w-auto">PDFでダウンロード</a>`;
+}
+function operationHistory(reports) {
+  const events = reports.flatMap(report => (report.events || [])
+    .filter(event => ['approve', 'return'].includes(event.action))
+    .map(event => ({...event, report})));
+  events.sort((a, b) => String(b.created_at).localeCompare(String(a.created_at)));
+  if (!events.length) return '';
+  return `<div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+    <div class="font-medium text-slate-800">【あなたの操作履歴】</div>
+    <ul class="mt-2 space-y-3">
+      ${events.map(event => {
+        if (event.action === 'approve') {
+          return `<li class="grid gap-1 sm:grid-cols-[9.5rem_1fr]">
+            <span class="text-slate-600">${escapeHtml(dateTimeLabel(event.created_at))}</span>
+            <span class="font-medium text-emerald-700">承認しました</span>
+          </li>`;
+        }
+        return `<li class="grid gap-1 sm:grid-cols-[9.5rem_1fr]">
+          <span class="text-slate-600">${escapeHtml(dateTimeLabel(event.created_at))}</span>
+          <span>
+            <span class="font-medium text-red-700">差戻しました</span>
+            ${event.comment ? `<span class="mt-1 block text-slate-700">コメント：${escapeHtml(event.comment)}</span>` : ''}
+          </span>
+        </li>`;
+      }).join('')}
+    </ul>
+  </div>`;
+}
+function renderReportRows(reports) {
+  return reports.map((report, index) => `<tr class="border-t align-top ${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
+    <td class="p-2">${index + 1}</td>
+    <td class="p-2">${dateLabel(report.lesson_date)}</td>
+    <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
+    <td class="p-2">${Number(report.break_minutes || 0)}分</td>
+    <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
+    <td class="p-2">${escapeHtml(report.subject || '')}</td>
+    <td class="p-2">${statusBadge(report.status)}</td>
+  </tr>`).join('');
+}
+function monthReturnForm(month) {
+  if (expandedReturnMonth !== month) return '';
+  return `<div class="mt-3 rounded-xl border border-red-200 bg-red-50 p-4">
+    <label class="text-sm font-medium text-slate-700" for="returnComment-${month}">差戻しコメント</label>
+    <textarea id="returnComment-${month}" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="コメントを入力してください"></textarea>
+    <div class="mt-3 flex flex-wrap gap-2">
+      <button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700" onclick="confirmMonthReturn('${month}')">差戻す</button>
+      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="hideMonthReturnForm()">キャンセル</button>
+    </div>
+  </div>`;
+}
+function renderActionArea(month, reports) {
+  const pending = reports.filter(report => report.status === 'awaiting_school');
+  const returned = reports.filter(report => report.status === 'returned_to_tutor');
+  if (month !== currentMonth) {
+    return '<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認差戻しはできません。</div>';
   }
-
-  const picker = document.getElementById('monthPicker');
-  picker.value = currentMonthValue();
-  picker.addEventListener('change', () => loadReports(picker.value));
-  setBreadcrumb('学校担当', '承認管理');
-  loadReports(picker.value);
+  if (returned.length) {
+    return `<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <button class="w-full rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500 sm:w-auto" disabled>差戻す</button>
+      <button class="w-full rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500 sm:w-auto" disabled>すべて承認する</button>
+    </div>
+    <div class="mt-2 text-sm text-slate-600">差戻し中の報告書があります。講師の修正をお待ちください。</div>`;
+  }
+  if (pending.length) {
+    return `<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+      <button class="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 sm:w-auto" onclick="showMonthReturnForm('${month}')">差戻す</button>
+      <button class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 sm:w-auto" onclick="approvePending('${month}')">すべて承認する</button>
+    </div>${monthReturnForm(month)}`;
+  }
+  return '<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>';
+}
+function renderMonthSection(month, reports) {
+  const sorted = sortReportsOldestFirst(reports);
+  const totalMinutes = sorted.reduce((sum, report) => sum + teachingMinutes(report), 0);
+  if (!sorted.length) {
+    return '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">この月の報告書はありません。</div>';
+  }
+  return `<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="border-b border-slate-200 bg-slate-50 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="px-4 py-3 text-left">回</th>
+            <th class="px-4 py-3 text-left">指導日</th>
+            <th class="px-4 py-3 text-left">在室時間</th>
+            <th class="px-4 py-3 text-left">休憩</th>
+            <th class="px-4 py-3 text-left">指導時間</th>
+            <th class="px-4 py-3 text-left">科目</th>
+            <th class="px-4 py-3 text-left">状態</th>
+          </tr>
+        </thead>
+        <tbody>${renderReportRows(sorted)}</tbody>
+      </table>
+    </div>
+    <div class="border-t border-slate-200 p-5">${operationHistory(sorted)}${renderActionArea(month, sorted)}</div>
+  </section>`;
+}
+function renderApproval() {
+  renderStudentTabs();
+  renderMonthFilter();
+  renderExportArea();
+  const groups = filteredReports().reduce((acc, report) => ((acc[report.target_month] ||= []).push(report), acc), {});
+  approvalContent.innerHTML = groups[selectedMonth]
+    ? renderMonthSection(selectedMonth, groups[selectedMonth])
+    : '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm">表示できる報告書はありません。</div>';
+}
+function selectStudent(assignmentId) {
+  selectedAssignmentId = assignmentId;
+  expandedReturnMonth = null;
+  const params = new URLSearchParams(location.search);
+  params.set('assignment_id', selectedAssignmentId);
+  params.set('month', selectedMonth);
+  location.href = `${location.pathname}?${params.toString()}`;
+}
+function showMonthReturnForm(month) {
+  expandedReturnMonth = month;
+  renderApproval();
+}
+function hideMonthReturnForm() {
+  expandedReturnMonth = null;
+  renderApproval();
+}
+async function confirmMonthReturn(month) {
+  const input = document.getElementById(`returnComment-${month}`);
+  const comment = input.value.trim();
+  if (!comment) {
+    alert('コメントを入力してください。');
+    return;
+  }
+  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_school');
+  if (!pending.length) return;
+  for (const report of pending) {
+    await api(`/api/w/reports/${report.id}/action`, {method: 'POST', body: JSON.stringify({action: 'return', comment})});
+  }
+  expandedReturnMonth = null;
+  await loadApproval();
+}
+async function approvePending(month) {
+  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_school');
+  if (!pending.length) return;
+  if (!confirm(`${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`)) return;
+  for (const report of pending) {
+    await api(`/api/w/reports/${report.id}/action`, {method: 'POST', body: JSON.stringify({action: 'approve'})});
+  }
+  await loadApproval();
+}
+async function loadApproval() {
+  const reports = await api('/api/w/reports');
+  allReports = sortReportsOldestFirst(reports);
+  renderApproval();
+}
+monthFilter.addEventListener('change', () => {
+  const params = new URLSearchParams(location.search);
+  params.set('month', monthFilter.value);
+  if (selectedAssignmentId) params.set('assignment_id', selectedAssignmentId);
+  location.href = `${location.pathname}?${params.toString()}`;
+});
+window.authReady.then(user => {
+  if (!user) return;
+  loadApproval();
+});
 </script>
+<!-- # === Phase 9 END === -->
 {% endblock %}
+
+

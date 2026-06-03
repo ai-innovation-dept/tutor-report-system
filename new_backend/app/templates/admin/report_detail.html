@@ -42,7 +42,7 @@
   async function loadDetail() {
     const report = await api(`/api/w/reports/${reportId}`);
     statusBadge.textContent = STATUS_LABELS[report.status] || report.status;
-    metaText.textContent = `${report.target_month} / ${report.form_type} / 次: ${report.current_approver_role || '-'}`;
+    metaText.textContent = `${report.target_month} / ${report.form_type} / 次: ${report.current_sales_role || '-'}`;
     formDataView.textContent = JSON.stringify(report.form_data || {}, null, 2);
     pdfLink.href = `/api/w/reports/${reportId}/export`;
     const events = await api(`/api/w/reports/${reportId}/events`);
@@ -61,3 +61,4 @@
   loadDetail();
 </script>
 {% endblock %}
+

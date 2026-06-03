@@ -1,82 +1,400 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="mb-6">
-  <h1 class="text-xl font-bold text-slate-800">承認管理</h1>
-  <p class="mt-1 text-sm text-slate-500">月次ステータスと未提出報告書を確認します</p>
-</div>
-
-<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-  <label class="text-sm font-medium text-slate-600">対象月</label>
-  <input type="month" id="monthPicker" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none">
-  <button onclick="submitAllDrafts()" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">未提出を一括学校依頼</button>
-</div>
-
-<section id="summaryArea" class="mb-4 grid gap-3 sm:grid-cols-3"></section>
-<section id="approvalList" class="space-y-3"></section>
+<!-- # === Phase 9: フロントエンド ロール別画面 START === -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <h2 class="font-semibold text-slate-800">エクスポート</h2>
+  <div class="mt-3 flex flex-wrap items-end gap-3">
+    <label class="text-sm">
+      <span class="mb-1 block text-slate-700">月</span>
+      <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+    </label>
+    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700" href="#">PDFでダウンロード</a>
+    <span id="exportWarning" class="text-sm text-rose-700"></span>
+  </div>
+  <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
+</section>
+<div id="approvalMonths" class="grid gap-4"></div>
 {% endblock %}
-
 {% block scripts %}
 <script>
-  const STATUS_LABELS = {
-    draft: '下書き', awaiting_school: '学校確認待ち', awaiting_sales: '営業確認待ち',
-    awaiting_office: '事務確認待ち', awaiting_finance: '経理確認待ち', approved: '承認済み',
-    returned_to_tutor: '差戻し（講師へ）', returned_to_sales: '差戻し（営業へ）', closed: '終了'
+setBreadcrumb('講師ポータル', '承認管理');
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const STEPS = [
+  {key: 'request', label: '学校へ依頼'},
+  {key: 'school', label: '学校 承認'},
+  {key: 'sales', label: '営業 承認'},
+  {key: 'office', label: '事務 承認'},
+  {key: 'finance', label: '最終 承認'}
+];
+const PHASE_CURRENT_STEP = {
+  recording: 0,
+  returned: 1,
+  awaiting_school: 1,
+  awaiting_sales: 2,
+  awaiting_office: 3,
+  awaiting_finance: 4,
+  completed: 5,
+  closed: 5
+};
+const STATUS_LABELS = {
+  draft: '下書き',
+  awaiting_school: '学校承認待ち',
+  awaiting_sales: '営業確認待ち',
+  returned_to_tutor: '差戻し（要修正）',
+  awaiting_office: '事務確認待ち',
+  awaiting_finance: '最終確認待ち',
+  approved: '最終承認済み',
+  closed: 'クローズ'
+};
+let allReports = [];
+let allAssignments = [];
+let groups = [];
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function durationLabel(minutes) {
+  const hours = Math.floor(minutes / 60);
+  const mins = minutes % 60;
+  if (hours && mins) return `${hours}時間${mins}分`;
+  if (hours) return `${hours}時間`;
+  return `${mins}分`;
+}
+function dateLabel(value) {
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
+}
+function timeLabel(value, fallback = '') {
+  if (!value) return fallback;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function statusLabel(status) { return STATUS_LABELS[status] || status; }
+function currentMonth() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function timeText(value) { return (value || '').slice(0, 5); }
+function minutesBetween(start, end) {
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(':').map(Number);
+  const [eh, em] = end.split(':').map(Number);
+  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+}
+function teachingMinutes(report) {
+  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
+}
+function latest(values) {
+  return values.filter(Boolean).sort().at(-1) || null;
+}
+function earliest(values) {
+  return values.filter(Boolean).sort()[0] || null;
+}
+function reportIds(group, status) {
+  return group.reports.filter(r => r.status === status).map(r => r.id);
+}
+function reportIdsForParentSubmit(group) {
+  return group.reports
+    .filter(r => ['draft', 'returned_to_tutor'].includes(r.status))
+    .map(r => r.id);
+}
+function returnedReportIds(group) {
+  return group.reports.filter(r => r.status === 'returned_to_tutor').map(r => r.id);
+}
+function monthlyPhase(reports) {
+  const statuses = reports.map(report => report.status);
+  const ranks = statuses.map(status => ({
+    draft: 0,
+    returned_to_tutor: 0,
+    awaiting_school: 1,
+    awaiting_sales: 2,
+    awaiting_office: 3,
+    awaiting_finance: 4,
+    approved: 5,
+    closed: 7
+  }[status] ?? 0));
+  if (statuses.includes('returned_to_tutor')) return 'returned';
+  if (statuses.length && statuses.every(status => status === 'closed')) return 'closed';
+  if (statuses.length && statuses.every(status => status === 'approved')) return 'completed';
+  if (statuses.length && ranks.every(rank => rank >= 4)) return 'awaiting_finance';
+  if (statuses.length && ranks.every(rank => rank >= 3)) return 'awaiting_office';
+  if (statuses.length && ranks.every(rank => rank >= 2)) return 'awaiting_sales';
+  if (statuses.length && ranks.every(rank => rank >= 1)) return 'awaiting_school';
+  return 'recording';
+}
+function buildGroup(assignment, reports) {
+  const sorted = [...reports].sort((a, b) => {
+    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    if (dateCompare !== 0) return dateCompare;
+    return timeText(a.start_time).localeCompare(timeText(b.start_time));
+  });
+  return {
+    assignment_id: assignment?.id || sorted[0]?.assignment_id,
+    student_name: assignment?.student_name || '生徒未設定',
+    school_id: assignment?.school_id || sorted[0]?.school_id || null,
+    school_display_name: assignment?.school_display_name || '',
+    skip_school_approval: Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval)),
+    reminder_enabled: Boolean(assignment?.reminder_enabled),
+    reminder_days_after: assignment?.reminder_days_after || 1,
+    reminder_count: assignment?.reminder_count || 1,
+    target_month: currentMonth(),
+    reports: sorted,
+    phase: monthlyPhase(sorted),
+    total_count: sorted.length,
+    total_minutes: sorted.reduce((sum, report) => sum + teachingMinutes(report), 0),
+    submitted_to_school_at: latest(sorted.map(report => report.submitted_to_school_at)),
+    first_submitted_to_school_at: earliest(sorted.map(report => report.submitted_to_school_at)),
+    awaiting_sales_at: latest(sorted.map(report => report.awaiting_sales_at)),
+    awaiting_sales_at: latest(sorted.map(report => report.awaiting_sales_at)),
+    approved_at: latest(sorted.map(report => report.approved_at)),
+    can_submit: sorted.length > 0 && sorted.every(report => ['draft', 'returned_to_tutor'].includes(report.status)),
   };
-  const STEPS = ['下書き', '学校', '営業', '事務', '経理', '完了'];
-  const STEP_INDEX = {draft:0, returned_to_tutor:0, awaiting_school:1, awaiting_sales:2, awaiting_office:3, returned_to_sales:3, awaiting_finance:4, approved:5};
-  let reports = [];
-
-  function currentMonthValue() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function stepTimestamp(group, index) {
+  if (index === 0) return group.first_submitted_to_school_at || group.submitted_to_school_at;
+  if (index === 1) return group.awaiting_sales_at;
+  if (index === 2) return group.approved_at;
+  return null;
+}
+function stepState(group, index) {
+  const current = PHASE_CURRENT_STEP[group.phase] ?? 0;
+  if (group.phase === 'completed') return 'done';
+  if (index < current) return 'done';
+  if (index === current) return 'current';
+  return 'todo';
+}
+function circleClass(state) {
+  if (state === 'done') return 'bg-emerald-600 border-emerald-600 text-white';
+  if (state === 'current') return 'bg-emerald-600 border-emerald-600 text-white';
+  return 'bg-white border-dashed border-slate-300 text-slate-400';
+}
+function connectorClass(group, index) {
+  const leftDone = stepState(group, index) === 'done';
+  const rightDone = stepState(group, index + 1) === 'done';
+  return leftDone && rightDone ? 'border-emerald-500 text-emerald-600' : 'border-dashed border-slate-300 text-slate-400';
+}
+function renderStepper(group) {
+  return `<div class="mt-5 overflow-x-auto">
+    <div class="grid min-w-[480px] grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
+    ${STEPS.map((step, index) => {
+      const state = stepState(group, index);
+      const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
+      const connector = index < STEPS.length - 1
+        ? `<div class="pt-5 text-center"><div class="border-t-2 ${connectorClass(group, index)}"></div><div class="${connectorClass(group, index)} text-lg leading-none">→</div></div>`
+        : '';
+      return `<div class="text-center">
+          <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold ${circleClass(state)}">${icon}</div>
+          <div class="mt-2 text-sm font-medium">${step.label}</div>
+          <div class="mt-1 min-h-5 text-xs text-slate-500">${timeLabel(stepTimestamp(group, index), state === 'todo' ? '' : '-')}</div>
+          ${state === 'current' ? '<div class="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">現在</div>' : ''}
+        </div>${connector}`;
+    }).join('')}
+    </div>
+  </div>`;
+}
+function exportButtons(group) {
+  if (group.phase !== 'completed') return '';
+  return `<div class="mt-3 flex flex-wrap gap-2">
+    <a href="/api/w/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
+  </div>`;
+}
+function renderBulkExportArea() {
+  const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
+  exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
+  exportMonth.value = currentMonth();
+  exportMonth.disabled = !months.length;
+  renderBulkExportLinks();
+}
+function setBulkExportEnabled(enabled, message = '') {
+  bulkExportPdf.classList.toggle('pointer-events-none', !enabled);
+  bulkExportPdf.classList.toggle('opacity-50', !enabled);
+  if (!enabled) bulkExportPdf.removeAttribute('href');
+  exportWarning.textContent = message;
+}
+function renderBulkExportLinks() {
+  const month = exportMonth.value || currentMonth();
+  let targetGroups = groups;
+  const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
+  const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
+  if (!exportable) {
+    setBulkExportEnabled(false, '未承認の生徒が含まれています');
+    return;
   }
-
-  function renderStepper(status) {
-    const current = STEP_INDEX[status] ?? 0;
-    return `<div class="mt-3 grid grid-cols-6 gap-2">${STEPS.map((label, i) => {
-      const cls = i <= current ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-500';
-      return `<div class="rounded-lg px-2 py-2 text-center text-xs font-medium ${cls}">${label}</div>`;
-    }).join('')}</div>`;
+  setBulkExportEnabled(true);
+  bulkExportPdf.href = `/api/w/reports/export?${params.toString()}`;
+}
+function actionArea(group) {
+  if (group.phase === 'completed') {
+    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.approved_at, '-')}）<br>追加修正が必要な場合は管理へ差戻しを依頼してください。</div>${exportButtons(group)}`;
   }
-
-  async function loadApproval() {
-    const month = monthPicker.value;
-    reports = await api(`/api/w/reports?target_month=${month}`);
-    const summary = await api(`/api/w/reports/monthly-summary?target_month=${month}`);
-    summaryArea.innerHTML = `
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div class="text-xs text-slate-500">報告書数</div><div class="mt-1 text-2xl font-semibold">${summary.total_reports}</div></div>
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div class="text-xs text-slate-500">指導分</div><div class="mt-1 text-2xl font-semibold">${summary.total_teach_minutes}</div></div>
-      <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm"><div class="text-xs text-slate-500">交通費</div><div class="mt-1 text-2xl font-semibold">${summary.total_commute_fee}</div></div>`;
-    if (!reports.length) {
-      approvalList.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">この月の報告書はありません。</div>';
-      return;
+  if (['awaiting_sales', 'awaiting_sales'].includes(group.phase)) {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">管理確認中</div>';
+  }
+  if (group.phase === 'awaiting_office') {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">営業済み</div>';
+  }
+  if (group.phase === 'awaiting_finance') {
+    return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">事務済み</div>';
+  }
+  if (!group.skip_school_approval && !group.school_id && group.can_submit) {
+    return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため承認依頼できません。</div>';
+  }
+  if (group.phase === 'returned') {
+    if (!group.skip_school_approval && !group.school_id) {
+      return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため再依頼できません。</div>';
     }
-    approvalList.innerHTML = reports.map(r => `
-      <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <div class="font-semibold text-slate-800">${navEscape(r.target_month)} / ${navEscape(r.form_type)}</div>
-          <a href="/w/tutor/reports/${r.id}" class="text-sm font-medium text-emerald-700 underline">詳細</a>
+    const label = group.skip_school_approval ? '修正済みの報告書を管理へまとめて再提出' : '修正済みの報告書を学校へまとめて再依頼';
+    return `<div class="mt-5 flex flex-wrap items-center gap-3">
+      <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
+      <a class="text-sm text-rose-700 underline" href="/w/tutor/reports?month=${group.target_month}">報告書を修正する</a>
+    </div>`;
+  }
+  if (group.can_submit) {
+    const label = group.skip_school_approval ? '管理へ提出' : '学校へまとめて承認依頼';
+    return `<div class="mt-5 grid gap-3">
+      ${reminderSettings(group)}
+      <button class="justify-self-start rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+    </div>`;
+  }
+  if (group.phase === 'recording') {
+    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>';
+  }
+  if (group.phase === 'awaiting_school') {
+    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>学校の承認を待っています</button>';
+  }
+  return '';
+}
+function reminderSettings(group) {
+  if (group.skip_school_approval) return '';
+  const checked = group.reminder_enabled ? 'checked' : '';
+  return `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+    <label class="flex flex-wrap items-center gap-2">
+      <input id="reminder-enabled-${group.assignment_id}" type="checkbox" class="h-4 w-4 rounded border-slate-300" ${checked}>
+      <span>リマインドメールを送る</span>
+    </label>
+    <div class="mt-2 flex flex-wrap items-center gap-2">
+      <input id="reminder-days-${group.assignment_id}" type="number" min="1" value="${group.reminder_days_after || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
+      <span>日後に</span>
+      <input id="reminder-count-${group.assignment_id}" type="number" min="1" value="${group.reminder_count || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
+      <span>回送付</span>
+    </div>
+  </div>`;
+}
+function summaryGrid(group) {
+  return `<div class="mt-5 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_school_at || group.submitted_to_school_at, '-')}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校 承認日時</div><div class="font-medium text-slate-800">${group.awaiting_sales_at ? timeLabel(group.awaiting_sales_at) : '承認待ち'}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">管理 承認日時</div><div class="font-medium text-slate-800">${group.approved_at ? timeLabel(group.approved_at) : '-'}</div></div>
+  </div>`;
+}
+function detailRows(group) {
+  const rows = group.reports.map(r => `<tr class="border-t border-slate-100 hover:bg-slate-50">
+    <td class="px-4 py-3">${dateLabel(r.lesson_date)}</td>
+    <td class="px-4 py-3">${statusLabel(r.status)}</td>
+    <td class="px-4 py-3">${timeLabel(r.submitted_to_school_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.awaiting_sales_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.approved_at, '-')}</td>
+    <td class="px-4 py-3 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
+    <td class="px-4 py-3 text-slate-700">${r.status === 'closed' ? `<div class="font-medium text-slate-800">クローズ済み</div><div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(r.close_reason || '-')}</div><div class="mt-1">日時：${timeLabel(r.closed_at, '-')}</div>` : ''}</td>
+  </tr>`).join('');
+  return `<div class="mt-5 overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">学校へ依頼</th><th class="px-4 py-3 text-left">学校承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+function renderApproval() {
+  if (!groups.length) {
+    approvalMonths.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">当月分の承認対象はありません。</div>';
+    return;
+  }
+  approvalMonths.innerHTML = groups.map(group => {
+    const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
+    const collapsedAttr = group.phase === 'completed' ? '' : 'open';
+    const schoolLabel = group.school_display_name ? `学校：${escapeHtml(group.school_display_name)}` : '学校：未設定';
+    return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden" ${collapsedAttr}>
+      <summary class="cursor-pointer list-none">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div class="font-semibold text-slate-800">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
+            <div class="mt-1 text-sm text-slate-500">${schoolLabel}</div>
+          </div>
+          ${completeBadge}
         </div>
-        <div class="mt-1 text-sm text-slate-500">${navEscape(STATUS_LABELS[r.status] || r.status)}</div>
-        ${renderStepper(r.status)}
-      </article>`).join('');
+      </summary>
+      ${renderStepper(group)}
+      ${summaryGrid(group)}
+      ${actionArea(group)}
+      <button class="mt-4 text-sm font-medium text-emerald-600 underline decoration-emerald-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
+      <div id="detail-${group.assignment_id}"></div>
+    </details>`;
+  }).join('');
+}
+function toggleDetails(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  const area = document.getElementById(`detail-${assignmentId}`);
+  area.innerHTML = area.innerHTML ? '' : detailRows(group);
+}
+async function submitToParentGroup(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  if (!group.skip_school_approval) {
+    await api(`/api/w/assignments/${assignmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        reminder_enabled: document.getElementById(`reminder-enabled-${assignmentId}`)?.checked || false,
+        reminder_days_after: Number(document.getElementById(`reminder-days-${assignmentId}`)?.value || 1),
+        reminder_count: Number(document.getElementById(`reminder-count-${assignmentId}`)?.value || 1)
+      })
+    });
   }
-
-  async function submitAllDrafts() {
-    const targets = reports.filter(r => ['draft', 'returned_to_tutor'].includes(r.status));
-    if (!targets.length) { showToast('提出対象がありません', 'info'); return; }
-    if (!confirm(`${targets.length}件を学校へ提出します。よろしいですか？`)) return;
-    for (const r of targets) {
-      await api(`/api/w/reports/${r.id}/action`, {method: 'POST', body: JSON.stringify({action: 'submit'})});
-    }
-    showToast('一括提出しました', 'success');
-    await loadApproval();
+  for (const id of reportIdsForParentSubmit(group)) {
+    await api(`/api/w/reports/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify({action: 'submit'})
+    });
   }
-
-  monthPicker.value = currentMonthValue();
-  monthPicker.addEventListener('change', loadApproval);
-  setBreadcrumb('講師', '承認管理');
+  await loadApproval();
+}
+async function resendReturnedReports(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  const ids = returnedReportIds(group);
+  for (const id of ids) {
+    await api(`/api/w/reports/${id}/action`, {
+      method: 'POST',
+      body: JSON.stringify({action: 'submit'})
+    });
+  }
+  await loadApproval();
+}
+async function loadApproval() {
+  const [reports, assignments] = await Promise.all([
+    api(`/api/w/reports?target_month=${currentMonth()}`),
+    api('/api/w/assignments')
+  ]);
+  allReports = reports;
+  allAssignments = assignments;
+  const assignmentMap = new Map(allAssignments.map(assignment => [assignment.id, assignment]));
+  const reportGroups = allReports.reduce((acc, report) => {
+    (acc[report.assignment_id] ||= []).push(report);
+    return acc;
+  }, {});
+  groups = Object.entries(reportGroups).map(([assignmentId, items]) => buildGroup(assignmentMap.get(assignmentId), items));
+  renderBulkExportArea();
+  renderApproval();
+}
+exportMonth.addEventListener('change', renderBulkExportLinks);
+window.authReady.then(user => {
+  if (!user) return;
   loadApproval();
+});
 </script>
+<!-- # === Phase 9 END === -->
 {% endblock %}
+
+

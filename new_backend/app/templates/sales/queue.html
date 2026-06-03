@@ -1,99 +1,619 @@
 {% extends "base.html" %}
-
 {% block content %}
-<div class="mb-6">
-  <h1 class="text-xl font-bold text-slate-800">営業キュー</h1>
-  <p class="mt-1 text-sm text-slate-500">営業確認待ちの報告書を一括処理します</p>
+<style>
+  :root {
+    --color-background-primary: #ffffff;
+    --color-background-secondary: #f8fafc;
+    --color-border-tertiary: #cbd5e1;
+    --color-text-secondary: #475569;
+    --color-text-tertiary: #94a3b8;
+    --border-radius-md: 8px;
+  }
+  .admin-card {
+    background: var(--color-background-primary);
+    border: 0.5px solid var(--color-border-tertiary);
+    border-radius: var(--border-radius-md);
+    padding: 14px;
+  }
+  .kanban-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 6px;
+  }
+  @media (max-width: 1180px) {
+    .kanban-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+  @media (max-width: 760px) {
+    .kanban-grid {
+      grid-template-columns: repeat(6, minmax(160px, 1fr));
+    }
+  }
+</style>
+
+<div class="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
+  <label class="flex items-center gap-2 text-sm">
+    <span class="text-slate-700">月選択</span>
+    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+  </label>
+  <label class="flex items-center gap-2 text-sm">
+    <span class="text-slate-700">講師選択</span>
+    <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+  </label>
+  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 sm:w-auto" href="#">PDFでダウンロード</a>
 </div>
 
-<div class="mb-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-  <input type="month" id="monthPicker" class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-emerald-500 focus:outline-none">
-  <button onclick="bulkApprove()" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">選択を一括承認</button>
-  <button onclick="openReturnModal()" class="rounded-lg border border-rose-300 bg-white px-4 py-2 text-sm font-medium text-rose-700 hover:bg-rose-50">選択を一括差戻し</button>
-</div>
+<section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
 
-<div id="queueList" class="space-y-3"></div>
+<section class="mb-4">
+  <div class="mb-2 flex items-center gap-2">
+    <h2 class="text-lg font-semibold text-slate-800">📋 あなたのタスク</h2>
+    <span id="taskCountBadge" class="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-700">0</span>
+  </div>
+  <div id="taskList" class="admin-card p-0"></div>
+</section>
+
+<section class="mb-4">
+  <h2 class="mb-2 text-lg font-semibold text-slate-800" id="pipelineTitle">🔄 進捗パイプライン</h2>
+  <div class="overflow-x-auto">
+    <div id="pipelineBoard" class="kanban-grid"></div>
+  </div>
+</section>
+
+<section id="detailDrawer" class="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"></section>
 
 <div id="returnModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnModal()">
-  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="border-b border-slate-200 px-5 py-4 font-semibold text-slate-800">一括差戻し</div>
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">差戻しコメント</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeReturnModal()">閉じる</button>
+    </div>
     <div class="p-5">
-      <textarea id="returnComment" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none" placeholder="差戻し理由"></textarea>
+      <textarea id="returnComment" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="差戻し理由を入力してください"></textarea>
+      <div id="returnError" class="mt-2 hidden text-sm text-red-700"></div>
       <div class="mt-4 flex justify-end gap-2">
-        <button onclick="closeReturnModal()" class="rounded-lg border border-slate-300 px-3 py-2 text-sm">キャンセル</button>
-        <button onclick="bulkReturn()" class="rounded-lg bg-rose-600 px-3 py-2 text-sm font-medium text-white">差戻す</button>
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeReturnModal()">キャンセル</button>
+        <button type="button" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700" onclick="submitReturn()">差戻し</button>
       </div>
     </div>
   </div>
 </div>
 {% endblock %}
-
 {% block scripts %}
 <script>
-  const QUEUE_STATUS = 'awaiting_sales';
-  const RETURNED_STATUS = 'returned_to_sales';
-  let reports = [];
+setBreadcrumb('営業', 'キューダッシュボード');
+const STATUS_LABELS = {
+  draft: '講師作成',
+  awaiting_school: '学校確認待ち',
+  returned_to_tutor: '講師へ差戻し中',
+  returned_to_sales: '営業へ差戻し中',
+  awaiting_sales: '営業確認待ち',
+  awaiting_office: '事務確認待ち',
+  awaiting_finance: '最終確認待ち',
+  approved: '完了',
+  closed: 'クローズ'
+};
+const ROLE_LABELS = {
+  tutor: '講師',
+  school: '学校',
+  sales: '営業',
+  office: '事務',
+  admin_master: '管理者'
+};
+const ACTION_LABELS = {
+  submit: '提出',
+  approve: '承認',
+  return: '差戻し'
+};
+const RETURN_ACTIONS = new Set(['return']);
+const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
+const PIPELINE_COLUMNS = [
+  {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
+  {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
+  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales', 'returned_to_sales']},
+  {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office']},
+  {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
+  {key: 'approved', label: '完了', statuses: ['approved']},
+  {key: 'closed', label: 'クローズ', statuses: ['closed']}
+];
+let currentRole = '';
+let allReports = [];
+let allAssignments = [];
+let allTutors = [];
+let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonthValue();
+let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
+let openCardKey = null;
+let returnTargetKey = '';
 
-  function currentMonthValue() {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+function currentMonthValue() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function roleLabel(role) { return ROLE_LABELS[role] || role || '-'; }
+function actionLabel(action) { return ACTION_LABELS[action] || action || '-'; }
+function statusLabel(status) { return STATUS_LABELS[status] || status || '-'; }
+function monthLabel(value) {
+  if (!value) return '-';
+  return `${value.slice(0, 4)}年${Number(value.slice(5, 7))}月`;
+}
+function monthShortLabel(value) {
+  return `${Number(value.slice(5, 7))}月`;
+}
+function formatDateTime(value) {
+  if (!value) return '-';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '-';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function formatEventDate(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function tutorName(id) {
+  return allTutors.find(tutor => tutor.id === id)?.display_name || '講師未設定';
+}
+function studentName(id) {
+  return allAssignments.find(assignment => assignment.id === id)?.student_name || '生徒未設定';
+}
+function visibleReports() {
+  return allReports.filter(report =>
+    report.target_month === selectedMonth &&
+    (!selectedTutorId || report.tutor_id === selectedTutorId)
+  );
+}
+function groupKey(report) {
+  return `${report.assignment_id}:${report.tutor_id}:${report.target_month}`;
+}
+function currentGroupStatus(reports) {
+  const statuses = new Set(reports.map(report => report.status));
+  for (const status of ['closed', 'returned_to_tutor', 'returned_to_sales', 'awaiting_finance', 'awaiting_office', 'awaiting_sales', 'awaiting_school', 'draft', 'approved']) {
+    if (statuses.has(status)) return status;
   }
-  function selectedIds() {
-    return [...document.querySelectorAll('input[name="report-check"]:checked')].map(el => el.value);
-  }
-  async function loadQueue() {
-    reports = await api(`/api/w/reports?target_month=${monthPicker.value}`);
-    const visible = reports.filter(r => [QUEUE_STATUS, RETURNED_STATUS].includes(r.status));
-    if (!visible.length) {
-      queueList.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500 shadow-sm">対応待ちはありません。</div>';
-      return;
+  return reports[0]?.status || '';
+}
+function groupReports(reports) {
+  const grouped = {};
+  reports.forEach(report => {
+    const key = groupKey(report);
+    if (!grouped[key]) {
+      grouped[key] = {
+        key,
+        assignment_id: report.assignment_id,
+        tutor_id: report.tutor_id,
+        target_month: report.target_month,
+        student_name: report.student_name || studentName(report.assignment_id),
+        tutor_name: report.tutor_name || tutorName(report.tutor_id),
+        reports: []
+      };
     }
-    queueList.innerHTML = visible.map(r => `
-      <article class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <label class="flex items-center gap-3">
-            ${r.status === QUEUE_STATUS ? `<input type="checkbox" name="report-check" value="${r.id}" class="h-4 w-4 rounded border-slate-300">` : '<span class="h-4 w-4"></span>'}
-            <span class="font-semibold text-slate-800">${navEscape(r.target_month)} / ${navEscape(r.form_type)}</span>
-          </label>
-          <a href="/w/admin/reports/${r.id}" class="text-sm font-medium text-emerald-700 underline">詳細</a>
-        </div>
-        <div class="mt-2 text-sm text-slate-500">${r.status === RETURNED_STATUS ? '営業へ差戻し中' : '営業確認待ち'}</div>
-        ${r.status === RETURNED_STATUS ? `<button onclick="resubmit('${r.id}')" class="mt-3 rounded-lg bg-[#1a2e1a] px-3 py-2 text-xs font-medium text-white">再受付</button>` : ''}
-      </article>`).join('');
+    grouped[key].reports.push(report);
+  });
+  return Object.values(grouped).sort((a, b) =>
+    a.student_name.localeCompare(b.student_name, 'ja') ||
+    a.tutor_name.localeCompare(b.tutor_name, 'ja')
+  );
+}
+function groupedByAssignment(reports) {
+  return reports.reduce((groups, report) => {
+    (groups[groupKey(report)] ||= []).push(report);
+    return groups;
+  }, {});
+}
+function currentGroups() {
+  return groupReports(visibleReports());
+}
+function eventsForGroup(group) {
+  const seen = new Set();
+  const events = [];
+  group.reports.forEach(report => {
+    (report.events || []).forEach(event => {
+      if (!ACTION_LABELS[event.action]) return;
+      const key = `${event.action}:${event.actor_role || ''}:${event.actor_name || ''}:${String(event.created_at).slice(0, 19)}:${event.comment || ''}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      events.push(event);
+    });
+  });
+  return events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+}
+function reportIdsForStatus(group, status) {
+  const statuses = Array.isArray(status) ? status : [status];
+  return group.reports.filter(report => statuses.includes(report.status)).map(report => report.id);
+}
+function taskStatuses(config) {
+  if (!config) return [];
+  return config.statuses || [config.status];
+}
+function taskConfig() {
+  if (currentRole === 'admin_master') {
+    return {
+      status: 'awaiting_finance',
+      subtext: '最終確認が必要',
+      label: '最終承認',
+      returnRole: 'master'
+    };
   }
-  async function bulkApprove() {
-    const ids = selectedIds();
-    if (!ids.length) { showToast('対象を選択してください', 'error'); return; }
-    await api('/api/w/reports/bulk-action', {method:'POST', body:JSON.stringify({report_ids: ids, action:'approve'})});
-    showToast('承認しました', 'success');
-    await loadQueue();
+  if (currentRole === 'sales') {
+    return {
+      statuses: ['awaiting_sales', 'returned_to_sales'],
+      subtext: '営業対応が必要',
+      label: '営業承認',
+      returnRole: 'sales'
+    };
   }
-  function openReturnModal() {
-    if (!selectedIds().length) { showToast('対象を選択してください', 'error'); return; }
-    returnComment.value = '';
-    returnModal.classList.remove('hidden');
-    returnModal.classList.add('flex');
+  if (currentRole === 'office') {
+    return {
+      status: 'awaiting_office',
+      subtext: '事務確認が必要',
+      label: '事務承認',
+      returnRole: 'office'
+    };
   }
-  function closeReturnModal() {
-    returnModal.classList.add('hidden');
-    returnModal.classList.remove('flex');
+  return null;
+}
+function getTaskMeta(group, groupStatus) {
+  const allEvents = group.reports
+    .flatMap(report => report.events || [])
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
+
+  if (groupStatus === 'awaiting_finance') {
+    const event = allEvents.find(item => item.action === 'approve');
+    if (event) return `${event.actor_name || ''} / 事務完了 ${formatEventDate(event.created_at)}`.trim();
   }
-  async function bulkReturn() {
-    const comment = returnComment.value.trim();
-    if (!comment) { showToast('コメントは必須です', 'error'); return; }
-    await api('/api/w/reports/bulk-action', {method:'POST', body:JSON.stringify({report_ids: selectedIds(), action:'return', comment})});
-    closeReturnModal();
-    showToast('差戻しました', 'success');
-    await loadQueue();
+  if (groupStatus === 'awaiting_office') {
+    const event = allEvents.find(item => item.action === 'approve');
+    if (event) return `${event.actor_name || ''} / 営業完了 ${formatEventDate(event.created_at)}`.trim();
   }
-  async function resubmit(id) {
-    await api(`/api/w/reports/${id}/action`, {method:'POST', body:JSON.stringify({action:'submit'})});
-    showToast('再受付しました', 'success');
-    await loadQueue();
+  if (groupStatus === 'awaiting_sales') {
+    const event = allEvents.find(item => item.action === 'approve');
+    if (event) return `${event.actor_name || ''} / 学校承認 ${formatEventDate(event.created_at)}`.trim();
   }
-  monthPicker.value = currentMonthValue();
-  monthPicker.addEventListener('change', loadQueue);
-  setBreadcrumb('営業', 'キューダッシュボード');
-  loadQueue();
+  if (groupStatus === 'returned_to_sales') {
+    const event = allEvents.find(item => item.action === 'return');
+    if (event) return `${event.actor_name || ''} / 差戻し ${formatEventDate(event.created_at)}`.trim();
+  }
+  return '';
+}
+function renderFilters() {
+  const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
+  if (months.length && !months.includes(selectedMonth)) selectedMonth = months[0];
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+  monthFilter.disabled = !months.length;
+  const tutorIds = new Set(allReports.filter(report => report.target_month === selectedMonth).map(report => report.tutor_id));
+  const tutors = allTutors.filter(tutor => tutorIds.has(tutor.id)).sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
+  if (selectedTutorId && !tutorIds.has(selectedTutorId)) selectedTutorId = '';
+  tutorFilter.innerHTML = ['<option value="">すべての講師</option>', ...tutors.map(tutor => `<option value="${tutor.id}">${escapeHtml(tutor.display_name)}</option>`)].join('');
+  tutorFilter.value = selectedTutorId;
+  renderBulkExportLinks();
+}
+function renderKpis() {
+  const monthReports = visibleReports();
+  const groups = Object.values(groupedByAssignment(monthReports));
+  const config = taskConfig();
+  const statuses = taskStatuses(config);
+  const approvalWaiting = config ? groups.filter(group => statuses.includes(currentGroupStatus(group))).length : 0;
+  const approvalSubtext = config?.subtext || '対応が必要';
+  const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'approved')).length;
+  const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_sales') && !group.some(report => report.status === 'approved')).length;
+  const completed = groups.filter(group => group.every(report => report.status === 'approved')).length;
+  kpiCards.innerHTML = `
+    <div class="admin-card" style="border:2px solid #DC2626;background:#FEF2F2;">
+      <div style="font-size:11px;color:var(--color-text-secondary);">あなたの承認待ち</div>
+      <div class="mt-1" style="font-size:28px;font-weight:500;color:#DC2626;">${approvalWaiting}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">${approvalSubtext}</div>
+    </div>
+    <div class="admin-card">
+      <div style="font-size:11px;color:var(--color-text-secondary);">差戻し中</div>
+      <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${returnedTutor + returnedReceiver}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 営業${returnedReceiver}</div>
+    </div>
+    <div class="admin-card">
+      <div style="font-size:11px;color:var(--color-text-secondary);">今月完了</div>
+      <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${completed}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">全${groups.length}件中</div>
+    </div>`;
+}
+function renderBulkExportLinks() {
+  const month = selectedMonth;
+  const reportsInMonth = allReports.filter(report => report.target_month === month);
+  const groups = Object.values(groupedByAssignment(reportsInMonth));
+  const approvedGroups = groups.filter(group => group.every(report => report.status === 'approved'));
+  const hasApprovedGroup = approvedGroups.length > 0;
+  const hasUnapprovedGroup = groups.some(group => !group.every(report => report.status === 'approved'));
+  const params = new URLSearchParams({scope: 'approved_only', target_month: month, format: 'pdf'});
+  bulkExportPdf.href = hasApprovedGroup ? `/api/w/reports/export?${params.toString()}` : '#';
+  bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
+  bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
+}
+function renderTasks(groups) {
+  const config = taskConfig();
+  const statuses = taskStatuses(config);
+  const tasks = config ? groups.filter(group => statuses.includes(currentGroupStatus(group.reports))) : [];
+  taskCountBadge.textContent = tasks.length;
+  taskList.innerHTML = tasks.length ? tasks.map(group => {
+    const groupStatus = currentGroupStatus(group.reports);
+    const meta = getTaskMeta(group, groupStatus);
+    return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
+        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
+      </div>
+      <div class="flex flex-col gap-2 sm:flex-row">
+        <button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#059669;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
+        <button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
+      </div>
+    </div>`;
+  }).join('') : '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
+}
+function pipelineColumnForStatus(status) {
+  if (status === 'returned_to_tutor') return 'draft';
+  if (status === 'returned_to_sales') return 'awaiting_sales';
+  return status;
+}
+function pipelineCardClass(status) {
+  if (['returned_to_tutor', 'returned_to_sales'].includes(status)) return 'border-l-[#DC2626] bg-[#FEF2F2]';
+  if (status === 'closed') return 'border-l-slate-400 bg-slate-50';
+  if (status === 'approved') return 'border-l-[#059669] bg-[#ECFDF5]';
+  return 'border-l-[#CBD5E1] bg-[#F8FAFC]';
+}
+function renderPipeline(groups) {
+  pipelineTitle.textContent = `🔄 進捗パイプライン（${monthLabel(selectedMonth)}）`;
+  pipelineBoard.innerHTML = PIPELINE_COLUMNS.map(column => {
+    const items = groups.filter(group => pipelineColumnForStatus(currentGroupStatus(group.reports)) === column.key);
+    return `<div class="rounded-lg border border-slate-200 bg-white">
+      <div class="flex items-center justify-between border-b border-slate-100 px-2 py-2">
+        <div class="text-xs font-semibold text-slate-700">${column.label}</div>
+        <span class="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-600">${items.length}</span>
+      </div>
+      <div class="space-y-2 p-2">
+        ${items.length ? items.map(group => {
+          const status = currentGroupStatus(group.reports);
+          return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${openCardKey === group.key ? 'ring-2 ring-emerald-200' : ''}" onclick="toggleDetails('${group.key}')">
+            <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.student_name)}</div>
+            <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(statusLabel(status))}</div>
+          </button>`;
+        }).join('') : '<div class="px-2 py-4 text-center text-xs text-slate-400">なし</div>'}
+      </div>
+    </div>`;
+  }).join('');
+}
+function currentWaitLabel(status) {
+  const labels = {
+    draft: '講師の作成待ち',
+    returned_to_tutor: '講師の修正待ち',
+    awaiting_school: '学校の承認待ち',
+    awaiting_sales: '営業の承認待ち',
+    returned_to_sales: '営業の対応待ち',
+    awaiting_office: '事務の承認待ち',
+    awaiting_finance: '管理者の最終承認待ち',
+    approved: '完了',
+    closed: 'クローズ'
+  };
+  return labels[status] || statusLabel(status);
+}
+function eventDotClass(action) {
+  if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
+  if (APPROVAL_ACTIONS.has(action)) return 'bg-[#059669]';
+  return 'bg-slate-400';
+}
+function actionBadge(action) {
+  const returnStyle = RETURN_ACTIONS.has(action);
+  const cls = returnStyle ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#D1FAE5] text-[#065F46]';
+  return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
+}
+function statusBadge(status) {
+  if (['returned_to_tutor', 'returned_to_sales'].includes(status)) return '<span class="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">差戻し中</span>';
+  if (status === 'closed') return '<span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">クローズ</span>';
+  if (status === 'approved') return '<span class="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">完了</span>';
+  return '<span class="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">進行中</span>';
+}
+function closedReportInfo(group) {
+  const closed = group.reports.filter(report => report.status === 'closed');
+  if (!closed.length) return '';
+  return `<div class="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+    <div class="font-semibold text-slate-800">クローズ済み</div>
+    <div class="mt-3 space-y-3">
+      ${closed.map(report => `<div class="border-t border-slate-200 pt-3 first:border-t-0 first:pt-0">
+        <div class="text-slate-700">指導日：${escapeHtml(report.lesson_date || '-')}</div>
+        <div class="mt-1 whitespace-pre-wrap text-slate-700">理由：${escapeHtml(report.close_reason || '-')}</div>
+        <div class="mt-1 text-slate-700">日時：${escapeHtml(formatDateTime(report.closed_at))}</div>
+        <div class="mt-1 text-slate-700">操作者：${escapeHtml(report.closed_by_name || '-')}</div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
+function timelineRow(event) {
+  const isReturn = RETURN_ACTIONS.has(event.action);
+  return `<div class="relative pb-5 pl-8">
+    <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full ${eventDotClass(event.action)}"></span>
+    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <span>${escapeHtml(formatDateTime(event.created_at))}</span>
+      <span>${escapeHtml(roleLabel(event.actor_role))}</span>
+      <span>${escapeHtml(event.actor_name || '-')}</span>
+      ${actionBadge(event.action)}
+    </div>
+    ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+  </div>`;
+}
+function currentTimelineRow(status) {
+  return `<div class="relative pl-8">
+    <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full bg-[#F59E0B]"></span>
+    <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+      <span>現在</span>
+      <span class="rounded-full bg-[#FEF3C7] px-2 py-0.5 text-[11px] font-medium text-[#92400E]">${escapeHtml(currentWaitLabel(status))}</span>
+    </div>
+  </div>`;
+}
+function closeDetails() {
+  openCardKey = null;
+  detailDrawer.classList.add('hidden');
+  detailDrawer.innerHTML = '';
+  renderPipeline(currentGroups());
+}
+function toggleDetails(key) {
+  if (openCardKey === key) {
+    closeDetails();
+    return;
+  }
+  showDetails(key);
+}
+function reportCard(report) {
+  const events = (report.events || [])
+    .filter(e => ACTION_LABELS[e.action])
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  const closedSection = report.status === 'closed' ? `
+    <div class="mt-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+      <div class="font-medium text-slate-800">クローズ済み</div>
+      <div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(report.close_reason || '-')}</div>
+      <div class="mt-1">日時：${escapeHtml(formatDateTime(report.closed_at))}</div>
+      <div class="mt-1">操作者：${escapeHtml(report.closed_by_name || '-')}</div>
+    </div>` : '';
+  return `<div class="rounded-lg border border-slate-200 bg-white p-4">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm font-medium text-slate-800">指導日：${escapeHtml(report.lesson_date || '-')}</span>
+      ${statusBadge(report.status)}
+    </div>
+    ${closedSection}
+    <div class="mt-3 ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
+      ${events.length ? events.map(timelineRow).join('') : '<div class="pb-5 pl-8 text-sm text-slate-500">履歴はありません。</div>'}
+      ${report.status !== 'closed' ? currentTimelineRow(report.status) : ''}
+    </div>
+  </div>`;
+}
+function showDetails(key) {
+  openCardKey = key;
+  const group = currentGroups().find(item => item.key === key);
+  if (!group) return;
+  const overallStatus = currentGroupStatus(group.reports);
+  const activeStatus = currentGroupStatus(group.reports.filter(r => r.status !== 'closed'));
+  const sortedReports = [...group.reports].sort((a, b) => {
+    if (a.status === 'closed' && b.status !== 'closed') return 1;
+    if (b.status === 'closed' && a.status !== 'closed') return -1;
+    return (a.lesson_date || '').localeCompare(b.lesson_date || '');
+  });
+  detailDrawer.classList.remove('hidden');
+  detailDrawer.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+    <h2 class="font-semibold text-slate-800">📄 ${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}（講師：${escapeHtml(group.tutor_name)}）</h2>
+    ${statusBadge(overallStatus)}
+  </div>
+  <div class="p-5">
+    <div class="space-y-6">
+      ${sortedReports.map(report => reportCard(report)).join('')}
+    </div>
+    ${currentRole === 'admin_master' && activeStatus === 'approved' ? `
+    <div class="mt-4 border-t border-slate-200 pt-4">
+      <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
+    </div>` : ''}
+  </div>`;
+  renderPipeline(currentGroups());
+}
+async function approveGroup(key) {
+  const group = currentGroups().find(item => item.key === key);
+  if (!group) return;
+  const config = taskConfig();
+  if (!config) return;
+  const ids = reportIdsForStatus(group, taskStatuses(config));
+  if (!ids.length) return;
+  if (!confirm(`${group.student_name}さんの${monthShortLabel(group.target_month)}分を${config.label}します。よろしいですか？`)) return;
+  for (const id of ids) {
+    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'approve'})});
+  }
+  await loadAdmin();
+}
+function openReturnModal(key) {
+  returnTargetKey = key;
+  returnComment.value = '';
+  returnError.classList.add('hidden');
+  returnModal.classList.remove('hidden');
+  returnModal.classList.add('flex');
+}
+function closeReturnModal() {
+  returnTargetKey = '';
+  returnModal.classList.add('hidden');
+  returnModal.classList.remove('flex');
+}
+async function submitReturn() {
+  const group = currentGroups().find(item => item.key === returnTargetKey);
+  if (!group) return;
+  const config = taskConfig();
+  if (!config && !(currentRole === 'admin_master')) return;
+  const comment = returnComment.value.trim();
+  if (!comment) {
+    returnError.textContent = '差戻し理由を入力してください';
+    returnError.classList.remove('hidden');
+    return;
+  }
+  const groupStatus = currentGroupStatus(group.reports);
+  let ids;
+  if (currentRole === 'admin_master' && groupStatus === 'approved') {
+    ids = group.reports.filter(r => r.status === 'approved').map(r => r.id);
+  } else {
+    ids = reportIdsForStatus(group, taskStatuses(config));
+  }
+  if (!ids.length) return;
+  for (const id of ids) {
+    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'return', comment})});
+  }
+  closeReturnModal();
+  await loadAdmin();
+}
+function updateUrl() {
+  const params = new URLSearchParams();
+  if (selectedMonth) params.set('month', selectedMonth);
+  if (selectedTutorId) params.set('tutor_id', selectedTutorId);
+  location.href = `${location.pathname}?${params.toString()}`;
+}
+function renderDashboard() {
+  const groups = currentGroups();
+  renderKpis();
+  renderTasks(groups);
+  renderPipeline(groups);
+  if (openCardKey && groups.some(group => group.key === openCardKey)) {
+    showDetails(openCardKey);
+  } else {
+    openCardKey = null;
+    detailDrawer.classList.add('hidden');
+    detailDrawer.innerHTML = '';
+  }
+}
+async function loadAdmin() {
+  const [reports, assignments, tutors] = await Promise.all([
+    api('/api/w/reports'),
+    api('/api/w/assignments'),
+    api('/api/w/users?roles=tutor&per_page=100')
+  ]);
+  allReports = reports;
+  allAssignments = assignments;
+  allTutors = tutors.items || tutors;
+  renderFilters();
+  renderDashboard();
+}
+monthFilter.addEventListener('change', () => {
+  selectedMonth = monthFilter.value;
+  selectedTutorId = '';
+  openCardKey = null;
+  updateUrl();
+});
+tutorFilter.addEventListener('change', () => {
+  selectedTutorId = tutorFilter.value;
+  openCardKey = null;
+  updateUrl();
+});
+window.authReady.then(user => {
+  if (!user) return;
+  currentRole = user.role;
+  loadAdmin();
+});
 </script>
 {% endblock %}
+
+
+
+

@@ -78,7 +78,7 @@ def root(request: Request, db: Session = Depends(get_db)):
         "school": "/w/school/approval",
         "sales": "/w/sales/queue",
         "office": "/w/office/queue",
-        "admin_master": "/w/admin/dashboard",
+        "admin_master": "/w/finance/queue",
     }
     return RedirectResponse(url=destinations.get(role, "/w/login"), status_code=302)
 
@@ -91,12 +91,33 @@ def login_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "login.html", {"request": request})
 
 
+@router.get("/w/select-role", response_class=HTMLResponse)
+def select_role_page(request: Request, db: Session = Depends(get_db)):
+    user = _get_user_optional(request, db)
+    if not user:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "select_role.html", _ctx(request, user))
+
+
 @router.get("/w/tutor/reports", response_class=HTMLResponse)
 def tutor_reports(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "tutor", db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "tutor/reports.html", _ctx(request, user))
+
+
+@router.get("/w/tutor/reports/new", response_class=HTMLResponse)
+def tutor_reports_new(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _require_page_role(request, "tutor", db)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "tutor/reports.html", _ctx(request, user))
+
+
+@router.get("/w/tutor/submit", include_in_schema=False)
+def tutor_submit_redirect():
+    return RedirectResponse(url="/w/tutor/reports", status_code=301)
 
 
 @router.get("/w/tutor/reports/{report_id}", response_class=HTMLResponse)
@@ -123,6 +144,11 @@ def school_approval(request: Request, db: Session = Depends(get_db)):
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "school/approval.html", _ctx(request, user))
+
+
+@router.get("/w/school/reports", include_in_schema=False)
+def school_reports_redirect():
+    return RedirectResponse(url="/w/school/approval", status_code=301)
 
 
 @router.get("/w/sales/queue", response_class=HTMLResponse)
@@ -183,6 +209,14 @@ def admin_assignments(request: Request, db: Session = Depends(get_db)):
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/assignments.html", _ctx(request, user))
+
+
+@router.get("/w/admin/stale-reports", response_class=HTMLResponse)
+def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
+    user, redirect = _require_page_role(request, "admin_master", db)
+    if redirect:
+        return redirect
+    return templates.TemplateResponse(request, "admin/stale_reports.html", _ctx(request, user))
 
 
 @router.get("/w/register", response_class=HTMLResponse)

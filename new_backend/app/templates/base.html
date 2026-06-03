@@ -1,34 +1,45 @@
+<!-- # === Phase 8: フロントエンド共通 START === -->
 <!doctype html>
 <html lang="ja">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>業務連絡表システム</title>
+  <title>業務連絡表</title>
   <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body class="bg-slate-100 text-slate-900">
-
+  <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
+    先月以前の差戻し中未処理および未承認の報告があります。管理者へ連絡ください。
+    （<span id="stale-count"></span>件）
+    {% if active_role in ['sales', 'office', 'admin_master'] %}
+    <a href="/w/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
+    {% endif %}
+  </div>
   <div id="sidebarBackdrop" class="fixed inset-0 z-30 hidden bg-slate-900/50 md:hidden" onclick="closeSidebar()"></div>
 
   <aside id="sidebarPanel" class="fixed inset-y-0 left-0 z-40 flex w-56 -translate-x-full transform flex-col bg-[#1a2e1a] text-white shadow-2xl transition-transform duration-300 md:translate-x-0">
-    <div class="border-b border-white/10 px-6 py-5">
-      <a href="/w/" class="block" id="navHome">
+    <div class="border-b border-slate-700 px-6 py-5">
+      <a href="/w/login" class="block" id="navHome">
         <h1 class="text-lg font-bold text-white">業務連絡表</h1>
-        <p class="mt-1 text-xs text-slate-400">業務連絡表システム</p>
+        <p class="mt-1 text-xs text-slate-400">指導実績報告システム</p>
       </a>
     </div>
 
-    <div class="border-b border-white/10 px-4 py-4">
+    <div class="border-b border-slate-700 px-4 py-4">
       <p class="text-xs text-slate-400">ログイン中</p>
       <p class="mt-1 text-sm font-semibold text-white" id="sidebarUserName">{{ current_user.display_name }}</p>
-      <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole"></p>
-      <p class="mt-1 text-xs text-slate-400 hidden" id="sidebarUserNo"></p>
+      <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole">{{ active_role }}</p>
+      <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="sidebarTutorNo">No：{{ current_user.user_no or '-' }}</p>
+      <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="navTutorTotal">合計：0分</p>
     </div>
 
     <nav id="navItems" class="flex-1 space-y-1 overflow-y-auto px-3 py-4"></nav>
 
-    <div class="border-t border-white/10 px-4 py-4">
-      <button onclick="logout()" class="w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-left text-sm font-medium text-slate-100 hover:bg-white/15">
+    <div class="border-t border-slate-700 px-4 py-4">
+      <button id="returnCommentBadge" type="button" onclick="openReturnCommentsModal()" class="hidden w-full rounded-lg border border-red-300 bg-red-100 px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-200">
+        差戻しあり
+      </button>
+      <button onclick="logout()" class="mt-3 w-full rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-left text-sm font-medium text-slate-100 hover:bg-white/15">
         ログアウト
       </button>
     </div>
@@ -41,12 +52,12 @@
           <button type="button" class="inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-300 transition hover:bg-white/10 hover:text-white md:hidden" onclick="openSidebar()" aria-label="メニューを開く">
             ☰
           </button>
-          <span class="text-sm font-bold text-white">業務連絡表システム</span>
+          <span class="text-sm font-bold text-white">業務連絡表</span>
           <span class="h-5 w-px bg-slate-600"></span>
           <span id="breadcrumb"></span>
         </div>
         <div class="flex flex-col items-end">
-          {% set role_labels = {'tutor': '講師', 'school': '学校担当', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '管理者'} %}
+          {% set role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '管理者'} %}
           <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
           <span class="text-xs text-slate-400">{{ role_labels.get(active_role, active_role) }}{% if current_user.user_no %}・{{ current_user.user_no }}{% endif %}</span>
         </div>
@@ -59,8 +70,19 @@
     </main>
   </div>
 
+  <div id="returnCommentsOverlay" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnCommentsModal()">
+    <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+      <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+        <h2 class="font-semibold text-slate-800">差戻しコメント</h2>
+        <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeReturnCommentsModal()">閉じる</button>
+      </div>
+      <div id="returnCommentsList" class="max-h-[70vh] overflow-y-auto p-5 text-sm"></div>
+    </div>
+  </div>
+
   <div id="toastContainer" class="fixed right-4 top-4 z-[1200] space-y-2"></div>
 
+  
   <script>
     window.currentUser = {
       id: '{{ current_user.id }}',
@@ -71,16 +93,23 @@
       user_no: {{ (current_user.user_no or "") | tojson }}
     };
 
-    function roleDisplayName(role) {
-      const map = {tutor:'講師', school:'学校担当', sales:'営業担当', office:'事務担当', admin_master:'管理者'};
-      return map[role] || role;
-    }
+    window.authReady = Promise.resolve(window.currentUser);
+
+    fetch('/api/w/stale-count')
+      .then(response => response.ok ? response.json() : {count: 0})
+      .then(data => {
+        if (data.count > 0) {
+          document.getElementById('stale-count').textContent = data.count;
+          document.getElementById('stale-banner').classList.remove('hidden');
+        }
+      })
+      .catch(() => {});
 
     function showToast(message, type = 'info') {
       const colors = {
         success: 'bg-emerald-600 text-white',
         error: 'bg-red-600 text-white',
-        info: 'bg-emerald-700 text-white'
+        info: 'bg-emerald-600 text-white'
       };
       const toast = document.createElement('div');
       toast.className = `min-w-64 max-w-sm rounded-lg px-4 py-3 text-sm font-medium shadow-lg transition ${colors[type] || colors.info}`;
@@ -90,6 +119,15 @@
         toast.classList.add('opacity-0');
         setTimeout(() => toast.remove(), 200);
       }, 3000);
+    }
+
+    function roleDisplayName(role) {
+      if (role === 'tutor') return '講師';
+      if (role === 'school') return '学校';
+      if (role === 'sales') return '営業担当';
+      if (role === 'office') return '事務担当';
+      if (role === 'admin_master') return '管理者';
+      return role;
     }
 
     function openSidebar() {
@@ -102,58 +140,91 @@
       sidebarBackdrop.classList.add('hidden');
     }
 
+    function currentMonthValue() {
+      const d = new Date();
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+
     function navEscape(value) {
-      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    }
+
+    function navDurationLabel(minutes) {
+      const hours = Math.floor(minutes / 60);
+      const mins = minutes % 60;
+      if (hours && mins) return `${hours}時間${mins}分`;
+      if (hours) return `${hours}時間`;
+      return `${mins}分`;
+    }
+
+    function navTimeText(value) {
+      return (value || '').slice(0, 5);
+    }
+
+    function navMinutesBetween(start, end) {
+      if (!start || !end) return 0;
+      const [sh, sm] = start.split(':').map(Number);
+      const [eh, em] = end.split(':').map(Number);
+      return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
+    }
+
+    function navTeachingMinutes(report) {
+      return Math.max(0, navMinutesBetween(navTimeText(report.start_time), navTimeText(report.end_time)) - Number(report.break_minutes || 0));
     }
 
     function navLink(href, label) {
-      const active = window.location.pathname === href || window.location.pathname.startsWith(href + '/');
-      const base = 'flex items-center rounded-lg px-3 py-2 text-sm font-medium transition';
+      const active = isActiveNavLink(href);
+      const base = 'flex items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition';
       const state = active
         ? 'bg-emerald-600 text-white shadow-sm'
         : 'text-slate-200 hover:bg-white/10 hover:text-white';
-      return `<a href="${href}" class="${base} ${state}">${navEscape(label)}</a>`;
+      return `<a data-nav-link href="${href}" class="${base} ${state}">${label}</a>`;
     }
 
-    function setBreadcrumb(portal, page) {
-      const el = document.getElementById('breadcrumb');
-      if (!el) return;
-      el.innerHTML = `
-        <span style="color:#94a3b8;font-size:13px;">${navEscape(portal)}</span>
-        <span style="color:#475569;font-size:12px;margin:0 6px;">›</span>
-        <span style="color:#e2e8f0;font-size:13px;font-weight:500;">${navEscape(page)}</span>
-      `;
+    function isActiveNavLink(href) {
+      const path = window.location.pathname;
+      if (href === '/w/tutor/reports') return path === '/w/tutor/reports' || path.startsWith('/w/tutor/reports/');
+      if (href === '/w/tutor/students') return path === '/w/tutor/students';
+      if (href === '/w/admin/dashboard') return path === '/w/admin/dashboard';
+      return path === href;
     }
 
     async function api(url, options = {}) {
       const res = await fetch(url, {
         ...options,
-        headers: {'Content-Type': 'application/json', ...options.headers}
+        credentials: options.credentials || 'same-origin',
+        headers: {'Content-Type': 'application/json', ...(options.headers || {})}
       });
-      if (res.status === 401) { location.href = '/w/login'; return null; }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (res.status === 401) {
+        location.href = '/w/login';
+        return null;
+      }
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.detail || `HTTP ${res.status}`);
+      }
+      if (res.status === 204) return null;
       return res.json();
     }
 
     async function logout() {
-      await fetch('/api/auth/logout', {method: 'POST'});
+      await fetch('/api/auth/logout', {method: 'POST', credentials: 'same-origin'});
       location.href = '/w/login';
     }
 
-    function renderNav(user) {
-      const roleEl = document.getElementById('sidebarUserRole');
-      if (roleEl) roleEl.textContent = roleDisplayName(user.role);
-      const noEl = document.getElementById('sidebarUserNo');
-      if (noEl && user.user_no) {
-        noEl.textContent = `No：${user.user_no}`;
-        noEl.classList.remove('hidden');
-      }
+    async function renderNav(user) {
+      sidebarUserName.textContent = user.display_name;
+      sidebarUserRole.textContent = roleDisplayName(user.role);
+      sidebarTutorNo.textContent = `No：${user.user_no || '-'}`;
+      sidebarTutorNo.classList.toggle('hidden', user.role !== 'tutor');
 
       const items = [];
       if (user.role === 'tutor') {
         navHome.href = '/w/tutor/reports';
         items.push(navLink('/w/tutor/reports', '報告書一覧'));
         items.push(navLink('/w/tutor/approval', '承認管理'));
+        // 生徒管理機能は将来リリース予定のため一時非表示
+        // items.push(navLink('/w/tutor/students', '生徒管理'));
       } else if (user.role === 'school') {
         navHome.href = '/w/school/approval';
         items.push(navLink('/w/school/approval', '承認管理'));
@@ -170,15 +241,100 @@
         items.push(navLink('/w/admin/assignments', '紐付け管理'));
       }
       navItems.innerHTML = items.join('');
+
       closeSidebar();
+      if (user.role === 'tutor') await renderTutorNavExtras();
+    }
+
+    async function renderTutorNavExtras() {
+      const currentMonth = currentMonthValue();
+      const [reports, assignments] = await Promise.all([
+        api(`/api/w/reports?target_month=${currentMonth}`),
+        api('/api/w/assignments')
+      ]);
+      const total = reports.reduce((sum, report) => sum + navTeachingMinutes(report), 0);
+      const totalArea = document.getElementById('navTutorTotal');
+      if (totalArea) totalArea.textContent = `合計：${navDurationLabel(total)}`;
+
+      const assignmentMap = new Map(assignments.map(assignment => [assignment.id, assignment]));
+      const returned = reports.filter(report => ['returned_to_tutor', 'returned_to_sales'].includes(report.status) && report.last_return_comment);
+      if (!returned.length) return;
+      returnCommentsList.innerHTML = latestMonthlyReturnComments(returned).map(report => {
+        const assignment = assignmentMap.get(report.assignment_id);
+        const actorLabel = returnActorLabel(report);
+        const month = report.target_month || currentMonth;
+        return `<div class="border-b border-slate-200 py-4 last:border-b-0 first:pt-0 last:pb-0">
+          <div class="font-semibold text-slate-800">【${navEscape(assignment?.student_name || '生徒未設定')}】${Number(month.slice(5, 7))}月分差戻し</div>
+          <div class="mt-2 text-slate-700">差戻し者：${navEscape(actorLabel)}</div>
+          <div class="mt-1 text-slate-700">日時：${navEscape(formatReturnDateTime(report.last_return_at))}</div>
+          <div class="mt-1 whitespace-pre-wrap text-slate-900">コメント：${navEscape(report.last_return_comment)}</div>
+        </div>`;
+      }).join('');
+      document.getElementById('returnCommentBadge')?.classList.remove('hidden');
+    }
+
+    function latestMonthlyReturnComments(reports) {
+      const latestByMonth = new Map();
+      reports.forEach(report => {
+        const month = report.target_month || (report.lesson_date || '').slice(0, 7);
+        const key = `${report.assignment_id || ''}:${month}`;
+        const current = latestByMonth.get(key);
+        if (!current || compareReturnReports(report, current) > 0) {
+          latestByMonth.set(key, report);
+        }
+      });
+      return [...latestByMonth.values()].sort(compareReturnReports).reverse();
+    }
+
+    function compareReturnReports(a, b) {
+      const dateCompare = String(a.lesson_date || '').localeCompare(String(b.lesson_date || ''));
+      if (dateCompare !== 0) return dateCompare;
+      return new Date(a.last_return_at || a.updated_at || 0).getTime() - new Date(b.last_return_at || b.updated_at || 0).getTime();
+    }
+
+    function returnActorLabel(report) {
+      const role = report.last_return_by || report.returned_by_role;
+      if (role) return roleDisplayName(role);
+      return report.last_event === 'return' ? '学校' : '管理';
+    }
+
+    function formatReturnDateTime(value) {
+      if (!value) return '-';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '-';
+      return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+    }
+
+    function openReturnCommentsModal() {
+      returnCommentsOverlay.classList.remove('hidden');
+      returnCommentsOverlay.classList.add('flex');
+    }
+
+    function closeReturnCommentsModal() {
+      returnCommentsOverlay.classList.add('hidden');
+      returnCommentsOverlay.classList.remove('flex');
     }
 
     window.addEventListener('resize', () => {
       if (window.innerWidth >= 768) closeSidebar();
     });
 
+    function setBreadcrumb(portal, page) {
+      const el = document.getElementById('breadcrumb');
+      if (!el) return;
+      el.innerHTML = `
+        <span style="color:#94a3b8;font-size:13px;">${portal}</span>
+        <span style="color:#475569;font-size:12px;margin:0 6px;">›</span>
+        <span style="color:#e2e8f0;font-size:13px;font-weight:500;">${page}</span>
+      `;
+    }
+
     renderNav(window.currentUser);
   </script>
   {% block scripts %}{% endblock %}
 </body>
 </html>
+<!-- # === Phase 8 END === -->
+
+
+
