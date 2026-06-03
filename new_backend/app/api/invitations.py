@@ -127,7 +127,9 @@ def list_invitations(
     _: User = Depends(require_role("admin_master")),
 ):
     invs = db.scalars(
-        select(Invitation).order_by(Invitation.created_at.desc())
+        select(Invitation)
+        .where(Invitation.role.in_(["tutor", "school", "sales", "office", "admin_master"]))
+        .order_by(Invitation.created_at.desc())
     ).all()
     return [_invitation_out(inv) for inv in invs]
 
