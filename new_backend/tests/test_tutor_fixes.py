@@ -1,4 +1,6 @@
 """講師画面改修（下書き報告の削除・差戻し理由の公開）のテスト。"""
+from urllib.parse import unquote
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -172,6 +174,26 @@ class TestReportNames:
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
         body = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
         assert body["school_approved_at"] is not None
+        assert body["submitted_to_school_at"] is not None
+
+    def test_approved_at_set_after_finance_approve(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        _add_user(db, "office-approved@x.example.com", "office")
+        _add_user(db, "sales-approved@x.example.com", "sales")
+        _add_user(db, "master-approved@x.example.com", "admin_master")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office-approved@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales-approved@x.example.com"))
+        before_finance = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
+        assert before_finance["approved_at"] is None
+
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master-approved@x.example.com"))
+        body = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
+        assert body["status"] == WorkStatus.APPROVED
+        assert body["approved_at"] is not None
 
     def test_school_name_falls_back_to_meta(self, client, db):
         # parent 未設定の紐付けでは meta.dispatch_place_name を学校名に使う
@@ -191,6 +213,49 @@ class TestReportNames:
             headers=headers,
         )
         assert res.json()["school_name"] == "メタ高校"
+
+    def test_assignment_export_filename_uses_school_name(self, client, db):
+        tutor = _add_user(db, "pdf-tutor@x.example.com", "tutor")
+        school = _add_user(db, "pdf-school@x.example.com", "school")
+        school.display_name = "椅子戸学園"
+        assignment = Assignment(
+            tutor_id=tutor.id,
+            parent_id=school.id,
+            student_name="生徒一郎",
+            system_type="new",
+        )
+        db.add(assignment)
+        db.commit()
+        headers = _auth(client, "pdf-tutor@x.example.com")
+        res = client.post(
+            "/api/w/reports",
+            json={
+                "assignment_id": str(assignment.id),
+                "target_month": "2026-06",
+                "form_type": "monthly_dispatch",
+                "form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 60}]},
+            },
+            headers=headers,
+        )
+        report_id = res.json()["id"]
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-school@x.example.com"))
+        _add_user(db, "pdf-office@x.example.com", "office")
+        _add_user(db, "pdf-sales@x.example.com", "sales")
+        _add_user(db, "pdf-master@x.example.com", "admin_master")
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-office@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-sales@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-master@x.example.com"))
+
+        export = client.get(
+            f"/api/w/reports/export?target_month=2026-06&assignment_id={assignment.id}",
+            headers=headers,
+        )
+
+        disposition = unquote(export.headers["content-disposition"])
+        assert export.status_code == 200
+        assert "椅子戸学園" in disposition
+        assert "生徒一郎" not in disposition
 
 
 class TestAssignmentForSchool:

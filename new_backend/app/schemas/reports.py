@@ -70,11 +70,13 @@ class ReportOut(BaseModel):
     status: str
     current_approver_role: str | None
     submitted_at: datetime | None
+    submitted_to_school_at: datetime | None = None
     closed_at: datetime | None = None
     closed_by: uuid.UUID | None = None
     close_reason: str | None = None
     last_return_comment: str | None = None
     school_approved_at: datetime | None = None
+    approved_at: datetime | None = None
     student_name: str | None = None
     tutor_name: str | None = None
     school_name: str | None = None

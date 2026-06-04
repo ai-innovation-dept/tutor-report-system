@@ -176,6 +176,16 @@ def _tutor_name(report: WorkReport) -> str:
     return report.tutor.display_name if report.tutor else "講師未設定"
 
 
+def _report_display_name(report: WorkReport) -> str:
+    assignment = report.assignment
+    if assignment and assignment.parent:
+        return assignment.parent.display_name
+    meta = (report.form_data or {}).get("meta") or {}
+    if meta.get("dispatch_place_name"):
+        return meta["dispatch_place_name"]
+    return _student_name(report)
+
+
 @router.post("", response_model=ReportOut, status_code=201)
 def create(
     payload: ReportCreate,
@@ -314,7 +324,10 @@ def export_reports(
 
     stmt = (
         select(WorkReport)
-        .options(selectinload(WorkReport.assignment), selectinload(WorkReport.tutor))
+        .options(
+            selectinload(WorkReport.assignment).selectinload(Assignment.parent),
+            selectinload(WorkReport.tutor),
+        )
         .where(WorkReport.target_month == target_month)
     )
     assignment = db.get(Assignment, assignment_id) if assignment_id else None
@@ -355,7 +368,11 @@ def export_reports(
     year, month_str = target_month.split("-")
     month_label = f"{year}年{int(month_str):02d}月"
     if assignment_id:
-        filename_base = f"指導実績_{assignment.student_name}_{month_label}" if assignment else f"指導実績_生徒_{month_label}"
+        if assignment and assignment.parent:
+            assignment_name = assignment.parent.display_name
+        else:
+            assignment_name = _report_display_name(reports[0]) if reports else "生徒"
+        filename_base = f"指導実績_{assignment_name}_{month_label}"
     elif tutor_id:
         tutor = db.get(User, tutor_id)
         filename_base = f"指導実績_{tutor.display_name if tutor else '講師'}_全生徒_{month_label}"
@@ -366,10 +383,10 @@ def export_reports(
 
     if len(reports) == 1:
         report = reports[0]
-        content = build_report_pdf(report, _student_name(report), _tutor_name(report))
+        content = build_report_pdf(report, _report_display_name(report), _tutor_name(report))
     else:
         content = build_reports_pdf(
-            [(report, _student_name(report), _tutor_name(report)) for report in reports],
+            [(report, _report_display_name(report), _tutor_name(report)) for report in reports],
             target_month,
         )
     return Response(
@@ -493,16 +510,21 @@ def export_pdf(
     _: User = Depends(get_current_user),
 ):
     report = get_report_or_404(db, report_id)
-    assignment = db.get(Assignment, report.assignment_id)
-    student_name = assignment.student_name if assignment else "生徒"
+    assignment = db.scalar(
+        select(Assignment)
+        .options(selectinload(Assignment.parent))
+        .where(Assignment.id == report.assignment_id)
+    )
+    report.assignment = assignment
+    display_name = _report_display_name(report)
     tutor = db.get(User, report.tutor_id)
     tutor_name = tutor.display_name if tutor else "講師"
 
     year, month_str = report.target_month.split("-")
     month_label = f"{year}年{int(month_str):02d}月"
-    filename = f"指導実績_{student_name}_{month_label}.pdf"
+    filename = f"指導実績_{display_name}_{month_label}.pdf"
 
-    content = build_report_pdf(report, student_name, tutor_name)
+    content = build_report_pdf(report, display_name, tutor_name)
     return Response(
         content=content,
         media_type="application/pdf",

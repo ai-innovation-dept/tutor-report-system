@@ -84,6 +84,19 @@ class WorkReport(Base):
         return None
 
     @property
+    def submitted_to_school_at(self) -> datetime | None:
+        """講師が学校または運営へ提出した日時。"""
+        return self.submitted_at
+
+    @property
+    def approved_at(self) -> datetime | None:
+        """経理が最終承認した日時。"""
+        for event in self.events:
+            if event.action == "approve" and event.to_status == "approved":
+                return event.created_at
+        return None
+
+    @property
     def school_name(self) -> str | None:
         """紐付け済みの学校名。未設定なら報告書の派遣先事業所名（meta）を使う。"""
         if self.assignment and self.assignment.parent:
