@@ -1,6 +1,15 @@
 {% extends "base.html" %}
 {% block content %}
 <div>
+  <!-- 当月の報告書一覧（学校ごと）。別の学校の報告書もここから作成・切替できる -->
+  <section id="reportListPanel" class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
+      <h2 class="font-semibold text-slate-800">当月の報告書（学校ごと）</h2>
+      <button id="newReportBtn" type="button" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 別の学校の報告書を作成</button>
+    </div>
+    <div id="reportList" class="divide-y divide-slate-100"></div>
+  </section>
+
   <section class="rounded-xl border border-slate-200 bg-white shadow-sm" id="formPanel">
     <div class="p-5">
       <div id="formMessage" class="mb-3 hidden rounded-lg px-3 py-2 text-sm"></div>
@@ -367,12 +376,45 @@ function rowAction(r) {
   }
   return parts.length ? `<div class="flex flex-wrap gap-2">${parts.join('')}</div>` : '';
 }
-function renderRows(reports) {}
+function reportsForMonth() {
+  return allReports
+    .filter(r => r.target_month === selectedMonth)
+    .sort((a, b) => (a.school_name || '').localeCompare(b.school_name || '', 'ja'));
+}
+function reportListCard(report) {
+  const selected = report.assignment_id === selectedAssignmentId;
+  const schoolName = report.school_name || '学校未設定';
+  return `<button type="button" class="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-slate-50 ${selected ? 'bg-emerald-50' : ''}" onclick="editReport('${report.id}')">
+    <div class="min-w-0">
+      <div class="truncate font-medium text-slate-800">${escapeHtml(schoolName)}</div>
+      <div class="mt-0.5 text-xs text-slate-500">${escapeHtml(statusLabel(report.status))}</div>
+    </div>
+    ${statusBadge(report.status)}
+  </button>`;
+}
+function renderReportList() {
+  const list = document.getElementById('reportList');
+  if (!list) return;
+  const reports = reportsForMonth();
+  list.innerHTML = reports.length
+    ? reports.map(reportListCard).join('')
+    : '<div class="px-4 py-4 text-sm text-slate-500">当月の報告書はまだありません。下のフォームで派遣先（学校）を選んで作成してください。</div>';
+}
+function renderRows() {}
 function renderCurrentList() {
-  const visible = isSubmitPage
-    ? allReports.filter(r => r.status === 'returned_to_sales' && (!selectedAssignmentId || r.assignment_id === selectedAssignmentId))
-    : filteredReports();
-  renderRows(visible);
+  renderReportList();
+}
+function startNewReport() {
+  // 別の学校の報告書を新規作成（選択をクリアしてフォームを初期化）
+  selectedAssignmentId = '';
+  selectedSchoolId = '';
+  editingId.value = '';
+  resetReportForm(true);
+  const sel = document.getElementById('dispatchPlaceSchool');
+  if (sel) sel.value = '';
+  clearFormMessage();
+  renderReportList();
+  formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 function renderMonthFilter() {
   const months = [];
@@ -793,6 +835,7 @@ monthFilter.addEventListener('change', () => {
 document.getElementById('dispatchPlaceSchool').addEventListener('change', event => {
   selectSchool(event.target.value);
 });
+document.getElementById('newReportBtn').addEventListener('click', startNewReport);
 window.authReady.then(async user => {
   if (!user) return;
   await loadSchoolUsers();
