@@ -163,6 +163,16 @@ class TestReportNames:
         assert body["tutor_name"] == "tutorユーザー"
         assert body["school_name"] == "schoolユーザー"  # assignment.parent
 
+    def test_school_approved_at_set_after_school_approve(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        # 学校承認前は未設定
+        assert client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()["school_approved_at"] is None
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+        body = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
+        assert body["school_approved_at"] is not None
+
     def test_school_name_falls_back_to_meta(self, client, db):
         # parent 未設定の紐付けでは meta.dispatch_place_name を学校名に使う
         tutor = _add_user(db, "t9@x.example.com", "tutor")

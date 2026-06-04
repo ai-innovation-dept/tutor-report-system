@@ -76,6 +76,14 @@ class WorkReport(Base):
         return self.tutor.display_name if self.tutor else None
 
     @property
+    def school_approved_at(self) -> datetime | None:
+        """学校が承認した日時（awaiting_school からの approve イベント）。"""
+        for event in self.events:
+            if event.action == "approve" and event.from_status == "awaiting_school":
+                return event.created_at
+        return None
+
+    @property
     def school_name(self) -> str | None:
         """紐付け済みの学校名。未設定なら報告書の派遣先事業所名（meta）を使う。"""
         if self.assignment and self.assignment.parent:

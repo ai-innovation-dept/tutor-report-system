@@ -111,8 +111,8 @@ const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
-  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
   {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office', 'returned_to_office']},
+  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
   {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
   {key: 'approved', label: '完了', statuses: ['approved']},
   {key: 'closed', label: '強制クローズ', statuses: ['closed']}
@@ -544,7 +544,7 @@ async function approveGroup(key) {
   if (!ids.length) return;
   if (!confirm(`${group.school_name}の${monthShortLabel(group.target_month)}分を${config.label}します。よろしいですか？`)) return;
   for (const id of ids) {
-    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'approve'})});
+    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'approve', actor_role: currentRole})});
   }
   await loadAdmin();
 }
@@ -580,7 +580,7 @@ async function submitReturn() {
   }
   if (!ids.length) return;
   for (const id of ids) {
-    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'return', comment})});
+    await api(`/api/w/reports/${id}/action`, {method: 'POST', body: JSON.stringify({action: 'return', comment, actor_role: currentRole})});
   }
   closeReturnModal();
   await loadAdmin();
@@ -629,7 +629,7 @@ tutorFilter.addEventListener('change', () => {
 });
 window.authReady.then(user => {
   if (!user) return;
-  currentRole = user.role;
+  currentRole = 'sales';  // この画面は営業担当用（多ロールユーザでも営業として操作）
   loadAdmin();
 });
 </script>
