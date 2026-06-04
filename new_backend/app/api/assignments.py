@@ -10,7 +10,12 @@ from app.dependencies.auth import get_current_user, require_role
 from app.forms.definitions import FORM_REGISTRY
 from app.models.shared import Assignment, User
 from app.models.work import WorkAssignmentProfile, WorkReport
-from app.schemas.assignments import AssignmentCreate, AssignmentOut, AssignmentPatch
+from app.schemas.assignments import (
+    AssignmentCreate,
+    AssignmentForSchool,
+    AssignmentOut,
+    AssignmentPatch,
+)
 
 router = APIRouter(prefix="/api/w/assignments", tags=["work-assignments"])
 
@@ -94,6 +99,47 @@ def create_assignment(
     a = Assignment(
         tutor_id=payload.tutor_id,
         student_name=payload.student_name.strip(),
+        system_type="new",
+        is_active=True,
+    )
+    db.add(a)
+    db.commit()
+    return _get_assignment_out(db, a.id)
+
+
+@router.post("/for-school", response_model=AssignmentOut)
+def get_or_create_for_school(
+    payload: AssignmentForSchool,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("tutor")),
+):
+    """講師が学校を選んで報告書を作成できるよう、(講師, 学校) の紐付けを取得または作成する。
+
+    既存の紐付けがあればそれを返し、なければ student_name に学校名を入れて新規作成する。
+    これにより講師は複数の学校（＝複数の紐付け）の報告書を並行して作成できる。
+    """
+    school = db.get(User, payload.school_id)
+    school_roles = list(school.roles or []) if school else []
+    if not school or "school" not in school_roles:
+        raise HTTPException(status_code=422, detail="school_id must be a school user")
+
+    existing = db.scalar(
+        select(Assignment).where(
+            Assignment.tutor_id == user.id,
+            Assignment.parent_id == school.id,
+            Assignment.system_type == "new",
+        )
+    )
+    if existing:
+        if not existing.is_active:
+            existing.is_active = True
+            db.commit()
+        return _get_assignment_out(db, existing.id)
+
+    a = Assignment(
+        tutor_id=user.id,
+        parent_id=school.id,
+        student_name=school.display_name,
         system_type="new",
         is_active=True,
     )

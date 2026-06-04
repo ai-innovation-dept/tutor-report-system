@@ -229,6 +229,7 @@ const isSubmitPage = location.pathname === '/tutor/submit';
 const currentMonth = getCurrentMonth();
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedAssignmentId = '';
+let selectedSchoolId = '';
 
 function getCurrentMonth() {
   const d = new Date();
@@ -236,6 +237,14 @@ function getCurrentMonth() {
 }
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function formatApiError(error) {
+  // FastAPIのdetailは文字列または検証エラーの配列。読みやすい文字列に整形する。
+  let detail = error?.message;
+  try { detail = JSON.parse(error.message).detail ?? detail; } catch (_) {}
+  if (Array.isArray(detail)) return detail.map(item => item?.msg || JSON.stringify(item)).join(' / ');
+  if (detail && typeof detail === 'object') return detail.msg || JSON.stringify(detail);
+  return detail || '不明なエラー';
 }
 function statusLabel(status) { return STATUS_LABELS[status] || status; }
 function monthLabel(value) {
@@ -289,6 +298,7 @@ function defaultMeta() {
   const assignment = selectedAssignment();
   return {
     ...DEFAULT_META,
+    dispatch_place_school_id: selectedSchoolId || '',
     tutor_no: assignment?.tutor?.tutor_no || assignment?.tutor?.user_no || ''
   };
 }
@@ -376,6 +386,38 @@ function renderMonthFilter() {
 }
 function renderAssignmentOptions() {}
 function updateStudentBadge() {}
+async function resolveAssignmentForSchool(schoolId) {
+  // 既存の紐付けを優先し、なければサーバ側で（講師×学校の）紐付けを取得/作成する
+  const existing = allAssignments.find(a => String(a.parent_id) === String(schoolId));
+  if (existing) return existing;
+  const assignment = await api('/api/w/assignments/for-school', {
+    method: 'POST',
+    body: JSON.stringify({school_id: schoolId}),
+    suppressFlash: true
+  });
+  if (assignment && !allAssignments.some(a => a.id === assignment.id)) allAssignments.push(assignment);
+  return assignment;
+}
+async function selectSchool(schoolId) {
+  // 学校を選ぶと、その学校（紐付け）の当月報告書を読み込む。作成中でも別の学校に切替可能。
+  selectedSchoolId = schoolId || '';
+  clearFormMessage();
+  if (!schoolId) {
+    selectedAssignmentId = '';
+    resetReportForm(true);
+    renderCurrentList();
+    return;
+  }
+  try {
+    const assignment = await resolveAssignmentForSchool(schoolId);
+    selectedAssignmentId = assignment.id;
+  } catch (error) {
+    showFormMessage('学校の紐付けを取得できませんでした', true);
+    return;
+  }
+  resetReportForm(true);
+  renderCurrentList();
+}
 function columnLabel(column) {
   if (column.key === 'subject_period') return '担当時限（1〜10の数値のみ入力可、それ以外は入力不可）';
   return column.label;
@@ -622,6 +664,8 @@ function editReport(id) {
   const report = allReports.find(item => item.id === id);
   if (!report) return;
   selectedAssignmentId = report.assignment_id;
+  const assignment = allAssignments.find(a => a.id === report.assignment_id);
+  selectedSchoolId = assignment?.parent_id ? String(assignment.parent_id) : '';
   selectedMonth = report.target_month;
   renderMonthFilter();
   renderAssignmentOptions();
@@ -673,6 +717,8 @@ async function loadTutor() {
   allReports = [...reports].sort((a, b) => `${a.target_month}${assignmentName(a.assignment_id)}`.localeCompare(`${b.target_month}${assignmentName(b.assignment_id)}`));
   if (selectedAssignmentId && !allAssignments.some(a => a.id === selectedAssignmentId)) selectedAssignmentId = '';
   if (!selectedAssignmentId && allAssignments.length) selectedAssignmentId = allAssignments[0].id;
+  const current = selectedAssignment();
+  selectedSchoolId = current?.parent_id ? String(current.parent_id) : '';
   renderAssignmentOptions();
   renderMonthFilter();
   updateStudentBadge();
@@ -702,15 +748,25 @@ reportForm.addEventListener('submit', async e => {
     showFormMessage('業務終了時間が業務開始時間より早い行があります', true);
     return;
   }
-  const form_data = {lines, meta: collectMeta()};
   const schoolSel = document.getElementById('dispatchPlaceSchool');
   const schoolId = schoolSel?.value || '';
-  if (schoolSel) {
-    const opt = schoolSel.options[schoolSel.selectedIndex];
-    form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
+  if (!schoolId) {
+    showFormMessage('派遣先事業所（学校）を選択してください', true);
+    return;
   }
-  if (selectedAssignmentId) {
-    await api(`/api/w/assignments/${selectedAssignmentId}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId || null}), suppressFlash: true});
+  const form_data = {lines, meta: collectMeta()};
+  const opt = schoolSel.options[schoolSel.selectedIndex];
+  form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
+  // 学校に対応する紐付けを取得/作成（無ければここで作る＝別の学校の報告書を新規作成できる）
+  let assignmentId = selectedAssignmentId;
+  try {
+    const assignment = await resolveAssignmentForSchool(schoolId);
+    assignmentId = assignment.id;
+    selectedAssignmentId = assignment.id;
+    selectedSchoolId = schoolId;
+  } catch (error) {
+    showFormMessage(`保存に失敗しました：${formatApiError(error)}`, true);
+    return;
   }
   try {
     if (editingId.value) {
@@ -719,16 +775,14 @@ reportForm.addEventListener('submit', async e => {
     } else {
       await api('/api/w/reports', {
         method:'POST',
-        body: JSON.stringify({assignment_id: selectedAssignmentId, target_month: selectedMonth, form_type: selectedFormType(), form_data}),
+        body: JSON.stringify({assignment_id: assignmentId, target_month: selectedMonth, form_type: selectedFormType(), form_data}),
         suppressFlash: true
       });
       showToast('業務連絡表を作成しました', 'success');
     }
     await loadTutor();
   } catch (error) {
-    let msg = error.message;
-    try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
-    showFormMessage(`保存に失敗しました：${msg}`, true);
+    showFormMessage(`保存に失敗しました：${formatApiError(error)}`, true);
   }
 });
 monthFilter.addEventListener('change', () => {
@@ -736,9 +790,12 @@ monthFilter.addEventListener('change', () => {
   renderCurrentList();
   resetReportForm(true);
 });
-window.authReady.then(user => {
+document.getElementById('dispatchPlaceSchool').addEventListener('change', event => {
+  selectSchool(event.target.value);
+});
+window.authReady.then(async user => {
   if (!user) return;
-  loadSchoolUsers();
+  await loadSchoolUsers();
   loadTutor();
 });
 </script>

@@ -121,6 +121,15 @@ TRANSITIONS: list[Transition] = [
         comment_required=True,
         next_approver_role="office",
     ),
+    # 最終承認済み（完了）からの差戻し（経理が完了後に修正を依頼する）
+    Transition(
+        from_status=WorkStatus.APPROVED,
+        action=WorkAction.RETURN,
+        allowed_roles=frozenset({"admin_master"}),
+        to_status=WorkStatus.RETURNED_TO_OFFICE,
+        comment_required=True,
+        next_approver_role="office",
+    ),
     # 再提出
     Transition(
         from_status=WorkStatus.RETURNED_TO_TUTOR,

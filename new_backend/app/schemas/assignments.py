@@ -9,6 +9,11 @@ class AssignmentCreate(BaseModel):
     student_name: str
 
 
+class AssignmentForSchool(BaseModel):
+    """講師が学校を指定して紐付け（assignment）を取得/作成するための入力。"""
+    school_id: uuid.UUID
+
+
 class AssignmentPatch(BaseModel):
     student_name: str | None = None
     is_active: bool | None = None

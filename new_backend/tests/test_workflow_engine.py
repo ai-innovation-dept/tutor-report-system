@@ -115,6 +115,16 @@ class TestFindTransition:
         assert t is not None
         assert t.to_status == WorkStatus.AWAITING_SALES
 
+    def test_admin_master_can_return_approved(self):
+        t = find_transition(WorkStatus.APPROVED, WorkAction.RETURN, "admin_master")
+        assert t is not None
+        assert t.to_status == WorkStatus.RETURNED_TO_OFFICE
+        assert t.comment_required is True
+
+    def test_non_master_cannot_return_approved(self):
+        for role in ("school", "sales", "office", "tutor"):
+            assert find_transition(WorkStatus.APPROVED, WorkAction.RETURN, role) is None
+
 
 # ---------------------------------------------------------------------------
 # engine: apply_transition

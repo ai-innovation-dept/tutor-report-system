@@ -34,6 +34,7 @@ _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("return", "awaiting_office"): (("tutor",), "returned", _RETURNED_SUBJECT),
     ("return", "awaiting_sales"): (("office",), "returned", _RETURNED_SUBJECT),
     ("return", "awaiting_finance"): (("office",), "returned", _RETURNED_SUBJECT),
+    ("return", "approved"): (("office",), "returned", _RETURNED_SUBJECT),
 }
 
 

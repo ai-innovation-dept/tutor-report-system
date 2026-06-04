@@ -183,6 +183,91 @@ class TestReportNames:
         assert res.json()["school_name"] == "メタ高校"
 
 
+class TestAssignmentForSchool:
+    def test_tutor_creates_assignment_by_school(self, client, db):
+        tutor = _add_user(db, "t1@x.example.com", "tutor")
+        school = _add_user(db, "sc@x.example.com", "school")
+        headers = _auth(client, "t1@x.example.com")
+
+        res = client.post("/api/w/assignments/for-school", json={"school_id": str(school.id)}, headers=headers)
+        assert res.status_code == 200, res.text
+        first = res.json()
+        assert first["parent_id"] == str(school.id)
+        assert first["tutor_id"] == str(tutor.id)
+
+        # 同じ学校なら同じ紐付けを返す（重複作成しない）
+        res2 = client.post("/api/w/assignments/for-school", json={"school_id": str(school.id)}, headers=headers)
+        assert res2.json()["id"] == first["id"]
+
+    def test_rejects_non_school_target(self, client, db):
+        _add_user(db, "t1@x.example.com", "tutor")
+        other = _add_user(db, "o1@x.example.com", "office")
+        headers = _auth(client, "t1@x.example.com")
+        res = client.post("/api/w/assignments/for-school", json={"school_id": str(other.id)}, headers=headers)
+        assert res.status_code == 422
+
+    def test_report_creatable_after_for_school(self, client, db):
+        _add_user(db, "t1@x.example.com", "tutor")
+        school = _add_user(db, "sc@x.example.com", "school")
+        headers = _auth(client, "t1@x.example.com")
+        assignment = client.post("/api/w/assignments/for-school", json={"school_id": str(school.id)}, headers=headers).json()
+        res = client.post(
+            "/api/w/reports",
+            json={
+                "assignment_id": assignment["id"],
+                "target_month": "2026-06",
+                "form_type": "monthly_dispatch",
+                "form_data": {"lines": []},
+            },
+            headers=headers,
+        )
+        assert res.status_code == 201, res.text
+
+
+class TestApprovedReturn:
+    def test_admin_master_returns_approved_report(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        master = _add_user(db, "master@x.example.com", "admin_master")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        # tutor -> school -> office -> sales -> finance -> approved
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+        office = _add_user(db, "office@x.example.com", "office")
+        sales = _add_user(db, "sales@x.example.com", "sales")
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master@x.example.com"))
+        assert client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()["status"] == WorkStatus.APPROVED
+
+        # 完了からの差戻し（経理）
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "金額の修正をお願いします"},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["status"] == WorkStatus.RETURNED_TO_OFFICE
+
+    def test_return_approved_requires_comment(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        master = _add_user(db, "master@x.example.com", "admin_master")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+        _add_user(db, "office@x.example.com", "office")
+        _add_user(db, "sales@x.example.com", "sales")
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master@x.example.com"))
+
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "   "},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+
 class TestSchoolVisibility:
     def test_school_sees_reports_across_statuses(self, client, db, setup):
         tutor_headers = _auth(client, "tutor@x.example.com")
