@@ -278,6 +278,34 @@ class TestApprovedReturn:
         assert res.status_code == 422
 
 
+class TestStaffSeeAllReports:
+    def test_office_sees_report_after_it_moves_to_sales(self, client, db, setup):
+        """事務が承認して営業確認待ちへ移っても、事務の画面（全件取得）で引き続き見える。"""
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        _add_user(db, "office@x.example.com", "office")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+
+        office_headers = _auth(client, "office@x.example.com")
+        # 事務確認待ちの段階で見える
+        listed = client.get("/api/w/reports", headers=office_headers).json()
+        assert report_id in [r["id"] for r in listed]
+        # 事務が承認 → 営業確認待ちへ
+        res = client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=office_headers)
+        assert res.json()["status"] == WorkStatus.AWAITING_SALES
+        # 移動後も事務の一覧に残る（パイプラインで次列へ動いて見える）
+        listed = client.get("/api/w/reports", headers=office_headers).json()
+        assert report_id in [r["id"] for r in listed]
+
+    def test_sales_sees_draft_reports(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        _add_user(db, "sales@x.example.com", "sales")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)  # draft
+        listed = client.get("/api/w/reports", headers=_auth(client, "sales@x.example.com")).json()
+        assert report_id in [r["id"] for r in listed]
+
+
 class TestOfficeHandlesReturnedToOffice:
     def _advance_to_returned_to_office(self, client, db, setup):
         """tutor提出→学校承認→事務承認→営業差戻し で returned_to_office まで進める。"""

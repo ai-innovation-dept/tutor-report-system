@@ -259,7 +259,13 @@
 
       const assignmentMap = new Map(assignments.map(assignment => [assignment.id, assignment]));
       const returned = reports.filter(report => ['returned_to_tutor', 'returned_to_office'].includes(report.status) && report.last_return_comment);
-      if (!returned.length) return;
+      const badge = document.getElementById('returnCommentBadge');
+      if (!returned.length) {
+        // 差戻しが解消されたらバッジを隠す（再承認依頼の直後に消えるようにするため）
+        badge?.classList.add('hidden');
+        returnCommentsList.innerHTML = '';
+        return;
+      }
       returnCommentsList.innerHTML = latestMonthlyReturnComments(returned).map(report => {
         const assignment = assignmentMap.get(report.assignment_id);
         const actorLabel = returnActorLabel(report);
@@ -273,6 +279,10 @@
       }).join('');
       document.getElementById('returnCommentBadge')?.classList.remove('hidden');
     }
+    // 子ページ（承認管理など）から差戻しバッジを再計算できるよう公開する
+    window.refreshReturnComments = function () {
+      if (window.currentUser?.role === 'tutor') return renderTutorNavExtras();
+    };
 
     function latestMonthlyReturnComments(reports) {
       const latestByMonth = new Map();

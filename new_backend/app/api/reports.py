@@ -206,7 +206,9 @@ def list_reports(
         return list_reports_for_tutor(db, user.id, target_month)
     if active_role == "school":
         return list_reports_for_school(db, user.id, target_month)
-    if active_role == "admin_master":
+    # 運営スタッフ（事務・営業・経理）は進捗パイプライン全体を見るため全件取得する。
+    # 「あなたのタスク」は画面側で current_approver / ステータスにより絞り込む。
+    if active_role in {"office", "sales", "admin_master"}:
         stmt = select(WorkReport)
         if target_month:
             stmt = stmt.where(WorkReport.target_month == target_month)

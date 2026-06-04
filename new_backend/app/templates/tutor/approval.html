@@ -463,6 +463,8 @@ async function loadApproval() {
   groups = Object.entries(reportGroups).map(([assignmentId, items]) => buildGroup(assignmentMap.get(assignmentId), items));
   renderBulkExportArea();
   renderApproval();
+  // サイドバーの「差戻しあり」バッジを再計算（再承認依頼の直後に消えるように）
+  window.refreshReturnComments?.();
 }
 exportMonth.addEventListener('change', renderBulkExportLinks);
 window.authReady.then(async user => {

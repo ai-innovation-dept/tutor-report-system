@@ -92,7 +92,7 @@ const STATUS_LABELS = {
   awaiting_office: '事務確認待ち',
   awaiting_finance: '最終確認待ち',
   approved: '完了',
-  closed: 'クローズ'
+  closed: '強制クローズ'
 };
 const ROLE_LABELS = {
   tutor: '講師',
@@ -115,7 +115,7 @@ const PIPELINE_COLUMNS = [
   {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
   {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
   {key: 'approved', label: '完了', statuses: ['approved']},
-  {key: 'closed', label: 'クローズ', statuses: ['closed']}
+  {key: 'closed', label: '強制クローズ', statuses: ['closed']}
 ];
 let currentRole = '';
 let allReports = [];
@@ -412,7 +412,7 @@ function currentWaitLabel(status) {
     awaiting_office: '事務の承認待ち',
     awaiting_finance: '経理の最終承認待ち',
     approved: '完了',
-    closed: 'クローズ'
+    closed: '強制クローズ'
   };
   return labels[status] || statusLabel(status);
 }
