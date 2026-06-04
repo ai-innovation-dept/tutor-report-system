@@ -116,6 +116,57 @@ class TestContractCreate:
         assert res.status_code == 403
 
 
+class TestContractForTutor:
+    def _create(self, client, setup, **ov):
+        return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()
+
+    def test_for_tutor_returns_column_definition(self, client, db, setup):
+        self._create(
+            client, setup,
+            has_scoring=True,
+            tasks=[
+                {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
+                {"task_name": "英語指導", "task_id": "T2", "contract_id": "C2"},
+            ],
+        )
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert len(body) == 1
+        entry = body[0]
+        assert entry["school_id"] == str(setup["school"].id)
+        keys = [c["key"] for c in entry["column_definition"]]
+        # 固定先頭 → 委託業務2件 → 採点2列 → 固定末尾 の順
+        assert keys == [
+            "date", "start", "end", "subject_period",
+            "task_minutes_1", "task_minutes_2",
+            "scoring_count", "scoring_minutes",
+            "break_minutes", "commute_fee", "note",
+        ]
+        col1 = next(c for c in entry["column_definition"] if c["key"] == "task_minutes_1")
+        assert col1["label"] == "数学指導（分）"
+        assert col1["summable"] is True
+        assert col1["task_id"] == "T1"
+
+    def test_for_tutor_without_scoring_omits_scoring_columns(self, client, db, setup):
+        self._create(client, setup, has_scoring=False)
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        keys = [c["key"] for c in entry["column_definition"]]
+        assert "scoring_count" not in keys and "scoring_minutes" not in keys
+        assert "task_minutes_1" in keys
+
+    def test_for_tutor_only_own_contracts(self, client, db, setup):
+        self._create(client, setup)
+        other_tutor = _add_user(db, "tutor2@x.example.com", "tutor")
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor2@x.example.com"))
+        assert res.status_code == 200
+        assert res.json() == []
+
+    def test_for_tutor_requires_tutor_role(self, client, db, setup):
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 403
+
+
 class TestContractListGetUpdateDelete:
     def _create(self, client, setup, **ov):
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()

@@ -92,24 +92,23 @@
           </table>
         </div>
 
-        <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-4">
-          <div>勤務日数：<span id="summaryDays" class="font-semibold">0</span>日</div>
-          <div>数学科指導（分）：<span id="summaryTeach" class="font-semibold">0</span>分</div>
-          <div>休憩時間：<span id="summaryBreak" class="font-semibold">0</span>分</div>
-          <div>往復交通費（円）定期代含む：<span id="summaryFee" class="font-semibold">0</span>円</div>
-        </div>
+        <div id="summaryArea" class="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"></div>
 
         <div class="space-y-3">
-          <div class="grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700 md:grid-cols-2 lg:grid-cols-5">
-            <div>お客様ID：<span class="font-semibold text-slate-900">9999</span></div>
-            <div>委託業務ID：<span class="font-semibold text-slate-900">11111</span></div>
-            <div>個別契約ID：<span class="font-semibold text-slate-900">99992601</span></div>
-            <div>弊社担当：<span class="font-semibold text-slate-900">佐藤麻子</span></div>
+          <div class="grid gap-3 md:grid-cols-2">
+            <label class="block text-sm">
+              <span class="mb-1 block text-slate-700">弊社担当</span>
+              <input data-meta="our_staff" type="text" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+            </label>
+            <div class="text-sm">
+              <span class="mb-1 block text-slate-700">委託業務（契約より）</span>
+              <div id="taskReference" class="min-h-[42px] rounded-lg border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">-</div>
+            </div>
           </div>
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-            <div class="mb-1 font-medium text-slate-800">備考欄</div>
-            <div>月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。</div>
-          </div>
+          <label class="block text-sm">
+            <span class="mb-1 block text-slate-700">備考欄</span>
+            <textarea data-meta="note_schedule" rows="2" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+          </label>
         </div>
 
         <div class="grid gap-3 md:grid-cols-2">
@@ -219,6 +218,7 @@ const DEFAULT_META = {
   customer_id: '',
   note_schedule: '月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。',
   work_content: '',
+  our_staff: '',
   tutor_no: '',
   requests: '',
   monthly_minutes_fixed: '',
@@ -239,6 +239,7 @@ const currentMonth = getCurrentMonth();
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedAssignmentId = '';
 let selectedSchoolId = '';
+let contractsBySchool = {};
 
 function getCurrentMonth() {
   const d = new Date();
@@ -285,11 +286,40 @@ function durationLabel(minutes) {
 function selectedAssignment() {
   return allAssignments.find(a => a.id === selectedAssignmentId);
 }
+function contractForSchool(schoolId) {
+  return schoolId ? (contractsBySchool[String(schoolId)] || null) : null;
+}
+function columnsFromSnapshot(report) {
+  const cols = report?.form_data?.meta?.column_definition;
+  return Array.isArray(cols) && cols.length ? cols : null;
+}
+function activeColumnDefinition() {
+  const report = selectedReport();
+  if (report) {
+    // 既存報告書: スナップショット優先。無い旧データはデフォルト列で表示（契約更新の影響を受けない）。
+    return columnsFromSnapshot(report) || DEFAULT_FORM_DEFINITION.columns;
+  }
+  // 新規作成のみ契約管理の列定義を優先する
+  const contract = contractForSchool(selectedSchoolId);
+  if (contract && Array.isArray(contract.column_definition) && contract.column_definition.length) {
+    return contract.column_definition;
+  }
+  return DEFAULT_FORM_DEFINITION.columns;
+}
+function columnsToFormDefinition(columns) {
+  return {
+    form_type: 'monthly_dispatch',
+    label: '月次派遣報告',
+    max_lines: LINE_COUNT,
+    columns,
+    summable_keys: columns.filter(column => column.summable).map(column => column.key),
+  };
+}
 function selectedFormDefinition() {
-  return selectedAssignment()?.form_definition || DEFAULT_FORM_DEFINITION;
+  return columnsToFormDefinition(activeColumnDefinition());
 }
 function selectedFormType() {
-  return selectedAssignment()?.form_type || DEFAULT_FORM_DEFINITION.form_type;
+  return DEFAULT_FORM_DEFINITION.form_type;
 }
 function assignmentName(id) {
   return allAssignments.find(a => a.id === id)?.student_name || '生徒未設定';
@@ -298,17 +328,37 @@ function emptyLine(form = selectedFormDefinition()) {
   return Object.fromEntries((form.columns || DEFAULT_FORM_DEFINITION.columns).map(column => [column.key, '']));
 }
 function normalizedLines(report) {
-  const form = report ? (allAssignments.find(a => a.id === report.assignment_id)?.form_definition || DEFAULT_FORM_DEFINITION) : selectedFormDefinition();
+  const form = selectedFormDefinition();
   const lines = Array.isArray(report?.form_data?.lines) ? report.form_data.lines : [];
   const count = form.max_lines || LINE_COUNT;
   return Array.from({length: count}, (_, index) => ({...emptyLine(form), ...(lines[index] || {})}));
+}
+function formatContractPeriod(start, end) {
+  const fmt = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${y}年${Number(m)}月${Number(d)}日`; };
+  if (!start && !end) return '';
+  return `${fmt(start)}〜${fmt(end)}`;
+}
+function contractMetaValues() {
+  // 契約管理の値を報告書メタの初期値へ反映（新規作成時のみ defaultMeta 経由で適用）
+  const contract = contractForSchool(selectedSchoolId);
+  if (!contract) return {};
+  return {
+    customer_id: contract.customer_id || '',
+    our_staff: contract.our_staff || '',
+    contract_period: formatContractPeriod(contract.contract_start, contract.contract_end),
+    monthly_minutes_fixed: contract.monthly_minutes != null ? String(contract.monthly_minutes) : '',
+    weekly_lessons: contract.weekly_lessons != null ? String(contract.weekly_lessons) : '',
+    work_content: contract.work_content || '',
+    note_schedule: contract.shift_note || '',
+  };
 }
 function defaultMeta() {
   const assignment = selectedAssignment();
   return {
     ...DEFAULT_META,
     dispatch_place_school_id: selectedSchoolId || '',
-    tutor_no: assignment?.tutor?.tutor_no || assignment?.tutor?.user_no || ''
+    tutor_no: assignment?.tutor?.tutor_no || assignment?.tutor?.user_no || '',
+    ...contractMetaValues(),
   };
 }
 function normalizedMeta(report) {
@@ -644,18 +694,30 @@ function collectMeta() {
   return meta;
 }
 function updateLineSummary() {
+  // 集計対象（summable）列を動的に合計表示する
+  const columns = selectedFormDefinition().columns.filter(column => column.summable);
   const lines = collectLines();
-  const m = lines.reduce((acc, line) => {
-    if (lineHasData(line)) acc.days += 1;
-    acc.teach += numberValue(line.teach_minutes);
-    acc.break += numberValue(line.break_minutes);
-    acc.fee += numberValue(line.commute_fee);
-    return acc;
-  }, {days: 0, teach: 0, break: 0, fee: 0});
-  summaryDays.textContent = m.days;
-  summaryTeach.textContent = m.teach;
-  summaryBreak.textContent = m.break;
-  summaryFee.textContent = m.fee.toLocaleString();
+  let days = 0;
+  const sums = {};
+  columns.forEach(column => { sums[column.key] = 0; });
+  lines.forEach(line => {
+    if (lineHasData(line)) days += 1;
+    columns.forEach(column => { sums[column.key] += numberValue(line[column.key]); });
+  });
+  const parts = [`<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`];
+  columns.forEach(column => {
+    parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.key].toLocaleString()}</span></div>`);
+  });
+  const area = document.getElementById('summaryArea');
+  if (area) area.innerHTML = parts.join('');
+}
+function renderTaskReference() {
+  const el = document.getElementById('taskReference');
+  if (!el) return;
+  const tasks = activeColumnDefinition().filter(column => String(column.key || '').startsWith('task_minutes_'));
+  el.innerHTML = tasks.length
+    ? tasks.map(column => `<div>${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`).join('')
+    : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
 }
 function setReportInputsDisabled(disabled) {
   reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
@@ -679,6 +741,7 @@ function resetReportForm(keepAssignment = false) {
   saveButton.textContent = report ? '更新' : '保存';
   applyMeta(normalizedMeta(report));
   buildLineRows(report ? normalizedLines(report) : Array.from({length: selectedFormDefinition().max_lines || LINE_COUNT}, () => emptyLine(selectedFormDefinition())));
+  renderTaskReference();
   clearFormMessage();
   renderFormAvailability();
 }
@@ -721,6 +784,16 @@ function editReport(id) {
   renderCurrentList();
   resetReportForm(true);
   formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+async function loadContracts() {
+  // 契約管理に登録された自分の契約（学校ごと）＋動的列定義を取得
+  try {
+    const list = await api('/api/w/contracts/for-tutor');
+    contractsBySchool = {};
+    (list || []).forEach(contract => { contractsBySchool[String(contract.school_id)] = contract; });
+  } catch (_) {
+    contractsBySchool = {};
+  }
 }
 async function loadSchoolUsers() {
   const result = await api('/api/w/users?role=school');
@@ -767,6 +840,11 @@ async function loadTutor() {
   if (!selectedAssignmentId && allAssignments.length) selectedAssignmentId = allAssignments[0].id;
   const current = selectedAssignment();
   selectedSchoolId = current?.parent_id ? String(current.parent_id) : '';
+  // 契約が1校のみなら自動選択（読み込み時に自動反映）。複数校はプルダウン選択時に反映。
+  const contractSchoolIds = Object.keys(contractsBySchool);
+  if (!selectedSchoolId && contractSchoolIds.length === 1) {
+    selectedSchoolId = contractSchoolIds[0];
+  }
   renderAssignmentOptions();
   renderMonthFilter();
   updateStudentBadge();
@@ -805,6 +883,10 @@ reportForm.addEventListener('submit', async e => {
   const form_data = {lines, meta: collectMeta()};
   const opt = schoolSel.options[schoolSel.selectedIndex];
   form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
+  // 契約管理の列定義をスナップショット保存（保存済み報告書は契約更新の影響を受けない）
+  form_data.meta.column_definition = activeColumnDefinition();
+  const contract = contractForSchool(selectedSchoolId);
+  if (contract) form_data.meta.has_scoring = contract.has_scoring;
   // 学校に対応する紐付けを取得/作成（無ければここで作る＝別の学校の報告書を新規作成できる）
   let assignmentId = selectedAssignmentId;
   try {
@@ -844,7 +926,7 @@ document.getElementById('dispatchPlaceSchool').addEventListener('change', event 
 document.getElementById('newReportBtn').addEventListener('click', startNewReport);
 window.authReady.then(async user => {
   if (!user) return;
-  await loadSchoolUsers();
+  await Promise.all([loadSchoolUsers(), loadContracts()]);
   loadTutor();
 });
 </script>

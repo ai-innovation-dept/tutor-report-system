@@ -53,6 +53,23 @@ class ContractUpdate(ContractBase):
     school_id: uuid.UUID | None = None
 
 
+class ContractForTutorOut(BaseModel):
+    """講師の報告書フォームへ自動反映するための契約情報＋動的列定義。"""
+    school_id: uuid.UUID
+    school_name: str | None = None
+    customer_id: str | None = None
+    our_staff: str | None = None
+    contract_start: date | None = None
+    contract_end: date | None = None
+    monthly_minutes: int | None = None
+    weekly_lessons: int | None = None
+    shift_note: str | None = None
+    work_content: str | None = None
+    has_scoring: bool = False
+    tasks: list[ContractTask] = []
+    column_definition: list[dict] = []
+
+
 class ContractOut(BaseModel):
     id: uuid.UUID
     assignment_id: uuid.UUID

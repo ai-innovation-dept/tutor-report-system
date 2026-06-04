@@ -16,11 +16,13 @@ from app.models.work import WorkAssignmentProfile
 from app.schemas.contracts import (
     MAX_TASKS,
     ContractCreate,
+    ContractForTutorOut,
     ContractOut,
     ContractTask,
     ContractUpdate,
 )
 from app.services.assignment_service import get_or_create_new_assignment
+from app.services.contract_form_service import build_column_definition
 
 router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 
@@ -147,6 +149,37 @@ def create_contract(
     db.add(profile)
     db.commit()
     return _to_out(_get_profile_loaded(db, profile.id))
+
+
+@router.get("/for-tutor", response_model=list[ContractForTutorOut])
+def list_contracts_for_tutor(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("tutor")),
+):
+    """ログイン中の講師に紐づく契約一覧＋報告書フォーム用の動的列定義を返す。"""
+    profiles = db.scalars(
+        select(WorkAssignmentProfile)
+        .options(selectinload(WorkAssignmentProfile.school))
+        .where(WorkAssignmentProfile.tutor_id == user.id, WorkAssignmentProfile.is_active.is_(True))
+    ).all()
+    return [
+        ContractForTutorOut(
+            school_id=p.school_id,
+            school_name=p.school.display_name if p.school else None,
+            customer_id=p.customer_id,
+            our_staff=p.our_staff,
+            contract_start=p.contract_start,
+            contract_end=p.contract_end,
+            monthly_minutes=p.monthly_minutes,
+            weekly_lessons=p.weekly_lessons,
+            shift_note=p.shift_note,
+            work_content=p.work_content,
+            has_scoring=p.has_scoring,
+            tasks=_tasks_from_columns(p),
+            column_definition=build_column_definition(p),
+        )
+        for p in profiles
+    ]
 
 
 @router.get("/{contract_id}", response_model=ContractOut)
