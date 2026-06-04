@@ -6,10 +6,18 @@ from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
-from app.models.shared import User
+from app.models.shared import Assignment, User
 from app.models.work import WorkReport, WorkReportEvent
-from .definitions import WorkAction, find_transition
+from .definitions import WorkAction, WorkStatus, find_transition
 from .exceptions import CommentRequired, InvalidTransition, PermissionDenied
+
+
+def _skips_school_approval(db: Session, report: WorkReport) -> bool:
+    """assignmentの学校スキップ設定（skip_parent_approvalカラムを転用）を返す。"""
+    assignment = getattr(report, "assignment", None)
+    if assignment is None and getattr(report, "assignment_id", None) is not None and hasattr(db, "get"):
+        assignment = db.get(Assignment, report.assignment_id)
+    return bool(assignment and assignment.skip_parent_approval)
 
 
 def apply_transition(
@@ -48,8 +56,20 @@ def apply_transition(
         raise CommentRequired("comment is required for this action")
 
     from_status = report.status
-    report.status = transition.to_status
-    report.current_approver_role = transition.next_approver_role
+    to_status = transition.to_status
+    next_approver_role = transition.next_approver_role
+
+    # 学校スキップ設定が有効な紐付けは、講師提出時に学校確認を飛ばして事務確認へ進める
+    if (
+        action == WorkAction.SUBMIT
+        and to_status == WorkStatus.AWAITING_SCHOOL
+        and _skips_school_approval(db, report)
+    ):
+        to_status = WorkStatus.AWAITING_OFFICE
+        next_approver_role = "office"
+
+    report.status = to_status
+    report.current_approver_role = next_approver_role
     report.updated_at = datetime.now(timezone.utc)
 
     if action == WorkAction.SUBMIT and from_status in ("draft", "returned_to_tutor", "returned_to_office"):
@@ -60,7 +80,7 @@ def apply_transition(
         actor_id=actor.id,
         action=action,
         from_status=from_status,
-        to_status=transition.to_status,
+        to_status=to_status,
         comment=comment,
     )
     db.add(event)

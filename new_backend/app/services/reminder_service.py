@@ -1,6 +1,6 @@
 import calendar
 import os
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 try:
@@ -24,13 +24,19 @@ from app.core.config import settings
 from app.core.database import SessionLocal
 from app.dependencies.auth import has_role
 from app.models.shared import Assignment, User
-from app.models.work import WorkReport
+from app.models.work import WorkNotification, WorkReport
 from app.services.notification_service import record_notification
 from app.workflow.definitions import WorkStatus
 
 
 def _current_jst_date() -> date:
     return datetime.now(ZoneInfo(settings.TIMEZONE)).date()
+
+
+def _to_jst_date(dt: datetime) -> date:
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(ZoneInfo(settings.TIMEZONE)).date()
 
 
 def is_reminder_day(today: date, days_before_month_end: int) -> bool:
@@ -73,6 +79,63 @@ def enqueue_month_end_reminders(db: Session, today: date | None = None) -> int:
                     "Please complete and submit the report.",
                 )
                 count += 1
+    if count:
+        db.flush()
+    return count
+
+
+def enqueue_school_approval_reminders(db: Session, today: date | None = None) -> int:
+    """紐付けごとのリマインド設定に基づき、学校確認待ちの報告へ承認督促を送る。
+
+    提出から reminder_days_after 日ごとに、最大 reminder_count 回まで
+    学校ユーザー（assignment.parent）へ通知する。
+    """
+    today = today or _current_jst_date()
+    count = 0
+    rows = db.scalars(
+        select(WorkReport)
+        .options(selectinload(WorkReport.assignment))
+        .where(WorkReport.status == WorkStatus.AWAITING_SCHOOL)
+    ).all()
+    for report in rows:
+        assignment = report.assignment
+        if (
+            not assignment
+            or not assignment.reminder_enabled
+            or not assignment.parent_id
+            or assignment.skip_parent_approval
+            or not report.submitted_at
+        ):
+            continue
+        school = db.get(User, assignment.parent_id)
+        if not school or not school.is_active:
+            continue
+
+        sent = db.scalars(
+            select(WorkNotification).where(
+                WorkNotification.report_id == report.id,
+                WorkNotification.type == "reminder_school_approval",
+            )
+        ).all()
+        if len(sent) >= max(1, assignment.reminder_count):
+            continue
+        if any(n.created_at and _to_jst_date(n.created_at) == today for n in sent):
+            continue  # 同日二重送信を防ぐ
+
+        interval = max(1, assignment.reminder_days_after)
+        next_due = _to_jst_date(report.submitted_at) + timedelta(days=interval * (len(sent) + 1))
+        if today < next_due:
+            continue
+
+        record_notification(
+            db,
+            school,
+            report,
+            "reminder_school_approval",
+            "【業務連絡表】承認のお願い（リマインド）",
+            f"{assignment.student_name}の{report.target_month}分の業務連絡表が承認待ちです。ご確認をお願いします。",
+        )
+        count += 1
     if count:
         db.flush()
     return count
@@ -159,6 +222,7 @@ def run_reminder_job() -> None:
     db = SessionLocal()
     try:
         enqueue_month_end_reminders(db)
+        enqueue_school_approval_reminders(db)
         db.commit()
     finally:
         db.close()

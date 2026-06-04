@@ -14,6 +14,7 @@ class UserOut(BaseModel):
     user_no: str | None = None
     allowed_systems: list[str] | None = None
     is_active: bool
+    created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -24,6 +25,15 @@ class UserPatch(BaseModel):
     allowed_systems: list[str] | None = None
 
 
+class UserRolesPatch(BaseModel):
+    roles: list[str]
+
+
 class UserListOut(BaseModel):
     items: list[UserOut]
     total: int
+    page: int = 1
+    per_page: int = 50
+    total_pages: int = 1
+    role_counts: dict[str, int] = {}
+    active_admin_master_count: int = 0

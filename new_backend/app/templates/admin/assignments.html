@@ -33,12 +33,12 @@
 }
 </style>
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <div class="grid gap-3 md:grid-cols-[1fr_180px]">
-    <label class="block text-sm">
+  <div class="flex flex-col gap-3 sm:flex-row sm:items-end">
+    <label class="block w-full text-sm sm:w-1/3">
       <span class="mb-1 block text-slate-700">検索</span>
-      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="生徒名・講師名・学校名">
+      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="学校名・講師名">
     </label>
-    <label class="block text-sm">
+    <label class="block w-full text-sm sm:w-44">
       <span class="mb-1 block text-slate-700">状態</span>
       <select id="statusFilter" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
         <option value="all">すべて</option>
@@ -51,15 +51,14 @@
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="border-b border-slate-200 bg-slate-50 p-4">
-    <h2 class="font-semibold text-slate-800">紐付け一覧</h2>
+    <h2 class="font-semibold text-slate-800">学校一覧</h2>
   </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-4 py-3 text-left">生徒名</th>
-          <th class="px-4 py-3 text-left">講師名</th>
           <th class="px-4 py-3 text-left">学校名</th>
+          <th class="px-4 py-3 text-left">講師名</th>
           <th class="px-4 py-3 text-left">学校スキップ</th>
           <th class="px-4 py-3 text-left">リマインド設定</th>
           <th class="px-4 py-3 text-left">状態</th>
@@ -71,24 +70,7 @@
   </div>
 </section>
 
-<section class="mt-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-  <button id="toggleCreateForm" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規紐付けを追加</button>
-  <form id="createForm" class="mt-4 hidden grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto]">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">生徒名</span>
-      <input id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">担当講師</span>
-      <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required></select>
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-700">学校メールアドレス</span>
-      <input id="schoolEmailInput" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <button class="self-end rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">追加する</button>
-  </form>
-</section>
+<!-- 新規紐付け追加は新システムでは使用しないため非表示（紐付けは講師の業務連絡表作成時に行う） -->
 
 <div id="reminderModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReminderModal()">
   <form id="reminderForm" class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
@@ -121,20 +103,16 @@
 <script>
 setBreadcrumb('管理ポータル', 'システム設定');
 let assignments = [];
-let tutors = [];
 let editingReminderId = '';
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
-function tutorLabel(tutor) {
-  return `${tutor.display_name}${tutor.user_no ? `（${tutor.user_no}）` : `（${tutor.email}）`}`;
-}
 function filteredAssignments() {
   const keyword = searchInput.value.trim().toLowerCase();
   const status = statusFilter.value;
   return assignments.filter(assignment => {
-    const text = [assignment.student_name, assignment.tutor?.display_name, assignment.school_name].join(' ').toLowerCase();
+    const text = [assignment.school_name, assignment.tutor?.display_name].join(' ').toLowerCase();
     if (keyword && !text.includes(keyword)) return false;
     if (status === 'active' && !assignment.is_active) return false;
     if (status === 'inactive' && assignment.is_active) return false;
@@ -159,24 +137,17 @@ function renderAssignments() {
       : `<button class="min-h-[44px] w-full rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100 sm:w-auto" onclick="setAssignmentActive('${assignment.id}', true)">有効化</button>`;
     const schoolName = assignment.school_name || '未登録';
     return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
-      <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(assignment.student_name)}</td>
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="学校名">${escapeHtml(schoolName)}</td>
       <td class="px-4 py-3" data-label="講師名">${escapeHtml(assignment.tutor?.display_name || '-')}</td>
-      <td class="px-4 py-3" data-label="学校名">${escapeHtml(schoolName)}</td>
       <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
       <td class="px-4 py-3" data-label="リマインド">${assignment.skip_school_approval
         ? `<span class="inline-block min-h-[44px] rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-400 opacity-50 cursor-not-allowed">${escapeHtml(reminderLabel(assignment))}</span>`
         : `<button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button>`
       }</td>
       <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
-      <td class="px-4 py-3 flex flex-wrap gap-2" data-label="操作">${action}<button class="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:w-auto" onclick="deleteAssignment('${assignment.id}', '${escapeHtml(assignment.student_name)}')">削除</button></td>
+      <td class="px-4 py-3 flex flex-wrap gap-2" data-label="操作">${action}<button class="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 sm:w-auto" onclick="deleteAssignment('${assignment.id}', '${escapeHtml(schoolName)}')">削除</button></td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">紐付けはありません。</td></tr>';
-}
-function renderTutorOptions() {
-  tutorSelect.innerHTML = tutors
-    .sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'))
-    .map(tutor => `<option value="${tutor.id}">${escapeHtml(tutorLabel(tutor))}</option>`)
-    .join('');
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">学校の紐付けはありません。</td></tr>';
 }
 async function patchAssignment(id, payload, successMessage) {
   try {
@@ -193,8 +164,8 @@ async function toggleSkip(id, value) {
 async function setAssignmentActive(id, value) {
   await patchAssignment(id, {is_active: value}, value ? '紐付けを有効化しました' : '紐付けを無効化しました');
 }
-async function deleteAssignment(id, studentName) {
-  if (!confirm(`「${studentName}」の紐付けを削除します。この操作は元に戻せません。よろしいですか？`)) return;
+async function deleteAssignment(id, schoolName) {
+  if (!confirm(`「${schoolName}」の紐付けを削除します。この操作は元に戻せません。よろしいですか？`)) return;
   try {
     await api(`/api/w/assignments/${id}`, {method: 'DELETE'});
     showToast('紐付けを削除しました', 'success');
@@ -219,35 +190,9 @@ function closeReminderModal() {
   editingReminderId = '';
 }
 async function loadAssignmentsPage() {
-  const [assignmentRows, tutorRows] = await Promise.all([
-    api('/api/w/assignments'),
-    api('/api/w/users?role=tutor&per_page=100')
-  ]);
-  assignments = assignmentRows;
-  tutors = tutorRows.items || tutorRows;
-  renderTutorOptions();
+  assignments = await api('/api/w/assignments');
   renderAssignments();
 }
-toggleCreateForm.addEventListener('click', () => createForm.classList.toggle('hidden'));
-createForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  try {
-    await api('/api/w/assignments', {
-      method: 'POST',
-      body: JSON.stringify({
-        tutor_id: tutorSelect.value,
-        student_name: studentNameInput.value.trim(),
-        school_email: schoolEmailInput.value.trim() || null
-      })
-    });
-    createForm.reset();
-    createForm.classList.add('hidden');
-    showToast('紐付けを追加しました', 'success');
-    await loadAssignmentsPage();
-  } catch (error) {
-    showToast(error.message || '紐付けを追加できませんでした', 'error');
-  }
-});
 reminderForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (!editingReminderId) return;

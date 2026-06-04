@@ -1,5 +1,6 @@
 import math
 import secrets
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -10,9 +11,41 @@ from app.core.database import get_db
 from app.core.security import hash_password
 from app.dependencies.auth import get_current_user, require_role
 from app.models.shared import User
-from app.schemas.users import UserListOut, UserOut, UserPatch
+from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
+
+# 経理画面のロールタブと一致させる
+ROLE_TAB_KEYS = ["tutor", "school", "sales", "office", "admin_master"]
+# ロール編集を許可する組み合わせ（営業・事務スタッフのみ付け替え可能）
+EDITABLE_STAFF_ROLES = {"sales", "office"}
+
+
+def _user_roles(user: User) -> list[str]:
+    return list(user.roles or []) or ([user.role] if user.role else [])
+
+
+def _active_admin_master_count(db: Session) -> int:
+    users = db.scalars(
+        select(User).where(User.deleted_at.is_(None), User.is_active.is_(True))
+    ).all()
+    return sum(1 for u in users if "admin_master" in _user_roles(u))
+
+
+def _get_user_or_404(db: Session, user_id: UUID) -> User:
+    user = db.get(User, user_id)
+    if not user or user.deleted_at:
+        raise HTTPException(status_code=404, detail="user not found")
+    return user
+
+
+def _ensure_not_last_admin_master(db: Session, user: User) -> None:
+    if (
+        user.is_active
+        and "admin_master" in _user_roles(user)
+        and _active_admin_master_count(db) <= 1
+    ):
+        raise HTTPException(status_code=409, detail="最後の経理ユーザーのため操作できません")
 
 
 @router.get("/me", response_model=UserOut)
@@ -25,12 +58,14 @@ def list_users(
     page: int = 1,
     per_page: int = 50,
     role: str | None = None,
+    roles: str | None = None,
     search: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    user_roles = list(user.roles or []) or ([user.role] if user.role else [])
-    if "admin_master" not in user_roles and role is None:
+    requester_roles = _user_roles(user)
+    role_filter = roles or role
+    if "admin_master" not in requester_roles and role_filter is None:
         raise HTTPException(status_code=403, detail="forbidden")
     page = max(1, page)
     per_page = min(max(1, per_page), 100)
@@ -40,13 +75,31 @@ def list_users(
         stmt = stmt.where(
             or_(func.lower(User.display_name).like(kw), func.lower(User.email).like(kw))
         )
+    # 登録済みユーザーは現在存在するユーザーの全量を表示する（allowed_systemsでは絞らない）
     users = db.scalars(stmt.order_by(User.created_at.desc())).all()
-    users = [u for u in users if u.allowed_systems and "new" in u.allowed_systems]
-    if role:
-        users = [u for u in users if role in (list(u.roles or []) or [u.role])]
+
+    role_counts = {"all": len(users)}
+    for key in ROLE_TAB_KEYS:
+        role_counts[key] = sum(1 for u in users if key in _user_roles(u))
+    active_admin_master_count = sum(
+        1 for u in users if u.is_active and "admin_master" in _user_roles(u)
+    )
+
+    if role_filter:
+        wanted = {r.strip() for r in role_filter.split(",") if r.strip()}
+        users = [u for u in users if wanted & set(_user_roles(u))]
     total = len(users)
+    total_pages = max(1, math.ceil(total / per_page))
     start = (page - 1) * per_page
-    return UserListOut(items=list(users[start: start + per_page]), total=total)
+    return UserListOut(
+        items=list(users[start: start + per_page]),
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+        role_counts=role_counts,
+        active_admin_master_count=active_admin_master_count,
+    )
 
 
 @router.patch("/{user_id}", response_model=UserOut)
@@ -56,15 +109,80 @@ def patch_user(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin_master")),
 ):
-    user = db.get(User, user_id)
-    if not user or user.deleted_at:
-        raise HTTPException(status_code=404, detail="user not found")
+    user = _get_user_or_404(db, user_id)
     data = payload.model_dump(exclude_unset=True)
+    if data.get("is_active") is False:
+        _ensure_not_last_admin_master(db, user)
     for key, value in data.items():
         setattr(user, key, value)
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.patch("/{user_id}/roles", response_model=UserOut)
+def update_user_roles(
+    user_id: UUID,
+    payload: UserRolesPatch,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    user = _get_user_or_404(db, user_id)
+    current = set(_user_roles(user))
+    if not current <= EDITABLE_STAFF_ROLES:
+        raise HTTPException(status_code=409, detail="このユーザーのロールは変更できません")
+    new_roles = [r for r in payload.roles if r]
+    if not new_roles:
+        raise HTTPException(status_code=422, detail="少なくとも1つのロールを選択してください")
+    if not set(new_roles) <= EDITABLE_STAFF_ROLES:
+        raise HTTPException(status_code=422, detail="営業・事務のロールのみ変更できます")
+    user.roles = new_roles
+    user.role = new_roles[0]
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch("/{user_id}/disable", response_model=UserOut)
+def disable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    user = _get_user_or_404(db, user_id)
+    _ensure_not_last_admin_master(db, user)
+    user.is_active = False
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.patch("/{user_id}/enable", response_model=UserOut)
+def enable_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    user = _get_user_or_404(db, user_id)
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/{user_id}")
+def delete_user(
+    user_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    user = _get_user_or_404(db, user_id)
+    _ensure_not_last_admin_master(db, user)
+    # 共有テーブルのため物理削除はせずソフトデリートする
+    user.is_active = False
+    user.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"status": "ok"}
 
 
 @router.post("/{user_id}/reset-password")
@@ -73,9 +191,7 @@ def reset_user_password(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin_master")),
 ):
-    user = db.get(User, user_id)
-    if not user or user.deleted_at:
-        raise HTTPException(status_code=404, detail="user not found")
+    user = _get_user_or_404(db, user_id)
     password = secrets.token_urlsafe(10)
     user.password_hash = hash_password(password)
     db.commit()

@@ -112,6 +112,9 @@ def _enqueue_notification(
         return []
 
     recipient_roles, notif_type, subject = rule
+    # 学校スキップで提出が事務確認へ直行した場合は通知先も事務に切り替える
+    if action == WorkAction.SUBMIT and report.status == WorkStatus.AWAITING_OFFICE:
+        recipient_roles = ("office",)
     body = _notification_body(report, action, from_status)
     notifications: list[WorkNotification] = []
 
