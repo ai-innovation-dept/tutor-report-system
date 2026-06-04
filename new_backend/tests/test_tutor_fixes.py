@@ -152,3 +152,49 @@ class TestLastReturnComment:
 
         res = client.get(f"/api/w/reports/{report_id}", headers=headers)
         assert res.json()["last_return_comment"] is None
+
+
+class TestReportNames:
+    def test_report_exposes_school_and_tutor_names(self, client, db, setup):
+        headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], headers)
+        body = client.get(f"/api/w/reports/{report_id}", headers=headers).json()
+        assert body["student_name"] == "生徒A"
+        assert body["tutor_name"] == "tutorユーザー"
+        assert body["school_name"] == "schoolユーザー"  # assignment.parent
+
+    def test_school_name_falls_back_to_meta(self, client, db):
+        # parent 未設定の紐付けでは meta.dispatch_place_name を学校名に使う
+        tutor = _add_user(db, "t9@x.example.com", "tutor")
+        assignment = Assignment(tutor_id=tutor.id, student_name="生徒Z", system_type="new")
+        db.add(assignment)
+        db.commit()
+        headers = _auth(client, "t9@x.example.com")
+        res = client.post(
+            "/api/w/reports",
+            json={
+                "assignment_id": str(assignment.id),
+                "target_month": "2026-06",
+                "form_type": "monthly_dispatch",
+                "form_data": {"lines": [], "meta": {"dispatch_place_name": "メタ高校"}},
+            },
+            headers=headers,
+        )
+        assert res.json()["school_name"] == "メタ高校"
+
+
+class TestSchoolVisibility:
+    def test_school_sees_reports_across_statuses(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+
+        school_headers = _auth(client, "school@x.example.com")
+        listed = client.get("/api/w/reports", headers=school_headers).json()
+        assert [r["id"] for r in listed] == [report_id]
+
+        # 承認後も自校の報告として参照できる
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=school_headers)
+        listed = client.get("/api/w/reports", headers=school_headers).json()
+        assert report_id in [r["id"] for r in listed]
+        assert listed[0]["status"] == WorkStatus.AWAITING_OFFICE

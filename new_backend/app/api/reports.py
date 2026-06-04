@@ -33,6 +33,7 @@ from app.services.report_service import (
     create_report,
     get_report_or_404,
     list_reports_for_role,
+    list_reports_for_school,
     list_reports_for_tutor,
     update_report_data,
 )
@@ -203,6 +204,8 @@ def list_reports(
 ):
     if active_role == "tutor":
         return list_reports_for_tutor(db, user.id, target_month)
+    if active_role == "school":
+        return list_reports_for_school(db, user.id, target_month)
     if active_role == "admin_master":
         stmt = select(WorkReport)
         if target_month:

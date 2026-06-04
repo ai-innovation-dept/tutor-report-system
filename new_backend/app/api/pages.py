@@ -138,6 +138,17 @@ def tutor_approval(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/approval.html", _ctx(request, user))
 
 
+@router.get("/reports/{report_id}/view", response_class=HTMLResponse)
+def report_view(request: Request, report_id: str, db: Session = Depends(get_db)):
+    """報告書の参照専用ビュー（別ウィンドウで開く）。ログイン済みなら誰でも閲覧可。"""
+    user = _get_user_optional(request, db)
+    if not user:
+        return _login_redirect()
+    context = _ctx(request, user)
+    context["report_id"] = report_id
+    return templates.TemplateResponse(request, "report_view.html", context)
+
+
 @router.get("/school/approval", response_class=HTMLResponse)
 def school_approval(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "school", db)

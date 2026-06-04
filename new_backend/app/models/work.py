@@ -67,6 +67,22 @@ class WorkReport(Base):
                 return event.comment
         return None
 
+    @property
+    def student_name(self) -> str | None:
+        return self.assignment.student_name if self.assignment else None
+
+    @property
+    def tutor_name(self) -> str | None:
+        return self.tutor.display_name if self.tutor else None
+
+    @property
+    def school_name(self) -> str | None:
+        """紐付け済みの学校名。未設定なら報告書の派遣先事業所名（meta）を使う。"""
+        if self.assignment and self.assignment.parent:
+            return self.assignment.parent.display_name
+        meta = (self.form_data or {}).get("meta") or {}
+        return meta.get("dispatch_place_name") or None
+
 
 class WorkReportEvent(Base):
     __tablename__ = "work_report_events"

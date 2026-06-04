@@ -72,3 +72,15 @@ def list_reports_for_role(db: Session, role: str, target_month: str | None = Non
     if target_month:
         stmt = stmt.where(WorkReport.target_month == target_month)
     return list(db.scalars(stmt.order_by(WorkReport.target_month.desc(), WorkReport.created_at)))
+
+
+def list_reports_for_school(db: Session, school_user_id, target_month: str | None = None) -> list[WorkReport]:
+    """学校ユーザーが担当する紐付け（assignment.parent_id）の報告を全ステータスで返す。"""
+    stmt = (
+        select(WorkReport)
+        .join(Assignment, Assignment.id == WorkReport.assignment_id)
+        .where(Assignment.parent_id == school_user_id)
+    )
+    if target_month:
+        stmt = stmt.where(WorkReport.target_month == target_month)
+    return list(db.scalars(stmt.order_by(WorkReport.target_month.desc(), WorkReport.created_at)))

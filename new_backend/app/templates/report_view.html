@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>業務連絡表（参照）</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100">
+  <div class="mx-auto max-w-5xl p-4">
+    <div id="loading" class="rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">読み込み中...</div>
+    <div id="content" class="hidden space-y-4"></div>
+  </div>
+  <script>
+    const reportId = {{ report_id | tojson }};
+    const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+    // monthly_dispatch のラインカラム定義（参照表示用）
+    const COLUMNS = [
+      {key: 'date', label: '日付', type: 'date'},
+      {key: 'start', label: '開始', type: 'time'},
+      {key: 'end', label: '終了', type: 'time'},
+      {key: 'subject_period', label: '担当時限', type: 'number'},
+      {key: 'teach_minutes', label: '数学科指導(分)', type: 'number', summable: true},
+      {key: 'break_minutes', label: '休憩(分)', type: 'number', summable: true},
+      {key: 'commute_fee', label: '往復交通費(円)', type: 'number', summable: true},
+      {key: 'note', label: '内容', type: 'text'}
+    ];
+
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+    }
+    function monthLabel(value) {
+      if (!value) return '-';
+      return `${value.slice(0, 4)}年${Number(value.slice(5, 7))}月分`;
+    }
+    function weekday(value) {
+      if (!value) return '';
+      const d = new Date(`${value}T00:00:00`);
+      return Number.isNaN(d.getTime()) ? '' : WEEKDAYS[d.getDay()];
+    }
+    function num(value) {
+      const n = Number(value || 0);
+      return Number.isFinite(n) ? n : 0;
+    }
+    function hasData(line) {
+      return Object.values(line || {}).some(v => String(v ?? '').trim() !== '');
+    }
+    function cell(line, column) {
+      const value = line[column.key];
+      if (column.key === 'date') {
+        const wd = weekday(value);
+        return `${escapeHtml(value || '')}${wd ? `（${wd}）` : ''}`;
+      }
+      if (column.type === 'number') return value === '' || value == null ? '' : escapeHtml(String(value));
+      return escapeHtml(value || '');
+    }
+
+    async function load() {
+      let report;
+      try {
+        const res = await fetch(`/api/w/reports/${reportId}`, {credentials: 'same-origin'});
+        if (!res.ok) throw new Error(String(res.status));
+        report = await res.json();
+      } catch (err) {
+        document.getElementById('loading').textContent = '報告書を読み込めませんでした。';
+        return;
+      }
+      const meta = (report.form_data && report.form_data.meta) || {};
+      const lines = (report.form_data && Array.isArray(report.form_data.lines) ? report.form_data.lines : []).filter(hasData);
+      const totals = COLUMNS.filter(c => c.summable).reduce((acc, c) => {
+        acc[c.key] = lines.reduce((sum, line) => sum + num(line[c.key]), 0);
+        return acc;
+      }, {});
+
+      const headRow = `<tr class="bg-slate-50 text-xs font-medium text-slate-600">
+        <th class="border border-slate-300 px-2 py-1">回</th>
+        ${COLUMNS.map(c => `<th class="border border-slate-300 px-2 py-1 text-left">${escapeHtml(c.label)}</th>`).join('')}
+      </tr>`;
+      const bodyRows = lines.length ? lines.map((line, index) => `<tr>
+        <td class="border border-slate-200 px-2 py-1 text-center text-slate-500">${index + 1}</td>
+        ${COLUMNS.map(c => `<td class="border border-slate-200 px-2 py-1 ${c.type === 'number' ? 'text-right' : ''}">${cell(line, c)}</td>`).join('')}
+      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="${COLUMNS.length + 1}">入力された指導日はありません。</td></tr>`;
+      document.getElementById('loading').classList.add('hidden');
+      const content = document.getElementById('content');
+      content.classList.remove('hidden');
+      content.innerHTML = `
+        <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <h1 class="text-lg font-bold text-slate-800">${escapeHtml(monthLabel(report.target_month))} 業務連絡表（参照）</h1>
+            <a href="/api/w/reports/${reportId}/export" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">PDFでダウンロード</a>
+          </div>
+          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
+            <div class="flex gap-2"><dt class="text-slate-500">学校名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">講師名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.tutor_name || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">派遣先所在地</dt><dd class="text-slate-800">${escapeHtml(meta.dispatch_place_address || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">従事業務内容</dt><dd class="text-slate-800">${escapeHtml(meta.work_content || '-')}</dd></div>
+          </dl>
+        </section>
+        <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <table class="w-full border-collapse text-sm">
+            <thead>${headRow}</thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">
+            <div>勤務日数：<span class="font-semibold">${lines.length}</span>日</div>
+            <div>数学科指導：<span class="font-semibold">${(totals.teach_minutes || 0).toLocaleString()}</span>分</div>
+            <div>休憩時間：<span class="font-semibold">${(totals.break_minutes || 0).toLocaleString()}</span>分</div>
+            <div>往復交通費：<span class="font-semibold">${(totals.commute_fee || 0).toLocaleString()}</span>円</div>
+          </div>
+        </section>`;
+    }
+    load();
+  </script>
+</body>
+</html>
