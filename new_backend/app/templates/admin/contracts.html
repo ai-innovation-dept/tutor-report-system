@@ -1,0 +1,268 @@
+{% extends "base.html" %}
+{% block content %}
+<section class="mb-4 flex flex-wrap items-center justify-between gap-3">
+  <div>
+    <h1 class="text-xl font-bold text-slate-800">契約管理</h1>
+    <p class="mt-1 text-sm text-slate-500">講師×学校ごとの契約情報を登録・管理します。</p>
+  </div>
+  <button id="newContractBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規登録</button>
+</section>
+
+<section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">講師名</th>
+          <th class="px-4 py-3 text-left">学校名</th>
+          <th class="px-4 py-3 text-left">お客様ID</th>
+          <th class="px-4 py-3 text-left">弊社担当</th>
+          <th class="px-4 py-3 text-left">契約期間</th>
+          <th class="px-4 py-3 text-left">月時間</th>
+          <th class="px-4 py-3 text-left">週コマ</th>
+          <th class="px-4 py-3 text-left">状態</th>
+          <th class="px-4 py-3 text-left">操作</th>
+        </tr>
+      </thead>
+      <tbody id="contractRows"></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="formOverlay" class="fixed inset-0 z-[1000] hidden bg-slate-900/40" onclick="closeForm()"></div>
+<aside id="formDrawer" class="fixed inset-y-0 right-0 z-[1001] hidden w-full max-w-2xl translate-x-full overflow-y-auto border-l border-slate-200 bg-white shadow-2xl transition-transform duration-200" onclick="event.stopPropagation()"></aside>
+{% endblock %}
+{% block scripts %}
+<script>
+setBreadcrumb('管理ポータル', '契約管理');
+const MAX_TASKS = 5;
+let contracts = [];
+let tutors = [];
+let schools = [];
+let editingId = null;
+let visibleTaskCount = 1;
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function periodLabel(contract) {
+  if (!contract.contract_start && !contract.contract_end) return '-';
+  return `${contract.contract_start || '—'} 〜 ${contract.contract_end || '—'}`;
+}
+function renderRows() {
+  contractRows.innerHTML = contracts.length ? contracts.map(contract => `
+    <tr class="border-t border-slate-100 ${contract.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
+      <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(contract.tutor_name || '-')}</td>
+      <td class="px-4 py-3">${escapeHtml(contract.school_name || '-')}</td>
+      <td class="px-4 py-3">${escapeHtml(contract.customer_id || '-')}</td>
+      <td class="px-4 py-3">${escapeHtml(contract.our_staff || '-')}</td>
+      <td class="px-4 py-3">${escapeHtml(periodLabel(contract))}</td>
+      <td class="px-4 py-3">${contract.monthly_minutes != null ? escapeHtml(String(contract.monthly_minutes)) + '分' : '-'}</td>
+      <td class="px-4 py-3">${contract.weekly_lessons != null ? escapeHtml(String(contract.weekly_lessons)) + 'コマ' : '-'}</td>
+      <td class="px-4 py-3">${contract.is_active ? '有効' : '無効'}</td>
+      <td class="px-4 py-3">
+        <div class="flex flex-wrap gap-2">
+          <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openForm('${contract.id}')">編集</button>
+          ${contract.is_active ? `<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 hover:bg-red-100" onclick="disableContract('${contract.id}')">無効化</button>` : ''}
+        </div>
+      </td>
+    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="9">契約はまだ登録されていません。</td></tr>';
+}
+function userOptions(users, selectedId) {
+  return ['<option value="">選択してください</option>', ...users.map(u =>
+    `<option value="${u.id}" ${String(u.id) === String(selectedId || '') ? 'selected' : ''}>${escapeHtml(u.display_name)}${u.user_no ? `（${escapeHtml(u.user_no)}）` : ''}</option>`
+  )].join('');
+}
+function taskRow(index, task) {
+  const hidden = index > visibleTaskCount;
+  return `<div class="task-row grid gap-2 sm:grid-cols-3 ${hidden ? 'hidden' : ''}" data-task-index="${index}">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">委託業務名${index === 1 ? '①（必須）' : `（${'①②③④⑤'[index - 1]}）`}</span>
+      <input data-task="name" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">委託業務ID</span>
+      <input data-task="task_id" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">個別契約ID</span>
+      <input data-task="contract_id" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+  </div>`;
+}
+function renderForm(contract) {
+  const isEdit = Boolean(contract);
+  const tasks = contract?.tasks || [];
+  visibleTaskCount = Math.max(1, tasks.length);
+  formDrawer.innerHTML = `
+    <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
+      <h2 class="font-semibold text-slate-800">${isEdit ? '契約を編集' : '契約を新規登録'}</h2>
+      <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeForm()">閉じる</button>
+    </div>
+    <form id="contractForm" class="space-y-5 p-5">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">講師 <span class="text-red-600">*</span></span>
+          <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>${userOptions(tutors, contract?.tutor_id)}</select>
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">学校 <span class="text-red-600">*</span></span>
+          <select id="schoolSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>${userOptions(schools, contract?.school_id)}</select>
+        </label>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+      </div>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">月時間（分）</span><input id="monthlyMinutes" type="number" min="0" value="${contract?.monthly_minutes ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">週コマ</span><input id="weeklyLessons" type="number" min="0" value="${contract?.weekly_lessons ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+      </div>
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">シフト指定欄</span><textarea id="shiftNote" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea></label>
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
+
+      <div class="rounded-lg border border-slate-200 p-4">
+        <div class="mb-2 flex items-center justify-between">
+          <span class="text-sm font-medium text-slate-800">委託業務（①は必須）</span>
+          <button type="button" id="addTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ 委託業務を追加</button>
+        </div>
+        <div id="taskRows" class="space-y-3">
+          ${Array.from({length: MAX_TASKS}, (_, i) => taskRow(i + 1, tasks[i])).join('')}
+        </div>
+      </div>
+
+      <fieldset class="block text-sm">
+        <span class="mb-1 block text-slate-700">採点列</span>
+        <div class="flex gap-4">
+          <label class="inline-flex items-center gap-1"><input type="radio" name="hasScoring" value="true" ${contract?.has_scoring ? 'checked' : ''}>有</label>
+          <label class="inline-flex items-center gap-1"><input type="radio" name="hasScoring" value="false" ${contract && contract.has_scoring ? '' : 'checked'}>無</label>
+        </div>
+      </fieldset>
+
+      <p id="formMessage" class="hidden rounded-lg px-3 py-2 text-sm"></p>
+      <div class="flex justify-end gap-2 pb-4">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeForm()">キャンセル</button>
+        <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">${isEdit ? '更新' : '登録'}</button>
+      </div>
+    </form>`;
+  document.getElementById('addTaskBtn').addEventListener('click', revealNextTask);
+  document.getElementById('contractForm').addEventListener('submit', saveContract);
+  updateAddTaskButton();
+}
+function revealNextTask() {
+  if (visibleTaskCount >= MAX_TASKS) return;
+  visibleTaskCount += 1;
+  const row = formDrawer.querySelector(`[data-task-index="${visibleTaskCount}"]`);
+  row?.classList.remove('hidden');
+  updateAddTaskButton();
+}
+function updateAddTaskButton() {
+  const btn = document.getElementById('addTaskBtn');
+  if (btn) btn.classList.toggle('hidden', visibleTaskCount >= MAX_TASKS);
+}
+function collectTasks() {
+  const tasks = [];
+  for (let i = 1; i <= MAX_TASKS; i++) {
+    const name = formDrawer.querySelector(`[data-task="name"][data-index="${i}"]`)?.value.trim() || '';
+    const taskId = formDrawer.querySelector(`[data-task="task_id"][data-index="${i}"]`)?.value.trim() || '';
+    const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-index="${i}"]`)?.value.trim() || '';
+    if (name || taskId || contractId) tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
+  }
+  return tasks;
+}
+function numberOrNull(value) {
+  const v = String(value ?? '').trim();
+  return v === '' ? null : Number(v);
+}
+function showFormMessage(text) {
+  const el = document.getElementById('formMessage');
+  el.textContent = text;
+  el.className = 'rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
+}
+function buildPayload() {
+  return {
+    tutor_id: document.getElementById('tutorSelect').value,
+    school_id: document.getElementById('schoolSelect').value,
+    customer_id: document.getElementById('customerId').value.trim() || null,
+    our_staff: document.getElementById('ourStaff').value.trim() || null,
+    contract_start: document.getElementById('contractStart').value || null,
+    contract_end: document.getElementById('contractEnd').value || null,
+    monthly_minutes: numberOrNull(document.getElementById('monthlyMinutes').value),
+    weekly_lessons: numberOrNull(document.getElementById('weeklyLessons').value),
+    shift_note: document.getElementById('shiftNote').value.trim() || null,
+    work_content: document.getElementById('workContent').value.trim() || null,
+    has_scoring: formDrawer.querySelector('input[name="hasScoring"]:checked')?.value === 'true',
+    tasks: collectTasks(),
+  };
+}
+async function saveContract(event) {
+  event.preventDefault();
+  const payload = buildPayload();
+  if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
+  if (!payload.tasks.length) { showFormMessage('委託業務①は必須です'); return; }
+  try {
+    if (editingId) {
+      await api(`/api/w/contracts/${editingId}`, {method: 'PATCH', body: JSON.stringify(payload), suppressFlash: true});
+      showToast('契約を更新しました', 'success');
+    } else {
+      await api('/api/w/contracts', {method: 'POST', body: JSON.stringify(payload), suppressFlash: true});
+      showToast('契約を登録しました', 'success');
+    }
+    closeForm();
+    await load();
+  } catch (error) {
+    let msg = error.message;
+    try { const d = JSON.parse(msg).detail; msg = Array.isArray(d) ? d.map(e => e.msg || e).join(' / ') : (d || msg); } catch (_) {}
+    showFormMessage(`保存に失敗しました：${msg}`);
+  }
+}
+function openForm(id) {
+  editingId = id || null;
+  const contract = id ? contracts.find(c => c.id === id) : null;
+  renderForm(contract);
+  formOverlay.classList.remove('hidden');
+  formDrawer.classList.remove('hidden');
+  requestAnimationFrame(() => formDrawer.classList.remove('translate-x-full'));
+}
+function closeForm() {
+  formDrawer.classList.add('translate-x-full');
+  setTimeout(() => {
+    formOverlay.classList.add('hidden');
+    formDrawer.classList.add('hidden');
+    formDrawer.innerHTML = '';
+    editingId = null;
+  }, 200);
+}
+async function disableContract(id) {
+  const contract = contracts.find(c => c.id === id);
+  if (!confirm(`${contract?.tutor_name || ''} × ${contract?.school_name || ''} の契約を無効化します。よろしいですか？`)) return;
+  try {
+    await api(`/api/w/contracts/${id}`, {method: 'DELETE'});
+    showToast('契約を無効化しました', 'success');
+    await load();
+  } catch (error) {
+    showToast(error.message || '無効化できませんでした', 'error');
+  }
+}
+async function load() {
+  const [contractRows, tutorRows, schoolRows] = await Promise.all([
+    api('/api/w/contracts'),
+    api('/api/w/users?role=tutor&per_page=100'),
+    api('/api/w/users?role=school&per_page=100'),
+  ]);
+  contracts = contractRows;
+  tutors = (tutorRows.items || tutorRows).slice().sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
+  schools = (schoolRows.items || schoolRows).slice().sort((a, b) => a.display_name.localeCompare(b.display_name, 'ja'));
+  renderRows();
+}
+newContractBtn.addEventListener('click', () => openForm(null));
+window.authReady.then(user => {
+  if (!user) return;
+  load();
+});
+</script>
+{% endblock %}

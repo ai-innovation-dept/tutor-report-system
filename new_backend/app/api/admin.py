@@ -46,11 +46,15 @@ def create_profile(
     assignment = db.get(Assignment, payload.assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="assignment not found")
+    if not assignment.parent_id:
+        raise HTTPException(status_code=422, detail="assignment must have a school (parent) to create a profile")
     existing = db.scalar(select(WorkAssignmentProfile).where(WorkAssignmentProfile.assignment_id == payload.assignment_id))
     if existing:
         raise HTTPException(status_code=409, detail="profile already exists for this assignment")
     profile = WorkAssignmentProfile(
         assignment_id=payload.assignment_id,
+        tutor_id=assignment.tutor_id,
+        school_id=assignment.parent_id,
         form_type=payload.form_type,
         contract_meta=payload.contract_meta,
     )

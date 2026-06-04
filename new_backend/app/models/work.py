@@ -1,7 +1,7 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,7 +16,15 @@ def _utcnow() -> datetime:
 
 
 class WorkAssignmentProfile(Base):
+    """講師×学校の契約情報（兼 assignment のフォーム設定）。
+
+    1契約 = 1 assignment（(tutor, school) ごと）に対応する。第2弾で報告書フォームへ
+    自動反映する契約マスタを兼ねる。
+    """
     __tablename__ = "work_assignment_profiles"
+    __table_args__ = (
+        UniqueConstraint("tutor_id", "school_id", name="uq_work_profile_tutor_school"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     assignment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignments.id"), unique=True, index=True)
@@ -26,7 +34,37 @@ class WorkAssignmentProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
+    # --- 契約情報（第1弾で追加） ---
+    tutor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    school_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
+    customer_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    our_staff: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
+    contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
+    monthly_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    weekly_lessons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    shift_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    work_content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    has_scoring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    task_name_1: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    task_name_2: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    task_name_3: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    task_name_4: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    task_name_5: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    task_id_1: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    task_id_2: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    task_id_3: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    task_id_4: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    task_id_5: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contract_id_1: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contract_id_2: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contract_id_3: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contract_id_4: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    contract_id_5: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
     assignment = relationship("Assignment", foreign_keys=[assignment_id])
+    tutor = relationship("User", foreign_keys=[tutor_id])
+    school = relationship("User", foreign_keys=[school_id])
 
 
 class WorkReport(Base):
