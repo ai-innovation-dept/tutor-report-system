@@ -14,14 +14,14 @@
             <div class="flex-1 border-r border-slate-300">
               <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の名称・組織単位</div>
               <select id="dispatchPlaceSchool" data-meta="dispatch_place_school_id"
-                class="meta-input w-full border-b border-slate-200 px-3 py-2 text-center text-base font-semibold focus:bg-emerald-50 focus:outline-none">
+                class="meta-input mx-auto block w-1/2 border-b border-slate-200 px-3 py-2 text-center text-base font-semibold focus:bg-emerald-50 focus:outline-none">
                 <option value="">選択してください</option>
               </select>
               <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の所在地</div>
               <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
-                class="meta-input w-full px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
+                class="meta-input mx-auto block w-1/2 px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
             </div>
-            <div class="flex w-64 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
+            <div class="flex w-96 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
               <div class="flex items-center justify-center gap-1 whitespace-nowrap font-bold leading-snug text-slate-900">
                 <select id="monthFilter"
                   class="w-36 rounded border border-slate-400 px-1.5 py-1 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
@@ -414,11 +414,20 @@ function renderCell(column, line) {
       <td class="px-2 py-1 text-center"><span data-weekday class="inline-flex min-w-7 justify-center rounded bg-slate-100 px-2 py-1 text-xs text-slate-700">${escapeHtml(weekdayLabel(line.date))}</span></td>`;
   }
   if (column.key === 'start') {
-    return `<td class="px-2 py-1" data-time-range>
+    return `<td class="relative px-2 py-1" data-time-range>
       <div class="flex items-center gap-1">
         <input type="time" data-field="start" value="${escapeHtml(line.start || '')}" class="${inputClasses('w-[82px]')}">
         <span class="text-slate-500">〜</span>
         <input type="time" data-field="end" value="${escapeHtml(line.end || '')}" class="${inputClasses('w-[82px]')}">
+        <select data-quick-end title="開始時間からの経過時間で終了時間を設定" class="h-9 w-[92px] rounded border border-slate-300 px-1 text-xs text-slate-600 focus:border-emerald-500 focus:outline-none">
+          <option value="">開始から▼</option>
+          <option value="30">＋30分</option>
+          <option value="60">＋1時間</option>
+          <option value="90">＋1時間半</option>
+          <option value="120">＋2時間</option>
+          <option value="180">＋3時間</option>
+          <option value="240">＋4時間</option>
+        </select>
       </div>
     </td>`;
   }
@@ -441,7 +450,56 @@ function buildLineRows(lines) {
       }
       updateLineSummary();
     });
+    if (input.dataset.field === 'start' || input.dataset.field === 'end') {
+      input.addEventListener('change', () => enforceTimeOrder(input));
+    }
   });
+  lineRows.querySelectorAll('[data-quick-end]').forEach(select => {
+    select.addEventListener('change', () => applyQuickEnd(select));
+  });
+  updateLineSummary();
+}
+function timeToMinutes(value) {
+  if (!value) return null;
+  const [hours, minutes] = value.split(':').map(Number);
+  return hours * 60 + minutes;
+}
+function minutesToTime(total) {
+  const normalized = ((total % 1440) + 1440) % 1440;
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+}
+function showTimePopup(cell, message) {
+  cell.querySelectorAll('.time-popup').forEach(el => el.remove());
+  const popup = document.createElement('div');
+  popup.className = 'time-popup absolute left-2 top-full z-20 -mt-1 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-xs text-white shadow-lg';
+  popup.textContent = message;
+  cell.appendChild(popup);
+  setTimeout(() => popup.remove(), 2500);
+}
+function enforceTimeOrder(input) {
+  const cell = input.closest('[data-time-range]');
+  if (!cell) return;
+  const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
+  const endInput = cell.querySelector('[data-field="end"]');
+  const end = timeToMinutes(endInput.value);
+  if (start === null || end === null) return;
+  if (end < start) {
+    endInput.value = '';
+    showTimePopup(cell, '業務終了時間は業務開始時間より早く設定できません');
+    updateLineSummary();
+  }
+}
+function applyQuickEnd(select) {
+  const cell = select.closest('[data-time-range]');
+  const minutes = Number(select.value);
+  select.value = '';
+  if (!cell || !minutes) return;
+  const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
+  if (start === null) {
+    showTimePopup(cell, '先に業務開始時間を入力してください');
+    return;
+  }
+  cell.querySelector('[data-field="end"]').value = minutesToTime(start + minutes);
   updateLineSummary();
 }
 function enforceSubjectPeriod(input) {
@@ -541,6 +599,12 @@ function renderFormAvailability() {
     showFormMessage(`この報告書は${statusLabel(report.status)}のため編集できません`);
     return;
   }
+  if (report && report.status === 'returned_to_tutor') {
+    setReportInputsDisabled(false);
+    const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
+    showFormMessage(`学校から差戻しされています。修正のうえ承認管理画面から再依頼してください。${reason}`, true);
+    return;
+  }
   setReportInputsDisabled(false);
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
 }
@@ -621,6 +685,11 @@ reportForm.addEventListener('submit', async e => {
   const invalidPeriod = lines.some(line => line.subject_period !== '' && (Number(line.subject_period) < 1 || Number(line.subject_period) > 10));
   if (invalidPeriod) {
     showFormMessage('担当時限は1〜10で入力してください', true);
+    return;
+  }
+  const invalidTime = lines.some(line => line.start && line.end && line.end < line.start);
+  if (invalidTime) {
+    showFormMessage('業務終了時間が業務開始時間より早い行があります', true);
     return;
   }
   const form_data = {lines, meta: collectMeta()};

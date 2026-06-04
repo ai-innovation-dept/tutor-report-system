@@ -73,6 +73,7 @@ class ReportOut(BaseModel):
     closed_at: datetime | None = None
     closed_by: uuid.UUID | None = None
     close_reason: str | None = None
+    last_return_comment: str | None = None
     created_at: datetime
     updated_at: datetime
 

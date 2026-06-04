@@ -52,6 +52,20 @@ class WorkReport(Base):
     assignment = relationship("Assignment", foreign_keys=[assignment_id])
     tutor = relationship("User", foreign_keys=[tutor_id])
     closed_by_user = relationship("User", foreign_keys=[closed_by])
+    events = relationship(
+        "WorkReportEvent",
+        primaryjoin="WorkReport.id == WorkReportEvent.report_id",
+        order_by="WorkReportEvent.created_at",
+        viewonly=True,
+    )
+
+    @property
+    def last_return_comment(self) -> str | None:
+        """直近の差戻しコメント（差戻し中の理由表示に使用）。"""
+        for event in reversed(self.events):
+            if event.action == "return":
+                return event.comment
+        return None
 
 
 class WorkReportEvent(Base):

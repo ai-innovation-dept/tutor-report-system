@@ -11,7 +11,7 @@
     <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700" href="#">PDFでダウンロード</a>
     <span id="exportWarning" class="text-sm text-rose-700"></span>
   </div>
-  <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
+  <p class="mt-2 text-xs text-slate-500">最終承認済みの報告のみダウンロード可能</p>
 </section>
 <div id="approvalMonths" class="grid gap-4"></div>
 {% endblock %}
@@ -26,7 +26,7 @@ const STEPS = [
 ];
 const PHASE_CURRENT_STEP = {
   recording: 0,
-  returned: 1,
+  returned: 0,
   awaiting_school: 1,
   awaiting_sales: 2,
   awaiting_office: 2,
@@ -127,7 +127,7 @@ function monthlyPhase(reports) {
 }
 function buildGroup(assignment, reports) {
   const sorted = [...reports].sort((a, b) => {
-    const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
+    const dateCompare = String(a.lesson_date || a.target_month || '').localeCompare(String(b.lesson_date || b.target_month || ''));
     if (dateCompare !== 0) return dateCompare;
     return timeText(a.start_time).localeCompare(timeText(b.start_time));
   });
@@ -176,6 +176,13 @@ function connectorClass(group, index) {
   const rightDone = stepState(group, index + 1) === 'done';
   return leftDone && rightDone ? 'border-emerald-500 text-emerald-600' : 'border-dashed border-slate-300 text-slate-400';
 }
+function schoolName(group) {
+  return group.school_display_name || '学校';
+}
+function stepLabel(group, step) {
+  // 学校承認ステップは紐付いた学校名で表示する
+  return step.key === 'school' ? `${schoolName(group)} 承認` : step.label;
+}
 function renderStepper(group) {
   return `<div class="mt-5 overflow-x-auto">
     <div class="grid min-w-[480px] grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
@@ -187,7 +194,7 @@ function renderStepper(group) {
         : '';
       return `<div class="text-center">
           <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-full border-2 text-sm font-semibold ${circleClass(state)}">${icon}</div>
-          <div class="mt-2 text-sm font-medium">${step.label}</div>
+          <div class="mt-2 text-sm font-medium">${escapeHtml(stepLabel(group, step))}</div>
           <div class="mt-1 min-h-5 text-xs text-slate-500">${timeLabel(stepTimestamp(group, index), state === 'todo' ? '' : '-')}</div>
           ${state === 'current' ? '<div class="mt-1 inline-block rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">現在</div>' : ''}
         </div>${connector}`;
@@ -220,7 +227,7 @@ function renderBulkExportLinks() {
   const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
   const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
   if (!exportable) {
-    setBulkExportEnabled(false, '未承認の生徒が含まれています');
+    setBulkExportEnabled(false, '未承認の報告が含まれています');
     return;
   }
   setBulkExportEnabled(true);
@@ -247,7 +254,7 @@ function actionArea(group) {
       return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため再依頼できません。</div>';
     }
     const label = group.skip_school_approval ? '修正済みの報告書を管理へまとめて再提出' : '修正済みの報告書を学校へまとめて再依頼';
-    return `<div class="mt-5 flex flex-wrap items-center gap-3">
+    return `${returnedNotice(group)}<div class="mt-3 flex flex-wrap items-center gap-3">
       <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
     </div>`;
@@ -256,16 +263,56 @@ function actionArea(group) {
     const label = group.skip_school_approval ? '管理へ提出' : '学校へまとめて承認依頼';
     return `<div class="mt-5 grid gap-3">
       ${reminderSettings(group)}
-      <button class="justify-self-start rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+      <div class="flex flex-wrap items-center gap-3">
+        <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+        ${deleteButton(group)}
+      </div>
     </div>`;
   }
   if (group.phase === 'recording') {
-    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>';
+    return `<div class="mt-5 flex flex-wrap items-center gap-3">
+      <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>
+      ${deleteButton(group)}
+    </div>`;
   }
   if (group.phase === 'awaiting_school') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>学校の承認を待っています</button>';
   }
   return '';
+}
+function draftReportIds(group) {
+  return group.reports.filter(r => r.status === 'draft').map(r => r.id);
+}
+function deleteButton(group) {
+  // 学校へ依頼する前（全件下書き）の報告のみ削除できる
+  if (!group.reports.length || !group.reports.every(r => r.status === 'draft')) return '';
+  return `<button class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteDraftReports('${group.assignment_id}')">報告を削除</button>`;
+}
+function returnedNotice(group) {
+  const reasons = group.reports
+    .filter(r => r.status === 'returned_to_tutor' && r.last_return_comment)
+    .map(r => `<div class="mt-1 whitespace-pre-wrap">差戻し理由：${escapeHtml(r.last_return_comment)}</div>`)
+    .join('');
+  return `<div class="mt-5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <div class="font-medium">${escapeHtml(schoolName(group))}から差戻しされています。修正のうえ再依頼してください。</div>
+    ${reasons}
+  </div>`;
+}
+async function deleteDraftReports(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  if (!group) return;
+  const ids = draftReportIds(group);
+  if (!ids.length) return;
+  if (!confirm(`${group.student_name}の${monthLabel(group.target_month)}の報告を削除します。この操作は元に戻せません。よろしいですか？`)) return;
+  try {
+    for (const id of ids) {
+      await api(`/api/w/reports/${id}`, {method: 'DELETE'});
+    }
+    showToast('報告を削除しました', 'success');
+  } catch (error) {
+    showToast(error.message || '報告を削除できませんでした', 'error');
+  }
+  await loadApproval();
 }
 function reminderSettings(group) {
   if (group.skip_school_approval) return '';
@@ -286,13 +333,13 @@ function reminderSettings(group) {
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 sm:grid-cols-3">
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_school_at || group.submitted_to_school_at, '-')}</div></div>
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校 承認日時</div><div class="font-medium text-slate-800">${group.awaiting_sales_at ? timeLabel(group.awaiting_sales_at) : '承認待ち'}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">${escapeHtml(schoolName(group))} 承認日時</div><div class="font-medium text-slate-800">${group.awaiting_sales_at ? timeLabel(group.awaiting_sales_at) : '承認待ち'}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">管理 承認日時</div><div class="font-medium text-slate-800">${group.approved_at ? timeLabel(group.approved_at) : '-'}</div></div>
   </div>`;
 }
 function detailRows(group) {
   const rows = group.reports.map(r => `<tr class="border-t border-slate-100 hover:bg-slate-50">
-    <td class="px-4 py-3">${dateLabel(r.lesson_date)}</td>
+    <td class="px-4 py-3">${escapeHtml(`${Number((r.target_month || '').slice(5, 7))}月分`)}</td>
     <td class="px-4 py-3">${statusLabel(r.status)}</td>
     <td class="px-4 py-3">${timeLabel(r.submitted_to_school_at, '-')}</td>
     <td class="px-4 py-3">${timeLabel(r.awaiting_sales_at, '-')}</td>
@@ -302,7 +349,7 @@ function detailRows(group) {
   </tr>`).join('');
   return `<div class="mt-5 overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導日</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">学校へ依頼</th><th class="px-4 py-3 text-left">学校承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導月</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">学校へ依頼</th><th class="px-4 py-3 text-left">学校承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
@@ -314,6 +361,7 @@ function renderApproval() {
   }
   approvalMonths.innerHTML = groups.map(group => {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
+    const returnedBadge = group.phase === 'returned' ? '<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">差戻しあり（要修正）</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
     const schoolLabel = group.school_display_name ? `学校：${escapeHtml(group.school_display_name)}` : '学校：未設定';
     return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden" ${collapsedAttr}>
@@ -323,7 +371,7 @@ function renderApproval() {
             <div class="font-semibold text-slate-800">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
             <div class="mt-1 text-sm text-slate-500">${schoolLabel}</div>
           </div>
-          ${completeBadge}
+          ${completeBadge}${returnedBadge}
         </div>
       </summary>
       ${renderStepper(group)}

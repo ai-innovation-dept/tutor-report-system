@@ -3,14 +3,20 @@ from datetime import datetime, timezone
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Response
-from sqlalchemy import select
+from sqlalchemy import delete as sql_delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.database import get_db
 from app.dependencies.auth import get_active_role, get_current_user, has_role, is_admin, require_role
 from app.models.shared import Assignment, User
-from app.models.work import WorkReport, WorkReportEvent
+from app.models.work import (
+    WorkChatMessage,
+    WorkChatRead,
+    WorkNotification,
+    WorkReport,
+    WorkReportEvent,
+)
 from app.schemas.reports import (
     BulkReportAction,
     BulkReportActionOut,
@@ -391,6 +397,29 @@ def patch_report(
     db.commit()
     db.refresh(report)
     return report
+
+
+@router.delete("/{report_id}", status_code=204)
+def delete_report(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("tutor")),
+):
+    """学校へ依頼する前（下書き）の報告を講師本人が削除する。"""
+    report = get_report_or_404(db, report_id)
+    assert_tutor_owns(report, user)
+    if report.status != WorkStatus.DRAFT:
+        raise HTTPException(status_code=409, detail="下書きの報告のみ削除できます")
+    message_ids = db.scalars(
+        select(WorkChatMessage.id).where(WorkChatMessage.report_id == report.id)
+    ).all()
+    if message_ids:
+        db.execute(sql_delete(WorkChatRead).where(WorkChatRead.message_id.in_(message_ids)))
+        db.execute(sql_delete(WorkChatMessage).where(WorkChatMessage.id.in_(message_ids)))
+    db.execute(sql_delete(WorkReportEvent).where(WorkReportEvent.report_id == report.id))
+    db.execute(sql_delete(WorkNotification).where(WorkNotification.report_id == report.id))
+    db.delete(report)
+    db.commit()
 
 
 @router.post("/{report_id}/action", response_model=ReportOut)
