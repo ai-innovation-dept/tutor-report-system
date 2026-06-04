@@ -46,6 +46,7 @@ const STATUS_LABELS = {
 };
 let allReports = [];
 let allAssignments = [];
+let schoolUsers = [];
 let groups = [];
 
 function escapeHtml(value) {
@@ -125,6 +126,25 @@ function monthlyPhase(reports) {
   if (statuses.length && ranks.every(rank => rank >= 1)) return 'awaiting_school';
   return 'recording';
 }
+function reportMeta(report) {
+  return (report?.form_data && report.form_data.meta) || {};
+}
+function resolveSchoolName(assignment, reports) {
+  // 1) 紐付け済みの学校名 → 2) 報告書一覧の派遣先事業所の名称・組織単位（meta）
+  if (assignment?.parent?.display_name) return assignment.parent.display_name;
+  for (const report of reports) {
+    const meta = reportMeta(report);
+    if (meta.dispatch_place_name) return meta.dispatch_place_name;
+    if (meta.dispatch_place_school_id) {
+      const user = schoolUsers.find(u => String(u.id) === String(meta.dispatch_place_school_id));
+      if (user) return user.display_name;
+    }
+  }
+  return '';
+}
+function tutorDisplayName(assignment) {
+  return assignment?.tutor?.display_name || window.currentUser?.display_name || '講師未設定';
+}
 function buildGroup(assignment, reports) {
   const sorted = [...reports].sort((a, b) => {
     const dateCompare = String(a.lesson_date || a.target_month || '').localeCompare(String(b.lesson_date || b.target_month || ''));
@@ -134,8 +154,9 @@ function buildGroup(assignment, reports) {
   return {
     assignment_id: assignment?.id || sorted[0]?.assignment_id,
     student_name: assignment?.student_name || '生徒未設定',
+    tutor_name: tutorDisplayName(assignment),
     school_id: assignment?.parent_id || sorted[0]?.parent_id || null,
-    school_display_name: assignment?.parent?.display_name || '',
+    school_display_name: resolveSchoolName(assignment, sorted),
     skip_school_approval: Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval)),
     reminder_enabled: Boolean(assignment?.reminder_enabled),
     reminder_days_after: assignment?.reminder_days_after || 1,
@@ -247,13 +268,16 @@ function actionArea(group) {
     return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">事務済み</div>';
   }
   if (!group.skip_school_approval && !group.school_id && group.can_submit) {
-    return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため承認依頼できません。</div>';
+    return `<div class="mt-5 grid gap-3">
+      <div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため承認依頼できません。報告書一覧で派遣先事業所を選択してください。</div>
+      ${deleteButton(group) ? `<div class="flex flex-wrap items-center gap-3">${deleteButton(group)}</div>` : ''}
+    </div>`;
   }
   if (group.phase === 'returned') {
     if (!group.skip_school_approval && !group.school_id) {
       return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため再依頼できません。</div>';
     }
-    const label = group.skip_school_approval ? '修正済みの報告書を管理へまとめて再提出' : '修正済みの報告書を学校へまとめて再依頼';
+    const label = group.skip_school_approval ? '修正済みの報告書を管理へ再提出' : '修正済みの報告書を学校へ再依頼';
     return `${returnedNotice(group)}<div class="mt-3 flex flex-wrap items-center gap-3">
       <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
@@ -303,7 +327,7 @@ async function deleteDraftReports(assignmentId) {
   if (!group) return;
   const ids = draftReportIds(group);
   if (!ids.length) return;
-  if (!confirm(`${group.student_name}の${monthLabel(group.target_month)}の報告を削除します。この操作は元に戻せません。よろしいですか？`)) return;
+  if (!confirm(`${group.tutor_name}の${monthLabel(group.target_month)}の報告を削除します。この操作は元に戻せません。よろしいですか？`)) return;
   try {
     for (const id of ids) {
       await api(`/api/w/reports/${id}`, {method: 'DELETE'});
@@ -368,7 +392,7 @@ function renderApproval() {
       <summary class="cursor-pointer list-none">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div class="font-semibold text-slate-800">${escapeHtml(group.student_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
+            <div class="font-semibold text-slate-800">${escapeHtml(group.tutor_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
             <div class="mt-1 text-sm text-slate-500">${schoolLabel}</div>
           </div>
           ${completeBadge}${returnedBadge}
@@ -418,6 +442,10 @@ async function resendReturnedReports(assignmentId) {
   }
   await loadApproval();
 }
+async function loadSchoolUsers() {
+  const result = await api('/api/w/users?role=school');
+  schoolUsers = Array.isArray(result?.items) ? result.items : [];
+}
 async function loadApproval() {
   const [reports, assignments] = await Promise.all([
     api(`/api/w/reports?target_month=${currentMonth()}`),
@@ -435,8 +463,9 @@ async function loadApproval() {
   renderApproval();
 }
 exportMonth.addEventListener('change', renderBulkExportLinks);
-window.authReady.then(user => {
+window.authReady.then(async user => {
   if (!user) return;
+  await loadSchoolUsers();
   loadApproval();
 });
 </script>

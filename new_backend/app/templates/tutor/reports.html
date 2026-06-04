@@ -11,15 +11,25 @@
 
           <!-- 行1: 派遣先名称・所在地（左）＋ 月分業務連絡表（右） -->
           <div class="flex border-b border-slate-300">
-            <div class="flex-1 border-r border-slate-300">
-              <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の名称・組織単位</div>
-              <select id="dispatchPlaceSchool" data-meta="dispatch_place_school_id"
-                class="meta-input mx-auto block w-1/2 border-b border-slate-200 px-3 py-2 text-center text-base font-semibold focus:bg-emerald-50 focus:outline-none">
-                <option value="">選択してください</option>
-              </select>
-              <div class="border-b border-slate-200 bg-slate-50 px-2 py-0.5 text-xs text-slate-600">派遣先事業所の所在地</div>
-              <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
-                class="meta-input mx-auto block w-1/2 px-3 py-2 text-center focus:bg-emerald-50 focus:outline-none">
+            <div class="flex flex-1 flex-col border-r border-slate-300">
+              <!-- 派遣先事業所の名称・組織単位 row（氏名と同じ 項目→入力ボックス 形式） -->
+              <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
+                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">派遣先事業所の<br>名称・組織単位</div>
+                <div class="flex flex-1 items-center px-2 py-1">
+                  <select id="dispatchPlaceSchool" data-meta="dispatch_place_school_id"
+                    class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-sm font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+                    <option value="">選択してください</option>
+                  </select>
+                </div>
+              </div>
+              <!-- 派遣先事業所の所在地 row -->
+              <div class="flex min-h-[46px] flex-1">
+                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">派遣先事業所の<br>所在地</div>
+                <div class="flex flex-1 items-center px-2 py-1">
+                  <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
+                    class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
+                </div>
+              </div>
             </div>
             <div class="flex w-96 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
               <div class="flex items-center justify-center gap-1 whitespace-nowrap font-bold leading-snug text-slate-900">
