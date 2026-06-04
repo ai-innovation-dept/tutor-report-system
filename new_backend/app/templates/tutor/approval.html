@@ -201,8 +201,8 @@ function schoolName(group) {
   return group.school_display_name || '学校';
 }
 function stepLabel(group, step) {
-  // 学校承認ステップは紐付いた学校名で表示する
-  return step.key === 'school' ? `${schoolName(group)} 承認` : step.label;
+  // 学校名はヘッダーに表示するため、ステップは汎用ラベル（学校承認）のままにする
+  return step.label;
 }
 function renderStepper(group) {
   return `<div class="mt-5 overflow-x-auto">
@@ -281,6 +281,7 @@ function actionArea(group) {
     return `${returnedNotice(group)}<div class="mt-3 flex flex-wrap items-center gap-3">
       <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
+      ${deleteButton(group)}
     </div>`;
   }
   if (group.can_submit) {
@@ -304,12 +305,13 @@ function actionArea(group) {
   }
   return '';
 }
-function draftReportIds(group) {
-  return group.reports.filter(r => r.status === 'draft').map(r => r.id);
+const DELETABLE_STATUSES = ['draft', 'returned_to_tutor'];
+function deletableReportIds(group) {
+  return group.reports.filter(r => DELETABLE_STATUSES.includes(r.status)).map(r => r.id);
 }
 function deleteButton(group) {
-  // 学校へ依頼する前（全件下書き）の報告のみ削除できる
-  if (!group.reports.length || !group.reports.every(r => r.status === 'draft')) return '';
+  // 学校へ依頼する前（下書き）または講師へ差戻された報告のみ削除できる
+  if (!group.reports.length || !group.reports.every(r => DELETABLE_STATUSES.includes(r.status))) return '';
   return `<button class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteDraftReports('${group.assignment_id}')">報告を削除</button>`;
 }
 function returnedNotice(group) {
@@ -325,9 +327,9 @@ function returnedNotice(group) {
 async function deleteDraftReports(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   if (!group) return;
-  const ids = draftReportIds(group);
+  const ids = deletableReportIds(group);
   if (!ids.length) return;
-  if (!confirm(`${group.tutor_name}の${monthLabel(group.target_month)}の報告を削除します。この操作は元に戻せません。よろしいですか？`)) return;
+  if (!confirm(`${group.school_display_name || '学校未設定'}の${monthLabel(group.target_month)}の報告を削除します。この操作は元に戻せません。よろしいですか？`)) return;
   try {
     for (const id of ids) {
       await api(`/api/w/reports/${id}`, {method: 'DELETE'});
@@ -357,7 +359,7 @@ function reminderSettings(group) {
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 sm:grid-cols-3">
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校へ依頼日時</div><div class="font-medium text-slate-800">${timeLabel(group.first_submitted_to_school_at || group.submitted_to_school_at, '-')}</div></div>
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">${escapeHtml(schoolName(group))} 承認日時</div><div class="font-medium text-slate-800">${group.awaiting_sales_at ? timeLabel(group.awaiting_sales_at) : '承認待ち'}</div></div>
+    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校 承認日時</div><div class="font-medium text-slate-800">${group.awaiting_sales_at ? timeLabel(group.awaiting_sales_at) : '承認待ち'}</div></div>
     <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">管理 承認日時</div><div class="font-medium text-slate-800">${group.approved_at ? timeLabel(group.approved_at) : '-'}</div></div>
   </div>`;
 }
@@ -387,13 +389,13 @@ function renderApproval() {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
     const returnedBadge = group.phase === 'returned' ? '<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">差戻しあり（要修正）</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
-    const schoolLabel = group.school_display_name ? `学校：${escapeHtml(group.school_display_name)}` : '学校：未設定';
+    // ③ 見出しは学校名を主体にし、下段の「学校：〇〇」行は非表示にする
+    const headTitle = group.school_display_name || '学校未設定';
     return `<details class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden" ${collapsedAttr}>
       <summary class="cursor-pointer list-none">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <div class="font-semibold text-slate-800">${escapeHtml(group.tutor_name)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
-            <div class="mt-1 text-sm text-slate-500">${schoolLabel}</div>
+            <div class="font-semibold text-slate-800">${escapeHtml(headTitle)}　${monthLabel(group.target_month)}　全${group.total_count}件 / 合計${durationLabel(group.total_minutes)}</div>
           </div>
           ${completeBadge}${returnedBadge}
         </div>

@@ -405,11 +405,11 @@ def delete_report(
     db: Session = Depends(get_db),
     user: User = Depends(require_role("tutor")),
 ):
-    """学校へ依頼する前（下書き）の報告を講師本人が削除する。"""
+    """学校へ依頼する前（下書き）または講師へ差戻された報告を講師本人が削除する。"""
     report = get_report_or_404(db, report_id)
     assert_tutor_owns(report, user)
-    if report.status != WorkStatus.DRAFT:
-        raise HTTPException(status_code=409, detail="下書きの報告のみ削除できます")
+    if report.status not in (WorkStatus.DRAFT, WorkStatus.RETURNED_TO_TUTOR):
+        raise HTTPException(status_code=409, detail="下書きまたは差戻し中の報告のみ削除できます")
     message_ids = db.scalars(
         select(WorkChatMessage.id).where(WorkChatMessage.report_id == report.id)
     ).all()

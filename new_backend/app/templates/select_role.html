@@ -30,10 +30,16 @@
       office: '事務担当',
       admin_master: '管理者'
     };
+    // 表示順（事務担当を営業担当より上に並べる）
+    const ROLE_ORDER = ['tutor', 'school', 'office', 'sales', 'admin_master'];
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     }
-    roleButtons.innerHTML = roles.map(role => `<button type="button" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left font-medium text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50" onclick="selectRole('${role}')">${escapeHtml(labels[role] || role)}</button>`).join('');
+    const orderedRoles = [...roles].sort((a, b) => {
+      const ai = ROLE_ORDER.indexOf(a), bi = ROLE_ORDER.indexOf(b);
+      return (ai === -1 ? ROLE_ORDER.length : ai) - (bi === -1 ? ROLE_ORDER.length : bi);
+    });
+    roleButtons.innerHTML = orderedRoles.map(role => `<button type="button" class="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-left font-medium text-slate-800 transition hover:border-emerald-300 hover:bg-emerald-50" onclick="selectRole('${role}')">${escapeHtml(labels[role] || role)}</button>`).join('');
     async function selectRole(role) {
       const res = await fetch('/api/auth/select-role', {
         method: 'POST',

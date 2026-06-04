@@ -91,6 +91,30 @@ class TestDeleteDraftReport:
         res = client.delete(f"/api/w/reports/{report_id}", headers=headers)
         assert res.status_code == 409
 
+    def test_can_delete_returned(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        school_headers = _auth(client, "school@x.example.com")
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "修正してください"},
+            headers=school_headers,
+        )
+        assert res.status_code == 200 and res.json()["status"] == WorkStatus.RETURNED_TO_TUTOR
+
+        res = client.delete(f"/api/w/reports/{report_id}", headers=tutor_headers)
+        assert res.status_code == 204
+        assert db.query(WorkReport).count() == 0
+
+    def test_cannot_delete_awaiting_school(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+
+        res = client.delete(f"/api/w/reports/{report_id}", headers=tutor_headers)
+        assert res.status_code == 409
+
     def test_other_tutor_cannot_delete(self, client, db, setup):
         headers = _auth(client, "tutor@x.example.com")
         report_id = _create_report(client, setup["assignment"], headers)
