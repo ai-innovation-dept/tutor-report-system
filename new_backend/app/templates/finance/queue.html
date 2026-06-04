@@ -87,7 +87,7 @@ const STATUS_LABELS = {
   draft: '講師作成',
   awaiting_school: '学校確認待ち',
   returned_to_tutor: '講師へ差戻し中',
-  returned_to_sales: '営業へ差戻し中',
+  returned_to_office: '事務へ差戻し中',
   awaiting_sales: '営業確認待ち',
   awaiting_office: '事務確認待ち',
   awaiting_finance: '最終確認待ち',
@@ -111,8 +111,8 @@ const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
-  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales', 'returned_to_sales']},
-  {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office']},
+  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
+  {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office', 'returned_to_office']},
   {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
   {key: 'approved', label: '完了', statuses: ['approved']},
   {key: 'closed', label: '強制クローズ', statuses: ['closed']}
@@ -188,7 +188,7 @@ function groupKey(report) {
 }
 function currentGroupStatus(reports) {
   const statuses = new Set(reports.map(report => report.status));
-  for (const status of ['closed', 'returned_to_tutor', 'returned_to_sales', 'awaiting_finance', 'awaiting_office', 'awaiting_sales', 'awaiting_school', 'draft', 'approved']) {
+  for (const status of ['closed', 'returned_to_tutor', 'returned_to_office', 'awaiting_finance', 'awaiting_office', 'awaiting_sales', 'awaiting_school', 'draft', 'approved']) {
     if (statuses.has(status)) return status;
   }
   return reports[0]?.status || '';
@@ -258,7 +258,7 @@ function taskConfig() {
   }
   if (currentRole === 'sales') {
     return {
-      statuses: ['awaiting_sales', 'returned_to_sales'],
+      statuses: ['awaiting_sales'],
       subtext: '営業対応が必要',
       label: '営業承認',
       returnRole: 'sales'
@@ -266,7 +266,7 @@ function taskConfig() {
   }
   if (currentRole === 'office') {
     return {
-      status: 'awaiting_office',
+      statuses: ['awaiting_office', 'returned_to_office'],
       subtext: '事務確認が必要',
       label: '事務承認',
       returnRole: 'office'
@@ -291,7 +291,7 @@ function getTaskMeta(group, groupStatus) {
     const event = allEvents.find(item => item.action === 'approve');
     if (event) return `${event.actor_name || ''} / 学校承認 ${formatEventDate(event.created_at)}`.trim();
   }
-  if (groupStatus === 'returned_to_sales') {
+  if (groupStatus === 'returned_to_office') {
     const event = allEvents.find(item => item.action === 'return');
     if (event) return `${event.actor_name || ''} / 差戻し ${formatEventDate(event.created_at)}`.trim();
   }
@@ -318,7 +318,7 @@ function renderKpis() {
   const approvalWaiting = config ? groups.filter(group => statuses.includes(currentGroupStatus(group))).length : 0;
   const approvalSubtext = config?.subtext || '対応が必要';
   const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'approved')).length;
-  const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_sales') && !group.some(report => report.status === 'approved')).length;
+  const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_office') && !group.some(report => report.status === 'approved')).length;
   const completed = groups.filter(group => group.every(report => report.status === 'approved')).length;
   kpiCards.innerHTML = `
     <div class="admin-card" style="border:2px solid #DC2626;background:#FEF2F2;">
@@ -329,7 +329,7 @@ function renderKpis() {
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">差戻し中</div>
       <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${returnedTutor + returnedReceiver}</div>
-      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 営業${returnedReceiver}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 事務${returnedReceiver}</div>
     </div>
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">今月完了</div>
@@ -372,11 +372,11 @@ function renderTasks(groups) {
 }
 function pipelineColumnForStatus(status) {
   if (status === 'returned_to_tutor') return 'draft';
-  if (status === 'returned_to_sales') return 'awaiting_sales';
+  if (status === 'returned_to_office') return 'awaiting_office';
   return status;
 }
 function pipelineCardClass(status) {
-  if (['returned_to_tutor', 'returned_to_sales'].includes(status)) return 'border-l-[#DC2626] bg-[#FEF2F2]';
+  if (['returned_to_tutor', 'returned_to_office'].includes(status)) return 'border-l-[#DC2626] bg-[#FEF2F2]';
   if (status === 'closed') return 'border-l-slate-400 bg-slate-50';
   if (status === 'approved') return 'border-l-[#059669] bg-[#ECFDF5]';
   return 'border-l-[#CBD5E1] bg-[#F8FAFC]';
@@ -408,7 +408,7 @@ function currentWaitLabel(status) {
     returned_to_tutor: '講師の修正待ち',
     awaiting_school: '学校の承認待ち',
     awaiting_sales: '営業の承認待ち',
-    returned_to_sales: '営業の対応待ち',
+    returned_to_office: '事務の対応待ち',
     awaiting_office: '事務の承認待ち',
     awaiting_finance: '管理者の最終承認待ち',
     approved: '完了',
@@ -427,7 +427,7 @@ function actionBadge(action) {
   return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
 }
 function statusBadge(status) {
-  if (['returned_to_tutor', 'returned_to_sales'].includes(status)) return '<span class="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">差戻し中</span>';
+  if (['returned_to_tutor', 'returned_to_office'].includes(status)) return '<span class="rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700">差戻し中</span>';
   if (status === 'closed') return '<span class="rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">クローズ</span>';
   if (status === 'approved') return '<span class="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">完了</span>';
   return '<span class="rounded-full bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-700">進行中</span>';

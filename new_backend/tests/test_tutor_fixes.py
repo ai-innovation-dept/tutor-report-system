@@ -268,6 +268,45 @@ class TestApprovedReturn:
         assert res.status_code == 422
 
 
+class TestOfficeHandlesReturnedToOffice:
+    def _advance_to_returned_to_office(self, client, db, setup):
+        """tutor提出→学校承認→事務承認→営業差戻し で returned_to_office まで進める。"""
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        _add_user(db, "office@x.example.com", "office")
+        _add_user(db, "sales@x.example.com", "sales")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office@x.example.com"))
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "営業から事務へ差戻し"},
+            headers=_auth(client, "sales@x.example.com"),
+        )
+        assert res.status_code == 200 and res.json()["status"] == WorkStatus.RETURNED_TO_OFFICE
+        return report_id
+
+    def test_office_approves_forward_to_sales(self, client, db, setup):
+        report_id = self._advance_to_returned_to_office(client, db, setup)
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "approve"},
+            headers=_auth(client, "office@x.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["status"] == WorkStatus.AWAITING_SALES
+
+    def test_office_returns_to_tutor(self, client, db, setup):
+        report_id = self._advance_to_returned_to_office(client, db, setup)
+        res = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "講師に修正依頼"},
+            headers=_auth(client, "office@x.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["status"] == WorkStatus.RETURNED_TO_TUTOR
+
+
 class TestSchoolVisibility:
     def test_school_sees_reports_across_statuses(self, client, db, setup):
         tutor_headers = _auth(client, "tutor@x.example.com")

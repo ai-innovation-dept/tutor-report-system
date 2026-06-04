@@ -258,7 +258,7 @@
       if (totalArea) totalArea.textContent = `合計：${navDurationLabel(total)}`;
 
       const assignmentMap = new Map(assignments.map(assignment => [assignment.id, assignment]));
-      const returned = reports.filter(report => ['returned_to_tutor', 'returned_to_sales'].includes(report.status) && report.last_return_comment);
+      const returned = reports.filter(report => ['returned_to_tutor', 'returned_to_office'].includes(report.status) && report.last_return_comment);
       if (!returned.length) return;
       returnCommentsList.innerHTML = latestMonthlyReturnComments(returned).map(report => {
         const assignment = assignmentMap.get(report.assignment_id);

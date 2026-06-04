@@ -145,6 +145,24 @@ TRANSITIONS: list[Transition] = [
         to_status=WorkStatus.AWAITING_SALES,
         next_approver_role="sales",
     ),
+    # 事務へ差し戻された報告を事務が処理する（営業/経理からの差戻しは事務が受け持つ）
+    # 承認＝前進（営業確認待ちへ）
+    Transition(
+        from_status=WorkStatus.RETURNED_TO_OFFICE,
+        action=WorkAction.APPROVE,
+        allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.AWAITING_SALES,
+        next_approver_role="sales",
+    ),
+    # 事務がさらに講師へ差し戻す
+    Transition(
+        from_status=WorkStatus.RETURNED_TO_OFFICE,
+        action=WorkAction.RETURN,
+        allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.RETURNED_TO_TUTOR,
+        comment_required=True,
+        next_approver_role="tutor",
+    ),
 ]
 
 # (from_status, action) → Transition の高速ルックアップ用インデックス

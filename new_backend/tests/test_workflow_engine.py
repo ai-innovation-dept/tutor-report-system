@@ -125,6 +125,19 @@ class TestFindTransition:
         for role in ("school", "sales", "office", "tutor"):
             assert find_transition(WorkStatus.APPROVED, WorkAction.RETURN, role) is None
 
+    def test_office_approves_returned_to_office_forward(self):
+        # 営業/経理から事務へ差し戻された報告を事務が承認＝営業確認待ちへ前進
+        t = find_transition(WorkStatus.RETURNED_TO_OFFICE, WorkAction.APPROVE, "office")
+        assert t is not None
+        assert t.to_status == WorkStatus.AWAITING_SALES
+
+    def test_office_returns_returned_to_office_to_tutor(self):
+        # 事務がさらに講師へ差し戻す
+        t = find_transition(WorkStatus.RETURNED_TO_OFFICE, WorkAction.RETURN, "office")
+        assert t is not None
+        assert t.to_status == WorkStatus.RETURNED_TO_TUTOR
+        assert t.comment_required is True
+
 
 # ---------------------------------------------------------------------------
 # engine: apply_transition

@@ -28,6 +28,7 @@ _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("skip_school", "draft"): (("office",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "awaiting_school"): (("tutor",), "approved_by_school", _APPROVED_BY_SCHOOL_SUBJECT),
     ("approve", "awaiting_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("approve", "returned_to_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "awaiting_sales"): (("admin_master",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "awaiting_finance"): (("tutor", "school"), "final_approved", _FINAL_APPROVED_SUBJECT),
     ("return", "awaiting_school"): (("tutor",), "returned", _RETURNED_SUBJECT),
@@ -35,6 +36,7 @@ _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("return", "awaiting_sales"): (("office",), "returned", _RETURNED_SUBJECT),
     ("return", "awaiting_finance"): (("office",), "returned", _RETURNED_SUBJECT),
     ("return", "approved"): (("office",), "returned", _RETURNED_SUBJECT),
+    ("return", "returned_to_office"): (("tutor",), "returned", _RETURNED_SUBJECT),
 }
 
 

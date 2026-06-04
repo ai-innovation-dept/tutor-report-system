@@ -111,8 +111,8 @@ const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
-  {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office']},
-  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales', 'returned_to_office']},
+  {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office', 'returned_to_office']},
+  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
   {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
   {key: 'approved', label: '完了', statuses: ['approved']},
   {key: 'closed', label: 'クローズ', statuses: ['closed']}
@@ -241,7 +241,7 @@ function taskConfig() {
   }
   if (currentRole === 'sales') {
     return {
-      statuses: ['awaiting_sales', 'returned_to_office'],
+      statuses: ['awaiting_sales'],
       subtext: '営業対応が必要',
       label: '営業承認',
       returnRole: 'sales'
@@ -249,7 +249,7 @@ function taskConfig() {
   }
   if (currentRole === 'office') {
     return {
-      status: 'awaiting_office',
+      statuses: ['awaiting_office', 'returned_to_office'],
       subtext: '事務確認が必要',
       label: '事務承認',
       returnRole: 'office'
@@ -312,7 +312,7 @@ function renderKpis() {
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">差戻し中</div>
       <div class="mt-1 text-slate-800" style="font-size:28px;font-weight:500;">${returnedTutor + returnedReceiver}</div>
-      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 営業${returnedReceiver}</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);">講師${returnedTutor} / 事務${returnedReceiver}</div>
     </div>
     <div class="admin-card">
       <div style="font-size:11px;color:var(--color-text-secondary);">今月完了</div>
@@ -354,7 +354,7 @@ function renderTasks(groups) {
 }
 function pipelineColumnForStatus(status) {
   if (status === 'returned_to_tutor') return 'draft';
-  if (status === 'returned_to_office') return 'awaiting_sales';
+  if (status === 'returned_to_office') return 'awaiting_office';
   return status;
 }
 function pipelineCardClass(status) {
