@@ -324,7 +324,16 @@ function assignmentName(id) {
   return allAssignments.find(a => a.id === id)?.student_name || '生徒未設定';
 }
 function emptyLine(form = selectedFormDefinition()) {
-  return Object.fromEntries((form.columns || DEFAULT_FORM_DEFINITION.columns).map(column => [column.key, '']));
+  const line = {};
+  (form.columns || DEFAULT_FORM_DEFINITION.columns).forEach(column => {
+    if (column.type === 'count_minutes') {
+      line[column.count_key] = '';
+      line[column.minutes_key] = '';
+    } else {
+      line[column.key] = '';
+    }
+  });
+  return line;
 }
 function normalizedLines(report) {
   const form = selectedFormDefinition();
@@ -538,6 +547,8 @@ function renderLineHeader(form) {
       headers.push(`<th class="w-28 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
     } else if (column.key === 'note') {
       headers.push(`<th class="min-w-64 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+    } else if (column.type === 'count_minutes') {
+      headers.push(`<th class="w-48 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
     } else {
       headers.push(`<th class="w-32 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
     }
@@ -580,6 +591,16 @@ function renderCell(column, line) {
     </td>`;
   }
   if (column.key === 'end') return '';
+  if (column.type === 'count_minutes') {
+    return `<td class="px-2 py-1">
+      <div class="flex items-center gap-1">
+        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.count_key)}" value="${escapeHtml(line[column.count_key] ?? '')}" class="${inputClasses('w-16')}">
+        <span class="whitespace-nowrap text-xs text-slate-500">回 /</span>
+        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.minutes_key)}" value="${escapeHtml(line[column.minutes_key] ?? '')}" class="${inputClasses('w-16')}">
+        <span class="text-xs text-slate-500">分</span>
+      </div>
+    </td>`;
+  }
   return `<td class="px-2 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
 }
 function buildLineRows(lines) {
@@ -657,7 +678,11 @@ function enforceSubjectPeriod(input) {
   }
 }
 function collectLines() {
-  const numericKeys = new Set((selectedFormDefinition().columns || []).filter(column => column.type === 'number').map(column => column.key));
+  const numericKeys = new Set();
+  (selectedFormDefinition().columns || []).forEach(column => {
+    if (column.type === 'count_minutes') { numericKeys.add(column.count_key); numericKeys.add(column.minutes_key); }
+    else if (column.type === 'number') numericKeys.add(column.key);
+  });
   return [...lineRows.querySelectorAll('tr')].map(row => {
     const line = emptyLine(selectedFormDefinition());
     row.querySelectorAll('[data-field]').forEach(input => {
@@ -697,14 +722,28 @@ function updateLineSummary() {
   const lines = collectLines();
   let days = 0;
   const sums = {};
-  columns.forEach(column => { sums[column.key] = 0; });
+  columns.forEach(column => {
+    if (column.type === 'count_minutes') { sums[column.count_key] = 0; sums[column.minutes_key] = 0; }
+    else sums[column.key] = 0;
+  });
   lines.forEach(line => {
     if (lineHasData(line)) days += 1;
-    columns.forEach(column => { sums[column.key] += numberValue(line[column.key]); });
+    columns.forEach(column => {
+      if (column.type === 'count_minutes') {
+        sums[column.count_key] += numberValue(line[column.count_key]);
+        sums[column.minutes_key] += numberValue(line[column.minutes_key]);
+      } else {
+        sums[column.key] += numberValue(line[column.key]);
+      }
+    });
   });
   const parts = [`<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`];
   columns.forEach(column => {
-    parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.key].toLocaleString()}</span></div>`);
+    if (column.type === 'count_minutes') {
+      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.count_key].toLocaleString()}</span>回 / <span class="font-semibold">${sums[column.minutes_key].toLocaleString()}</span>分</div>`);
+    } else {
+      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.key].toLocaleString()}</span></div>`);
+    }
   });
   const area = document.getElementById('summaryArea');
   if (area) area.innerHTML = parts.join('');
@@ -712,7 +751,8 @@ function updateLineSummary() {
 function renderTaskReference() {
   const el = document.getElementById('taskReference');
   if (!el) return;
-  const tasks = activeColumnDefinition().filter(column => String(column.key || '').startsWith('task_minutes_'));
+  const tasks = activeColumnDefinition().filter(column =>
+    column.type === 'count_minutes' || String(column.key || '').startsWith('task_minutes_'));
   el.innerHTML = tasks.length
     ? tasks.map(column => `<div>${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`).join('')
     : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
