@@ -30,6 +30,7 @@
 | tutor_no | VARCHAR(20) | NULL | 講師番号（旧システムの採番） | legacy |
 | phone | VARCHAR(20) | NULL | 電話番号 | legacy |
 | is_active | BOOLEAN | NOT NULL, default=True | 有効フラグ | legacy |
+| skip_parent_approval | BOOLEAN | NOT NULL, default=False | 承認スキップ（保護者ユーザー=保護者承認スキップ／学校ユーザー=学校承認スキップ）。ユーザー管理画面で設定 | legacy(0013) |
 | deleted_at | TIMESTAMP WITH TZ | NULL | 論理削除日時（ソフトデリート） | legacy |
 | user_no | VARCHAR(20) | NULL | 新システムのユーザー番号（T/S/X 番号帯） | **new** |
 | allowed_systems | JSON | NULL | アクセス可能システムの配列 | **new** |
@@ -49,14 +50,14 @@
 | parent_id | UUID | FK(users.id), INDEX, NULL | 保護者ID（新: 学校ID） | legacy |
 | student_name | VARCHAR(100) | NOT NULL | 生徒名（新: 学校名） | legacy |
 | is_active | BOOLEAN | NOT NULL, default=True | 有効フラグ | legacy |
-| skip_parent_approval | BOOLEAN | NOT NULL, default=False | 保護者／学校承認スキップ | legacy |
+| skip_parent_approval | BOOLEAN | NOT NULL, default=False | （旧）承認スキップ。**現在は未使用**（判定は `users.skip_parent_approval` に移設） | legacy |
 | reminder_enabled | BOOLEAN | NOT NULL, default=False | リマインダー有効 | legacy |
 | reminder_days_after | INTEGER | NOT NULL, default=1 | リマインダー間隔（日） | legacy |
 | reminder_count | INTEGER | NOT NULL, default=1 | リマインダー最大回数 | legacy |
 | created_at | TIMESTAMP WITH TZ | NOT NULL | 作成日時 | legacy |
 | system_type | VARCHAR(10) | NULL, default='legacy' | 所属システム（'legacy' / 'work'） | **new** |
 
-> 新システムでは `skip_parent_approval` を「学校承認スキップ」フラグとして転用する。
+> 承認スキップは**両システムとも `users.skip_parent_approval`（保護者／学校ユーザー単位）**で管理する。`assignments.skip_parent_approval` 列は残存するが現在は判定に使用しない。スキップ設定は各システムのユーザー管理画面（ユーザー詳細）で行う。
 
 ### invitations（招待）
 

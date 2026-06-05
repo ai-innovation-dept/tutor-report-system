@@ -75,28 +75,6 @@
 </section>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="border-b border-slate-200 bg-slate-50 p-4">
-    <h2 class="font-semibold text-slate-800">招待済み一覧</h2>
-  </div>
-  <div class="overflow-x-auto">
-    <table class="mobile-cards w-full text-sm">
-      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-        <tr>
-          <th class="px-4 py-3 text-left">メール</th>
-          <th class="px-4 py-3 text-left">役割</th>
-          <th class="px-4 py-3 text-left">担当講師</th>
-          <th class="px-4 py-3 text-left">担当生徒</th>
-          <th class="px-4 py-3 text-left">送信日時</th>
-          <th class="px-4 py-3 text-left">状態</th>
-          <th class="px-4 py-3 text-left">操作</th>
-        </tr>
-      </thead>
-      <tbody id="invitationRows"></tbody>
-    </table>
-  </div>
-</section>
-
-<section class="mt-4 rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
     <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
     <div class="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
@@ -115,6 +93,7 @@
           <th class="px-4 py-3 text-left">名前</th>
           <th class="px-4 py-3 text-left">メール</th>
           <th class="px-4 py-3 text-left">講師No</th>
+          <th class="px-4 py-3 text-left">送信日時</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
         </tr>
@@ -231,22 +210,45 @@ function syncRoleFields() {
   else if (parentMode) roleHint.textContent = '保護者は登録URLで本人がパスワードを設定します。既存保護者メールなら生徒を追加します。';
   else roleHint.textContent = '運営スタッフは登録URLで本人がパスワードを設定します。';
 }
-function renderInvitations() {
-  invitationRows.innerHTML = invitations.length ? invitations.map(invitation => {
-    const action = invitation.accepted_at
-      ? ''
-      : `<button class="rounded-lg bg-blue-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendInvitation('${invitation.id}')">再送</button>
-         <button class="ml-2 rounded-lg border border-red-200 bg-red-50 px-3 py-1.5 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>`;
-    return `<tr class="border-t border-slate-100 hover:bg-slate-50">
-      <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
-      <td class="px-4 py-3" data-label="役割">${escapeHtml(roleLabel(invitation.role))}</td>
-      <td class="px-4 py-3" data-label="担当講師">${invitation.role === 'parent' ? escapeHtml(invitation.tutor_name || '-') : '-'}</td>
-      <td class="px-4 py-3" data-label="担当生徒">${invitation.role === 'parent' ? escapeHtml(invitation.student_name || '-') : '-'}</td>
-      <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
-      <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
-      <td class="px-4 py-3" data-label="操作">${action}</td>
-    </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">招待はありません。</td></tr>';
+function invitationFor(email) {
+  // 同一メールの招待のうち最新のものを送信日時として使う
+  return invitations
+    .filter(invitation => invitation.email === email)
+    .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')))[0] || null;
+}
+function sentAtText(user) {
+  const invitation = invitationFor(user.email);
+  // 招待経由でないオリジナルユーザーは 0000/0/0 00:00 を表示する
+  return invitation ? formatDateTime(invitation.created_at) : '0000/0/0 00:00';
+}
+function pendingInvitations() {
+  // 未登録（未承認）の招待のみを対象にする。承認済みは登録済みユーザーと重複するため除外。
+  const keyword = userSearch.value.trim().toLowerCase();
+  return invitations.filter(invitation => {
+    if (invitation.accepted_at) return false;
+    if (activeRole && invitation.role !== activeRole) return false;
+    if (keyword) {
+      const text = `${invitation.display_name || ''} ${invitation.email}`.toLowerCase();
+      if (!text.includes(keyword)) return false;
+    }
+    return true;
+  });
+}
+function pendingInvitationRow(invitation) {
+  return `<tr class="border-t border-slate-100 bg-amber-50/40 hover:bg-amber-50">
+    <td class="min-w-72 px-4 py-3 text-xs text-slate-500" data-label="ロール">${escapeHtml(roleLabel(invitation.role))}</td>
+    <td class="px-4 py-3" data-label="名前">${escapeHtml(invitation.display_name || '-')}</td>
+    <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
+    <td class="px-4 py-3" data-label="講師No">${escapeHtml(invitation.tutor_no || '-')}</td>
+    <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
+    <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
+    <td class="px-4 py-3" data-label="操作">
+      <div class="flex flex-wrap gap-2">
+        <button class="min-h-[44px] rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendInvitation('${invitation.id}')">再送</button>
+        <button class="min-h-[44px] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>
+      </div>
+    </td>
+  </tr>`;
 }
 function roleCheckboxes(user, location = 'row') {
   const roles = new Set(currentEditedRoles(user));
@@ -268,27 +270,31 @@ function renderRoleTabs() {
     </button>`;
   }).join('');
 }
+function userRow(user) {
+  const active = user.is_active ? '有効' : '無効';
+  const updating = updatingUsers.has(user.id);
+  const changed = userHasRoleChanges(user);
+  const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
+  return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
+    <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
+    <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
+    <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
+    <td class="px-4 py-3" data-label="講師No">${escapeHtml(user.tutor_no || '-')}</td>
+    <td class="px-4 py-3" data-label="送信日時">${sentAtText(user)}</td>
+    <td class="px-4 py-3" data-label="状態">${active}</td>
+    <td class="px-4 py-3" data-label="操作">
+      <div class="flex flex-wrap gap-2">
+        <button class="min-h-[44px] rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
+        <button class="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
+      </div>
+    </td>
+  </tr>`;
+}
 function renderUsers() {
   renderRoleTabs();
-  userRows.innerHTML = users.length ? users.map(user => {
-    const active = user.is_active ? '有効' : '無効';
-    const updating = updatingUsers.has(user.id);
-    const changed = userHasRoleChanges(user);
-    const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
-    return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
-      <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
-      <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
-      <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
-      <td class="px-4 py-3" data-label="講師No">${escapeHtml(user.tutor_no || '-')}</td>
-      <td class="px-4 py-3" data-label="状態">${active}</td>
-      <td class="px-4 py-3" data-label="操作">
-        <div class="flex flex-wrap gap-2">
-          <button class="min-h-[44px] rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
-          <button class="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
-        </div>
-      </td>
-    </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">登録済みユーザーはありません。</td></tr>';
+  // 未登録の招待も同じ一覧に表示する（招待済み一覧は廃止）。承認済み招待は除外し登録済みユーザーとの重複を防ぐ。
+  const rows = [...pendingInvitations().map(pendingInvitationRow), ...users.map(userRow)];
+  userRows.innerHTML = rows.length ? rows.join('') : '<tr><td class="p-4 text-slate-600" colspan="7">登録済みユーザーはありません。</td></tr>';
   renderPagination();
 }
 function renderPagination() {
@@ -329,7 +335,6 @@ async function loadUsersPage(page = paginationState.page) {
   };
   changedRoles = {};
   renderTutorOptions();
-  renderInvitations();
   renderUsers();
   syncRoleFields();
 }
