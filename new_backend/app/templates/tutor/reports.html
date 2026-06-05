@@ -232,7 +232,6 @@ const DEFAULT_META = {
 };
 let allReports = [];
 let allAssignments = [];
-let schoolUsers = [];
 const isSubmitPage = location.pathname === '/tutor/submit';
 const currentMonth = getCurrentMonth();
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
@@ -832,14 +831,16 @@ async function loadContracts() {
     contractsBySchool = {};
   }
 }
-async function loadSchoolUsers() {
-  const result = await api('/api/w/users?role=school');
-  schoolUsers = Array.isArray(result?.items) ? result.items : [];
+function populateDispatchSchoolOptions() {
+  // 派遣先（学校）プルダウンは、経理の契約管理に登録された自分の契約の学校のみ表示する
   const sel = document.getElementById('dispatchPlaceSchool');
   if (!sel) return;
   const prev = sel.value;
+  const schools = Object.values(contractsBySchool)
+    .map(contract => ({id: String(contract.school_id), name: contract.school_name || ''}))
+    .sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   sel.innerHTML = '<option value="">選択してください</option>' +
-    schoolUsers.map(u => `<option value="${escapeHtml(String(u.id))}">${escapeHtml(u.display_name)}</option>`).join('');
+    schools.map(school => `<option value="${escapeHtml(school.id)}">${escapeHtml(school.name)}</option>`).join('');
   sel.value = prev;
 }
 async function submitReport(id) {
@@ -961,7 +962,8 @@ document.getElementById('dispatchPlaceSchool').addEventListener('change', event 
 document.getElementById('newReportBtn').addEventListener('click', startNewReport);
 window.authReady.then(async user => {
   if (!user) return;
-  await Promise.all([loadSchoolUsers(), loadContracts()]);
+  await loadContracts();
+  populateDispatchSchoolOptions();
   loadTutor();
 });
 </script>
