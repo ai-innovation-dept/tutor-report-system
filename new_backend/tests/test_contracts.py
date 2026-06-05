@@ -1,4 +1,7 @@
 """契約管理 API（/api/w/contracts）のテスト。"""
+import csv
+import io
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -6,6 +9,7 @@ from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
 from app.models.work import WorkAssignmentProfile
+from app.services import contract_import_service as cis
 from tests.conftest import TestSession
 
 
@@ -219,3 +223,113 @@ class TestContractListGetUpdateDelete:
         # 無効でも一覧には残る
         listed = client.get("/api/w/contracts", headers=headers).json()
         assert created["id"] in [c["id"] for c in listed]
+
+
+def _csv_bytes(rows: list[dict]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=cis.headers())
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({h: row.get(h, "") for h in cis.headers()})
+    return buf.getvalue().encode("utf-8-sig")
+
+
+def _csv_row(tutor_no, school_name, **over):
+    row = {
+        cis.TUTOR_NO: tutor_no,
+        cis.SCHOOL_NAME: school_name,
+        cis.CUSTOMER_ID: "9999",
+        cis._task_name_h(1): "数学指導",
+        cis._task_id_h(1): "T1",
+    }
+    row.update(over)
+    return row
+
+
+class TestContractImport:
+    @pytest.fixture()
+    def import_setup(self, db, setup):
+        tutor = _add_user(db, "t100@x.example.com", "tutor")
+        tutor.user_no = "T100"
+        tutor.display_name = "山田太郎"
+        school = _add_user(db, "shibuya@x.example.com", "school")
+        school.display_name = "渋谷高校"
+        db.commit()
+        return {**setup, "imp_tutor": tutor, "imp_school": school}
+
+    def _upload(self, client, data: bytes):
+        return client.post(
+            "/api/w/contracts/import",
+            files={"file": ("contracts.csv", data, "text/csv")},
+            headers=_auth(client, "master@x.example.com"),
+        )
+
+    def test_template_download(self, client, setup):
+        res = client.get("/api/w/contracts/import-template", headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 200
+        assert "text/csv" in res.headers["content-type"]
+        text = res.content.decode("utf-8-sig")
+        assert cis.TUTOR_NO in text.splitlines()[0]
+
+    def test_import_creates_then_upserts(self, client, db, import_setup):
+        # 新規取り込み
+        res = self._upload(client, _csv_bytes([_csv_row("T100", "渋谷高校", **{cis.OUR_STAFF: "旧担当"})]))
+        assert res.status_code == 200, res.text
+        assert res.json() == {"imported": 1, "created": 1, "updated": 0}
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.our_staff == "旧担当"
+        assert profile.task_name_1 == "数学指導"
+        # 同一(講師×学校)を再取り込み → upsertで更新
+        res2 = self._upload(client, _csv_bytes([_csv_row("T100", "渋谷高校", **{cis.OUR_STAFF: "新担当"})]))
+        assert res2.status_code == 200, res2.text
+        assert res2.json() == {"imported": 1, "created": 0, "updated": 1}
+        db.refresh(profile)
+        assert profile.our_staff == "新担当"
+
+    def test_import_scoring_enabled(self, client, db, import_setup):
+        res = self._upload(client, _csv_bytes([
+            _csv_row("T100", "渋谷高校", **{cis.SCORING_ENABLED: "有", cis.SCORING_TASK_ID: "S1"})]))
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.scoring_enabled is True
+        assert profile.scoring_task_id == "S1"
+
+    def test_import_all_or_nothing(self, client, db, import_setup):
+        # 1行目は有効、2行目は講師番号が不正 → 全件中止（何も登録しない）
+        data = _csv_bytes([
+            _csv_row("T100", "渋谷高校"),
+            _csv_row("UNKNOWN", "渋谷高校"),
+        ])
+        res = self._upload(client, data)
+        assert res.status_code == 400
+        detail = res.json()["detail"]
+        assert any("UNKNOWN" in e for e in detail["errors"])
+        assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_skips_example_row(self, client, db, import_setup):
+        # 講師番号が#始まりの記入例行はスキップ、有効行のみ取り込む
+        data = _csv_bytes([
+            _csv_row("#T0001", "渋谷高校"),
+            _csv_row("T100", "渋谷高校"),
+        ])
+        res = self._upload(client, data)
+        assert res.status_code == 200, res.text
+        assert res.json()["imported"] == 1
+
+    def test_import_first_task_required(self, client, db, import_setup):
+        row = _csv_row("T100", "渋谷高校")
+        row[cis._task_name_h(1)] = ""
+        row[cis._task_id_h(1)] = ""
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 400
+        assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_non_admin_forbidden(self, client, import_setup):
+        res = client.post(
+            "/api/w/contracts/import",
+            files={"file": ("c.csv", _csv_bytes([_csv_row("T100", "渋谷高校")]), "text/csv")},
+            headers=_auth(client, "t100@x.example.com"),
+        )
+        assert res.status_code == 403

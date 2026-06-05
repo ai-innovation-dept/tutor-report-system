@@ -5,7 +5,7 @@
 """
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -21,6 +21,7 @@ from app.schemas.contracts import (
     ContractTask,
     ContractUpdate,
 )
+from app.services import contract_import_service
 from app.services.assignment_service import get_or_create_new_assignment
 from app.services.contract_form_service import build_column_definition
 
@@ -95,6 +96,13 @@ def _get_profile_loaded(db: Session, profile_id: uuid.UUID) -> WorkAssignmentPro
     return profile
 
 
+def _apply_payload(profile: WorkAssignmentProfile, payload: ContractCreate) -> None:
+    """契約詳細フィールドと委託業務をプロファイルへ反映する（作成・upsertで共用）。"""
+    for field in _DETAIL_FIELDS:
+        setattr(profile, field, getattr(payload, field))
+    _tasks_to_columns(profile, payload.tasks)
+
+
 def _resolve_pair(db: Session, tutor_id: uuid.UUID, school_id: uuid.UUID) -> tuple[User, User]:
     tutor = db.get(User, tutor_id)
     if not _has_role(tutor, "tutor"):
@@ -146,12 +154,101 @@ def create_contract(
         contract_meta={},
         is_active=True,
     )
-    for field in _DETAIL_FIELDS:
-        setattr(profile, field, getattr(payload, field))
-    _tasks_to_columns(profile, payload.tasks)
+    _apply_payload(profile, payload)
     db.add(profile)
     db.commit()
     return _to_out(_get_profile_loaded(db, profile.id))
+
+
+def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
+    """(講師,学校)が既存なら更新、無ければ作成。created(bool) を返す（commitは呼び出し側）。"""
+    tutor, school = _resolve_pair(db, payload.tutor_id, payload.school_id)
+    profile = db.scalar(
+        select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id,
+            WorkAssignmentProfile.school_id == school.id,
+        )
+    )
+    created = profile is None
+    if created:
+        assignment = get_or_create_new_assignment(db, tutor, school)
+        profile = WorkAssignmentProfile(
+            assignment_id=assignment.id,
+            tutor_id=tutor.id,
+            school_id=school.id,
+            form_type="monthly_dispatch",
+            contract_meta={},
+            is_active=True,
+        )
+        db.add(profile)
+    else:
+        profile.is_active = True
+    _apply_payload(profile, payload)
+    return created
+
+
+@router.get("/import-template")
+def download_import_template(_: User = Depends(require_role("admin_master"))):
+    """CSV一括登録用のテンプレート（UTF-8 BOM）をダウンロードする。"""
+    return Response(
+        content=contract_import_service.build_template_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="contract_import_template.csv"'},
+    )
+
+
+@router.post("/import")
+def import_contracts(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master")),
+):
+    """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も登録しない）。
+
+    (講師×学校)の重複は upsert（既存契約を上書き更新）する。
+    """
+    try:
+        rows = contract_import_service.parse_rows(file.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    payloads: list[ContractCreate] = []
+    errors: list[str] = []
+    seen: dict[tuple, int] = {}
+    for offset, row in enumerate(rows):
+        line_no = offset + 2  # ヘッダー(1行目)の次から
+        if contract_import_service.is_skip_row(row):
+            continue
+        payload, row_errors = contract_import_service.row_to_payload(db, row)
+        if row_errors:
+            errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+            continue
+        key = (payload.tutor_id, payload.school_id)
+        if key in seen:
+            errors.append(f"{line_no}行目: 同一CSV内で講師×学校が{seen[key]}行目と重複しています")
+            continue
+        seen[key] = line_no
+        payloads.append(payload)
+
+    if errors:
+        raise HTTPException(status_code=400, detail={
+            "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
+            "errors": errors,
+        })
+    if not payloads:
+        raise HTTPException(status_code=400, detail={
+            "message": "取り込み対象の行がありません。記入例（講師番号が空または先頭#）以外の行を入力してください。",
+            "errors": [],
+        })
+
+    created = updated = 0
+    for payload in payloads:
+        if _upsert_contract(db, payload):
+            created += 1
+        else:
+            updated += 1
+    db.commit()
+    return {"imported": len(payloads), "created": created, "updated": updated}
 
 
 @router.get("/for-tutor", response_model=list[ContractForTutorOut])
