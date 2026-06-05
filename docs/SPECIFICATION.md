@@ -331,6 +331,7 @@ returned_to_receiver --> 受付担当が receive --> received
 |---------|-----|------|------|
 | POST | `/api/auth/login` | 不要 | ログイン。Cookie に JWT を設定 |
 | POST | `/api/auth/logout` | 不要 | ログアウト。Cookie を削除 |
+| POST | `/api/auth/select-role` | ログイン済み | 複数ロール保有時の使用ロール選択 |
 | GET | `/api/auth/me` | ログイン済み | 現在ユーザー情報取得 |
 | GET | `/api/auth/register` | 不要（token 必須） | 招待トークン情報取得（メール・生徒名） |
 | POST | `/api/auth/register` | 不要（token 必須） | 招待ロールに応じたアカウント作成 |
@@ -597,11 +598,15 @@ password: パスワード
 | id | UUID | PK, default=uuid4 | ユーザーID |
 | email | VARCHAR(255) | UNIQUE, INDEX, NOT NULL | メールアドレス |
 | password_hash | VARCHAR(255) | NOT NULL | bcrypt ハッシュ |
-| role | VARCHAR(32) | INDEX, NOT NULL | tutor / parent / admin_receiver / admin_reviewer / admin_master |
+| role | VARCHAR(32) | INDEX, NOT NULL | 主ロール: tutor / parent / admin_receiver / admin_reviewer / admin_master（新システムは school / office / sales / admin_master も使用） |
+| roles | JSON | NULL | 複数ロール保有時のロール配列 |
 | display_name | VARCHAR(100) | NOT NULL | 表示名 |
 | tutor_no | VARCHAR(20) | NULL | 講師番号（tutor のみ使用） |
 | phone | VARCHAR(20) | NULL | 電話番号 |
 | is_active | BOOLEAN | NOT NULL, default=True | 有効フラグ |
+| deleted_at | TIMESTAMP WITH TZ | NULL | 論理削除日時（ソフトデリート） |
+| user_no | VARCHAR(20) | NULL | 新システムのユーザー番号（T/S/X 番号帯）※新システムで追加 |
+| allowed_systems | JSON | NULL | アクセス可能システムの配列 ※新システムで追加 |
 | created_at | TIMESTAMP WITH TZ | NOT NULL | 作成日時 |
 | updated_at | TIMESTAMP WITH TZ | NOT NULL | 更新日時 |
 
@@ -611,10 +616,15 @@ password: パスワード
 |--------|------|------|------|
 | id | UUID | PK, default=uuid4 | 紐付けID |
 | tutor_id | UUID | FK(users.id), INDEX, NOT NULL | 講師ID |
-| parent_id | UUID | FK(users.id), INDEX, NULL | 保護者ID（招待受諾後に設定） |
-| student_name | VARCHAR(100) | NOT NULL | 生徒名 |
+| parent_id | UUID | FK(users.id), INDEX, NULL | 保護者ID（招待受諾後に設定。新システムでは学校ID） |
+| student_name | VARCHAR(100) | NOT NULL | 生徒名（新システムでは学校名） |
 | is_active | BOOLEAN | NOT NULL, default=True | 有効フラグ |
+| skip_parent_approval | BOOLEAN | NOT NULL, default=False | 保護者承認スキップ（新システムでは学校承認スキップに転用） |
+| reminder_enabled | BOOLEAN | NOT NULL, default=False | リマインダー有効 |
+| reminder_days_after | INTEGER | NOT NULL, default=1 | リマインダー間隔（日） |
+| reminder_count | INTEGER | NOT NULL, default=1 | リマインダー最大回数 |
 | created_at | TIMESTAMP WITH TZ | NOT NULL | 作成日時 |
+| system_type | VARCHAR(10) | NULL, default='legacy' | 所属システム（'legacy' / 'work'）※新システムで追加 |
 
 ### lesson_reports テーブル（報告書）
 
