@@ -29,6 +29,7 @@ router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 _DETAIL_FIELDS = (
     "customer_id", "our_staff", "contract_start", "contract_end",
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
+    "scoring_enabled", "scoring_task_id", "scoring_contract_id",
 )
 
 
@@ -44,7 +45,6 @@ def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask])
         setattr(profile, f"task_name_{index}", (task.task_name or None) if task else None)
         setattr(profile, f"task_id_{index}", (task.task_id or None) if task else None)
         setattr(profile, f"contract_id_{index}", (task.contract_id or None) if task else None)
-        setattr(profile, f"task_format_{index}", (task.task_format or "minutes") if task else None)
 
 
 def _tasks_from_columns(profile: WorkAssignmentProfile) -> list[ContractTask]:
@@ -54,12 +54,7 @@ def _tasks_from_columns(profile: WorkAssignmentProfile) -> list[ContractTask]:
         task_id = getattr(profile, f"task_id_{index}")
         contract_id = getattr(profile, f"contract_id_{index}")
         if name or task_id or contract_id:
-            tasks.append(ContractTask(
-                task_name=name,
-                task_id=task_id,
-                contract_id=contract_id,
-                task_format=getattr(profile, f"task_format_{index}") or "minutes",
-            ))
+            tasks.append(ContractTask(task_name=name, task_id=task_id, contract_id=contract_id))
     return tasks
 
 
@@ -79,6 +74,9 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         weekly_lessons=profile.weekly_lessons,
         shift_note=profile.shift_note,
         work_content=profile.work_content,
+        scoring_enabled=profile.scoring_enabled,
+        scoring_task_id=profile.scoring_task_id,
+        scoring_contract_id=profile.scoring_contract_id,
         tasks=_tasks_from_columns(profile),
         is_active=profile.is_active,
         created_at=profile.created_at,

@@ -5,23 +5,13 @@ from datetime import date, datetime
 from pydantic import BaseModel, field_validator
 
 MAX_TASKS = 5
-TASK_FORMATS = ("minutes", "count_minutes")
 
 
 class ContractTask(BaseModel):
-    """委託業務（業務名・委託業務ID・個別契約ID・入力形式）。
-
-    task_format: 'minutes'（分のみ1列）/ 'count_minutes'（回＋分の2列）。
-    """
+    """委託業務（業務名・委託業務ID・個別契約ID）。常に「分のみ」で報告書に反映。"""
     task_name: str | None = None
     task_id: str | None = None
     contract_id: str | None = None
-    task_format: str = "minutes"
-
-    @field_validator("task_format", mode="before")
-    @classmethod
-    def _normalize_format(cls, value: str | None) -> str:
-        return value if value in TASK_FORMATS else "minutes"
 
     def is_empty(self) -> bool:
         return not any([
@@ -40,6 +30,10 @@ class ContractBase(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
+    # 採点専用欄（回数＋分数固定）。enabled のときのみ報告書に採点列を生成する。
+    scoring_enabled: bool = False
+    scoring_task_id: str | None = None
+    scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []
 
     @field_validator("tasks")
@@ -93,6 +87,9 @@ class ContractOut(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
+    scoring_enabled: bool = False
+    scoring_task_id: str | None = None
+    scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []
     is_active: bool
     created_at: datetime

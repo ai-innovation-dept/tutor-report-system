@@ -78,7 +78,7 @@ class TestContractCreate:
         assert body["school_name"] == "schoolユーザー"
         assert len(body["tasks"]) == 1
         assert body["tasks"][0]["task_id"] == "11111"
-        assert body["tasks"][0]["task_format"] == "minutes"
+        assert body["scoring_enabled"] is False
         # assignment が自動作成され紐付く
         assert db.query(Assignment).filter_by(tutor_id=setup["tutor"].id, parent_id=setup["school"].id).count() == 1
 
@@ -120,13 +120,16 @@ class TestContractForTutor:
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()
 
     def test_for_tutor_returns_column_definition(self, client, db, setup):
-        # 委託業務②を「回数＋分数」形式にすると 回・分 の2列が生成される
+        # 委託業務（分のみ）＋採点専用欄を有効化 → 末尾に採点（回）の1列(count_minutes)
         self._create(
             client, setup,
             tasks=[
                 {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
-                {"task_name": "採点", "task_id": "T2", "contract_id": "C2", "task_format": "count_minutes"},
+                {"task_name": "教科会", "task_id": "T2", "contract_id": "C2"},
             ],
+            scoring_enabled=True,
+            scoring_task_id="S1",
+            scoring_contract_id="SC1",
         )
         res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
         assert res.status_code == 200, res.text
@@ -135,32 +138,34 @@ class TestContractForTutor:
         entry = body[0]
         assert entry["school_id"] == str(setup["school"].id)
         keys = [c["key"] for c in entry["column_definition"]]
-        # 固定先頭 → 委託業務①(分のみ) → 委託業務②(回＋分=1列) → 固定末尾 の順
+        # 固定先頭 → 委託業務①②(分のみ) → 採点(回＋分=1列) → 固定末尾 の順
         assert keys == [
             "date", "start", "end", "subject_period",
-            "task_minutes_1",
-            "task_2",
+            "task_minutes_1", "task_minutes_2",
+            "scoring",
             "break_minutes", "commute_fee", "note",
         ]
         col1 = next(c for c in entry["column_definition"] if c["key"] == "task_minutes_1")
         assert col1["label"] == "数学指導（分）"
         assert col1["summable"] is True
         assert col1["task_id"] == "T1"
-        # 回数＋分数は type=count_minutes の1列。見出しは（回）、1セルに回・分の2値を併記
-        col2 = next(c for c in entry["column_definition"] if c["key"] == "task_2")
-        assert col2["type"] == "count_minutes"
-        assert col2["label"] == "採点（回）"
-        assert col2["count_key"] == "task_count_2"
-        assert col2["minutes_key"] == "task_minutes_2"
-        assert col2["minutes_label"] == "採点（分）"
-        assert col2["summable"] is True
+        # 採点は type=count_minutes の1列。見出しは（回）、1セルに回・分の2値を併記
+        scoring = next(c for c in entry["column_definition"] if c["key"] == "scoring")
+        assert scoring["type"] == "count_minutes"
+        assert scoring["label"] == "採点（回）"
+        assert scoring["count_key"] == "scoring_count"
+        assert scoring["minutes_key"] == "scoring_minutes"
+        assert scoring["minutes_label"] == "採点（分）"
+        assert scoring["task_id"] == "S1"
+        assert scoring["contract_id"] == "SC1"
+        assert scoring["summable"] is True
 
-    def test_for_tutor_minutes_only_omits_count_column(self, client, db, setup):
-        # 分のみ（デフォルト）の委託業務は 分 列のみで 回 列は生成されない
+    def test_for_tutor_without_scoring_omits_scoring_column(self, client, db, setup):
+        # 採点無効（デフォルト）なら採点列は生成されない
         self._create(client, setup)
         entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
         keys = [c["key"] for c in entry["column_definition"]]
-        assert "task_count_1" not in keys
+        assert "scoring" not in keys
         assert "task_minutes_1" in keys
 
     def test_for_tutor_only_own_contracts(self, client, db, setup):

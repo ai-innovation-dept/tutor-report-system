@@ -50,12 +50,10 @@ class WorkAssignmentProfile(Base):
     task_name_3: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_name_4: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_name_5: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # 委託業務の入力形式: 'minutes'（分のみ1列）/ 'count_minutes'（回＋分の2列）
-    task_format_1: Mapped[str | None] = mapped_column(String(20), nullable=True, default="minutes")
-    task_format_2: Mapped[str | None] = mapped_column(String(20), nullable=True, default="minutes")
-    task_format_3: Mapped[str | None] = mapped_column(String(20), nullable=True, default="minutes")
-    task_format_4: Mapped[str | None] = mapped_column(String(20), nullable=True, default="minutes")
-    task_format_5: Mapped[str | None] = mapped_column(String(20), nullable=True, default="minutes")
+    # 採点（専用欄）: 有効時のみ報告書に「採点（回）」列（1セル併記＝回数＋分数固定）を生成
+    scoring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scoring_task_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scoring_contract_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     task_id_1: Mapped[str | None] = mapped_column(String(50), nullable=True)
     task_id_2: Mapped[str | None] = mapped_column(String(50), nullable=True)
     task_id_3: Mapped[str | None] = mapped_column(String(50), nullable=True)
