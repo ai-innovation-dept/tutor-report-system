@@ -14,6 +14,7 @@ class UserOut(BaseModel):
     user_no: str | None = None
     allowed_systems: list[str] | None = None
     is_active: bool
+    skip_parent_approval: bool = False
     created_at: datetime | None = None
 
     model_config = {"from_attributes": True}
@@ -23,6 +24,7 @@ class UserPatch(BaseModel):
     display_name: str | None = None
     is_active: bool | None = None
     allowed_systems: list[str] | None = None
+    skip_parent_approval: bool | None = None
 
 
 class UserRolesPatch(BaseModel):

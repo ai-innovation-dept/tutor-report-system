@@ -140,7 +140,7 @@ function buildGroup(assignment, reports) {
     student_name: assignment?.student_name || '生徒未設定',
     parent_id: assignment?.parent_id || sorted[0]?.parent_id || null,
     parent_display_name: assignment?.parent_display_name || '',
-    skip_parent_approval: Boolean(assignment?.skip_parent_approval || sorted.some(report => report.skip_parent_approval)),
+    skip_parent_approval: sorted.some(report => report.skip_parent_approval),
     reminder_enabled: Boolean(assignment?.reminder_enabled),
     reminder_days_after: assignment?.reminder_days_after || 1,
     reminder_count: assignment?.reminder_count || 1,

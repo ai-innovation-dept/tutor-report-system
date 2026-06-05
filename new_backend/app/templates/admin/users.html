@@ -161,6 +161,7 @@ function escapeHtml(value) {
 function roleLabel(role) { return ROLE_LABELS[role] || role; }
 function userRoles(user) { return user.roles && user.roles.length ? user.roles : [user.role]; }
 function primaryRole(user) { return userRoles(user)[0] || user.role; }
+function isSchool(user) { return userRoles(user).includes('school'); }
 function canEditAdminRoles(user) { return userRoles(user).every(role => ['sales', 'office'].includes(role)); }
 function rolesKey(roles) { return [...roles].sort().join('|'); }
 function currentEditedRoles(user) { return changedRoles[user.id] || userRoles(user); }
@@ -415,6 +416,15 @@ function renderDetailDrawer(id) {
       <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
       <button class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
     </section>
+    ${isSchool(user) ? `
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">学校承認設定</h3>
+      <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" ${user.skip_parent_approval ? 'checked' : ''} onchange="toggleSchoolSkip('${user.id}', this.checked)" class="h-4 w-4 rounded border-slate-300">
+        <span>学校確認をスキップする</span>
+      </label>
+      <p class="mt-2 text-xs text-slate-500">ONにすると、この学校宛の業務連絡表は学校確認を省略して直接事務確認へ進みます。</p>
+    </section>` : ''}
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">状態管理</h3>
       <p class="mt-2 text-sm text-slate-700">現在の状態：${user.is_active ? '有効' : '無効'}</p>
@@ -426,6 +436,17 @@ function renderDetailDrawer(id) {
       <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の経理のため削除できません"' : ''}>このユーザーを削除する</button>
     </section>
   </div>`;
+}
+async function toggleSchoolSkip(id, value) {
+  try {
+    const updated = await api(`/api/w/users/${id}`, {method: 'PATCH', body: JSON.stringify({skip_parent_approval: value})});
+    if (selectedUser?.id === id) selectedUser = updated;
+    showToast('学校承認スキップを更新しました', 'success');
+    await loadUsersPage(paginationState.page);
+    if (selectedUser?.id === id) renderDetailDrawer(id);
+  } catch (error) {
+    showToast(error.message || '更新できませんでした', 'error');
+  }
 }
 async function disableUser(id) {
   try {

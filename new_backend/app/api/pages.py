@@ -214,14 +214,6 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
 
 
-@router.get("/admin/assignments", response_class=HTMLResponse)
-def admin_assignments(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
-    if redirect:
-        return redirect
-    return templates.TemplateResponse(request, "admin/assignments.html", _ctx(request, user))
-
-
 @router.get("/admin/contracts", response_class=HTMLResponse)
 def admin_contracts(request: Request, db: Session = Depends(get_db)):
     user, redirect = _require_page_role(request, "admin_master", db)

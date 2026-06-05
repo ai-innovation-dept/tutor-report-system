@@ -18,7 +18,6 @@ class AssignmentPatch(BaseModel):
     student_name: str | None = None
     is_active: bool | None = None
     parent_id: uuid.UUID | None = None
-    skip_school_approval: bool | None = None
     reminder_enabled: bool | None = None
     reminder_days_after: int | None = None
     reminder_count: int | None = None

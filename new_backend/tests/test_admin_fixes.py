@@ -154,12 +154,13 @@ class TestSkipSchoolOnSubmit:
     def _setup_assignment(self, db, *, skip):
         tutor = _add_user(db, "tutor@x.example.com", "tutor")
         school = _add_user(db, "school@x.example.com", "school")
+        # 学校スキップは学校ユーザー単位（users.skip_parent_approval）で管理する
+        school.skip_parent_approval = skip
         assignment = Assignment(
             tutor_id=tutor.id,
             parent_id=school.id,
             student_name="生徒A",
             system_type="new",
-            skip_parent_approval=skip,
         )
         db.add(assignment)
         db.commit()

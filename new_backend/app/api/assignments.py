@@ -61,7 +61,8 @@ def _assignment_out(db: Session, assignment: Assignment) -> dict:
         "form_definition": _form_definition(form_type),
         "parent_id": assignment.parent_id,
         "school_name": assignment.parent.display_name if assignment.parent else None,
-        "skip_school_approval": assignment.skip_parent_approval,
+        # 学校スキップは学校ユーザー（assignment.parent）単位で管理する
+        "skip_school_approval": bool(assignment.parent and assignment.parent.skip_parent_approval),
         "reminder_enabled": assignment.reminder_enabled,
         "reminder_days_after": assignment.reminder_days_after,
         "reminder_count": assignment.reminder_count,
@@ -167,9 +168,8 @@ def patch_assignment(
         data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k == "parent_id"}
     else:
         data = payload.model_dump(exclude_unset=True)
-    _FIELD_MAP = {"skip_school_approval": "skip_parent_approval"}
     for key, value in data.items():
-        setattr(a, _FIELD_MAP.get(key, key), value)
+        setattr(a, key, value)
     db.commit()
     return _get_assignment_out(db, a.id)
 

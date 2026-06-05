@@ -103,12 +103,12 @@ def enqueue_school_approval_reminders(db: Session, today: date | None = None) ->
             not assignment
             or not assignment.reminder_enabled
             or not assignment.parent_id
-            or assignment.skip_parent_approval
             or not report.submitted_at
         ):
             continue
         school = db.get(User, assignment.parent_id)
-        if not school or not school.is_active:
+        # 学校スキップ（学校ユーザー単位）が有効なら学校確認自体を行わないためリマインド対象外
+        if not school or not school.is_active or school.skip_parent_approval:
             continue
 
         sent = db.scalars(

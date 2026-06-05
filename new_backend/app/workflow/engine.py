@@ -13,11 +13,19 @@ from .exceptions import CommentRequired, InvalidTransition, PermissionDenied
 
 
 def _skips_school_approval(db: Session, report: WorkReport) -> bool:
-    """assignmentの学校スキップ設定（skip_parent_approvalカラムを転用）を返す。"""
+    """学校ユーザー単位の承認スキップ設定（users.skip_parent_approval）を返す。
+
+    学校 = assignment.parent。スキップ設定は学校ユーザーに紐づく（経理のユーザ管理で設定）。
+    """
     assignment = getattr(report, "assignment", None)
     if assignment is None and getattr(report, "assignment_id", None) is not None and hasattr(db, "get"):
         assignment = db.get(Assignment, report.assignment_id)
-    return bool(assignment and assignment.skip_parent_approval)
+    if not assignment or not assignment.parent_id:
+        return False
+    school = getattr(assignment, "parent", None)
+    if school is None and hasattr(db, "get"):
+        school = db.get(User, assignment.parent_id)
+    return bool(school and school.skip_parent_approval)
 
 
 def apply_transition(
