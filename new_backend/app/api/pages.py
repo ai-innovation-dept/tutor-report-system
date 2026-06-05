@@ -14,7 +14,7 @@ router = APIRouter(tags=["pages"])
 
 
 def _get_user_optional(request: Request, db: Session) -> User | None:
-    token = request.cookies.get("access_token")
+    token = request.cookies.get("w_access_token")
     if not token:
         return None
     payload = decode_access_token(token)
@@ -32,7 +32,7 @@ def _get_user_optional(request: Request, db: Session) -> User | None:
 
 def _active_role(request: Request, user: User) -> str:
     roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
-    selected = request.cookies.get("selected_role")
+    selected = request.cookies.get("w_selected_role")
     if selected and selected in roles:
         return selected
     return roles[0] if roles else user.role

@@ -63,10 +63,12 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
 
     roles = effective_roles(user)
     token = create_access_token({"sub": str(user.id)})
-    response.set_cookie(key="access_token", value=token, httponly=True, samesite="lax")
+    # 既存システム（指導実績報告システム）とクッキーを共有しないよう、新システム専用名を使う。
+    # これにより別システムへ同一ブラウザでアクセスしても自動ログインされず、各システムで個別ログインが必要になる。
+    response.set_cookie(key="w_access_token", value=token, httponly=True, samesite="lax")
 
     if len(roles) == 1:
-        response.set_cookie(key="selected_role", value=roles[0], httponly=True, samesite="lax")
+        response.set_cookie(key="w_selected_role", value=roles[0], httponly=True, samesite="lax")
         return TokenResponse(
             access_token=token,
             role=roles[0],
@@ -85,7 +87,7 @@ def select_role(
     roles = effective_roles(user)
     if payload.role not in roles:
         raise HTTPException(status_code=403, detail="role not available")
-    response.set_cookie(key="selected_role", value=payload.role, httponly=True, samesite="lax")
+    response.set_cookie(key="w_selected_role", value=payload.role, httponly=True, samesite="lax")
     return TokenResponse(
         access_token="",
         role=payload.role,
@@ -96,8 +98,8 @@ def select_role(
 
 @router.post("/logout")
 def logout(response: Response):
-    response.delete_cookie("access_token")
-    response.delete_cookie("selected_role")
+    response.delete_cookie("w_access_token")
+    response.delete_cookie("w_selected_role")
     return {"ok": True}
 
 

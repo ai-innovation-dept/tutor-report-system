@@ -98,6 +98,22 @@ def test_inactive_assignment_is_hidden_from_tutor_assignments(client, db):
     assert tutor_assignments.json() == []
 
 
+def test_new_system_assignment_is_hidden_from_legacy_list(client, db):
+    """業務連絡表システム（system_type='new'）の学校紐付けは既存システムの一覧に出さない。"""
+    tutor_token = token(client, "tutor@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    # 新システムが作る学校紐付けを模す（student_name に学校名、system_type='new'）
+    db.add(Assignment(tutor_id=tutor.id, student_name="渋谷高校", system_type="new"))
+    db.commit()
+
+    res = client.get("/api/assignments", headers={"Authorization": f"Bearer {tutor_token}"})
+    assert res.status_code == 200
+    names = [a["student_name"] for a in res.json()]
+    assert "渋谷高校" not in names
+    # 既存システムの紐付け（system_type デフォルト 'legacy'）は残る
+    assert "Student" in names
+
+
 def test_create_assignment_links_existing_parent_by_email(client, db, monkeypatch):
     async def fake_send(self, to, subject, body):
         raise AssertionError("existing parent should not receive invitation email")

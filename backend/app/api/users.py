@@ -270,6 +270,9 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
 @router.get("/assignments", response_model=list[AssignmentOut])
 def list_assignments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     stmt = select(Assignment).options(selectinload(Assignment.tutor), selectinload(Assignment.parent)).order_by(Assignment.created_at.desc())
+    # 業務連絡表システム（新システム）が作成した学校紐付け（system_type='new'）を除外し、
+    # 本システムのレコードのみ返す。NULL は legacy 扱い（過去データ・新カラム導入前の挿入分）。
+    stmt = stmt.where(or_(Assignment.system_type != "new", Assignment.system_type.is_(None)))
     if user.role == "tutor":
         stmt = stmt.where(Assignment.tutor_id == user.id, Assignment.is_active.is_(True))
     elif user.role == "parent":

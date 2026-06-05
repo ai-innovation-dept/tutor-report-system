@@ -73,6 +73,9 @@ class Assignment(Base):
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     student_name: Mapped[str] = mapped_column(String(100))
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 'legacy' = 指導実績報告システム、'new' = 業務連絡表システム。両システムで assignments テーブルを共有するため、
+    # この識別子で自システムのレコードのみを絞り込む。物理カラムは new_backend のマイグレーションで既に存在。
+    system_type: Mapped[str] = mapped_column(String(10), default="legacy")
     skip_parent_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     reminder_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     reminder_days_after: Mapped[int] = mapped_column(Integer, default=1)

@@ -18,7 +18,7 @@ NEW_SYSTEM_ROLES = {"tutor", "school", "sales", "office", "admin_master"}
 def get_current_user(
     request: Request,
     db: Session = Depends(get_db),
-    access_token: str | None = Cookie(default=None),
+    access_token: str | None = Cookie(default=None, alias="w_access_token"),
 ) -> User:
     # Authorization ヘッダを Cookie より優先する（テスト・API クライアント対応）
     auth_header = request.headers.get("Authorization", "").removeprefix("Bearer ").strip()
@@ -47,7 +47,7 @@ def get_current_user(
 
 def get_active_role(
     user: User = Depends(get_current_user),
-    selected_role: str | None = Cookie(default=None),
+    selected_role: str | None = Cookie(default=None, alias="w_selected_role"),
 ) -> str:
     """JWT + Cookie から有効なロールを解決する。"""
     roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
