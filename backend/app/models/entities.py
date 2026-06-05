@@ -60,6 +60,7 @@ class User(Base):
     tutor_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    skip_parent_approval: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -158,7 +159,7 @@ class LessonReport(Base):
 
     @property
     def skip_parent_approval(self) -> bool:
-        return bool(self.assignment and self.assignment.skip_parent_approval)
+        return bool(self.parent and self.parent.skip_parent_approval)
 
 
 class ReportEvent(Base):

@@ -19,6 +19,7 @@ class UserOut(BaseModel):
     tutor_no: str | None = None
     phone: str | None = None
     is_active: bool
+    skip_parent_approval: bool = False
     created_at: datetime | None = None
     deleted_at: datetime | None = None
 
@@ -53,6 +54,7 @@ class UserPatch(BaseModel):
     phone: str | None = None
     is_active: bool | None = None
     role: str | None = None
+    skip_parent_approval: bool | None = None
 
 
 class UserRolesPatch(BaseModel):

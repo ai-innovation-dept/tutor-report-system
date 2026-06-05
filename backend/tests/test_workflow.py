@@ -63,7 +63,8 @@ def test_full_workflow(client, db):
 def test_skip_parent_approval_submits_directly_to_admin(client, db):
     tutor_token = token(client, "tutor@example.com")
     assignment = db.query(Assignment).first()
-    assignment.skip_parent_approval = True
+    parent_user = db.get(User, assignment.parent_id)
+    parent_user.skip_parent_approval = True
     db.commit()
 
     res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
@@ -94,7 +95,8 @@ def test_skip_parent_approval_submits_directly_to_admin(client, db):
 def test_parent_report_list_hides_skip_parent_approval_reports(client, db):
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
-    assignment.skip_parent_approval = True
+    parent_user = db.get(User, assignment.parent_id)
+    parent_user.skip_parent_approval = True
     db.add(LessonReport(
         assignment_id=assignment.id,
         tutor_id=assignment.tutor_id,

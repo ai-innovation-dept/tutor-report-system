@@ -57,7 +57,7 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
         raise HTTPException(status_code=400, detail="return comment is required")
     if report.status not in allowed_from:
         raise HTTPException(status_code=409, detail=f"invalid transition from {report.status}")
-    skip_parent_approval = action == ReportAction.submit_to_parent.value and bool(report.assignment and report.assignment.skip_parent_approval)
+    skip_parent_approval = action == ReportAction.submit_to_parent.value and bool(report.parent and report.parent.skip_parent_approval)
     if skip_parent_approval:
         to_status = ReportStatus.submitted_to_admin.value
         timestamp_field = "submitted_to_admin_at"
@@ -206,7 +206,7 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
     }
 
     if action == ReportAction.submit_to_parent.value:
-        if report.assignment and report.assignment.skip_parent_approval:
+        if report.parent and report.parent.skip_parent_approval:
             receivers = [
                 user
                 for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()

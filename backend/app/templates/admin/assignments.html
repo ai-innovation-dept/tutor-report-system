@@ -32,6 +32,27 @@
   }
 }
 </style>
+
+<!-- 保護者一覧：保護者承認スキップ設定 -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
+  <div class="border-b border-slate-200 bg-slate-50 p-4">
+    <h2 class="font-semibold text-slate-800">保護者一覧（承認スキップ設定）</h2>
+    <p class="mt-1 text-xs text-slate-500">スキップをONにすると、その保護者の担当報告書は保護者承認を省略して直接運営へ提出されます。</p>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="mobile-cards w-full text-sm">
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-4 py-3 text-left">保護者名</th>
+          <th class="px-4 py-3 text-left">メールアドレス</th>
+          <th class="px-4 py-3 text-left">保護者承認スキップ</th>
+        </tr>
+      </thead>
+      <tbody id="parentRows"></tbody>
+    </table>
+  </div>
+</section>
+
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
   <div class="grid gap-3 md:grid-cols-[1fr_180px]">
     <label class="block text-sm">
@@ -59,7 +80,6 @@
         <tr>
           <th class="px-4 py-3 text-left">保護者名</th>
           <th class="px-4 py-3 text-left">メール</th>
-          <th class="px-4 py-3 text-left">保護者スキップ</th>
           <th class="px-4 py-3 text-left">リマインド設定</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
@@ -120,6 +140,7 @@
 <script>
 setBreadcrumb('運営ポータル', 'システム設定');
 let assignments = [];
+let parentUsers = [];
 let tutors = [];
 let editingReminderId = '';
 
@@ -129,6 +150,34 @@ function escapeHtml(value) {
 function tutorLabel(tutor) {
   return `${tutor.display_name}${tutor.tutor_no ? `（${tutor.tutor_no}）` : `（${tutor.email}）`}`;
 }
+
+// 保護者一覧：スキップトグル
+function parentSkipToggleHtml(parent) {
+  const isOn = parent.skip_parent_approval;
+  return `<button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full transition ${isOn ? 'bg-blue-600' : 'bg-slate-300'}" onclick="toggleParentSkip('${parent.id}', ${!isOn})" aria-label="保護者承認スキップ">
+    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${isOn ? 'translate-x-5' : 'translate-x-1'}"></span>
+  </button>`;
+}
+function renderParents() {
+  const rows = parentUsers;
+  document.getElementById('parentRows').innerHTML = rows.length ? rows.map(parent => `
+    <tr class="border-t border-slate-100 hover:bg-slate-50">
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="保護者名">${escapeHtml(parent.display_name)}</td>
+      <td class="px-4 py-3 text-slate-600" data-label="メールアドレス">${escapeHtml(parent.email)}</td>
+      <td class="px-4 py-3" data-label="承認スキップ">${parentSkipToggleHtml(parent)}</td>
+    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="3">保護者が登録されていません。</td></tr>';
+}
+async function toggleParentSkip(id, value) {
+  try {
+    await api(`/api/users/${id}`, {method: 'PATCH', body: JSON.stringify({skip_parent_approval: value})});
+    showToast('保護者承認スキップを更新しました', 'success');
+    await loadAssignmentsPage();
+  } catch (error) {
+    showToast(error.message || '更新できませんでした', 'error');
+  }
+}
+
+// 紐付け一覧
 function filteredAssignments() {
   const keyword = searchInput.value.trim().toLowerCase();
   const status = statusFilter.value;
@@ -139,12 +188,6 @@ function filteredAssignments() {
     if (status === 'inactive' && assignment.is_active) return false;
     return true;
   });
-}
-function toggleHtml(assignment) {
-  const checked = assignment.skip_parent_approval ? 'checked' : '';
-  return `<button type="button" class="relative inline-flex h-6 w-11 items-center rounded-full transition ${assignment.skip_parent_approval ? 'bg-blue-600' : 'bg-slate-300'}" onclick="toggleSkip('${assignment.id}', ${!assignment.skip_parent_approval})" aria-label="保護者スキップ">
-    <span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${assignment.skip_parent_approval ? 'translate-x-5' : 'translate-x-1'}"></span>
-  </button>`;
 }
 function reminderLabel(assignment) {
   if (!assignment.reminder_enabled) return 'OFF';
@@ -161,15 +204,11 @@ function renderAssignments() {
     return `<tr class="border-t border-slate-100 hover:bg-slate-50 ${assignment.is_active ? '' : 'bg-slate-50 text-slate-400'}">
       <td class="px-4 py-3 font-medium text-slate-800" data-label="保護者名">${escapeHtml(parentName)}</td>
       <td class="px-4 py-3" data-label="メール">${escapeHtml(parentEmail)}</td>
-      <td class="px-4 py-3" data-label="スキップ">${toggleHtml(assignment)}</td>
-      <td class="px-4 py-3" data-label="リマインド">${assignment.skip_parent_approval
-        ? `<span class="inline-block min-h-[44px] rounded-lg border border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-400 opacity-50 cursor-not-allowed">${escapeHtml(reminderLabel(assignment))}</span>`
-        : `<button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button>`
-      }</td>
+      <td class="px-4 py-3" data-label="リマインド"><button class="min-h-[44px] rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50" onclick="openReminderModal('${assignment.id}')">${escapeHtml(reminderLabel(assignment))}</button></td>
       <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
       <td class="px-4 py-3" data-label="操作">${action}</td>
     </tr>`;
-  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">紐付けはありません。</td></tr>';
+  }).join('') : '<tr><td class="p-4 text-slate-600" colspan="5">紐付けはありません。</td></tr>';
 }
 function renderTutorOptions() {
   tutorSelect.innerHTML = tutors
@@ -186,15 +225,12 @@ async function patchAssignment(id, payload, successMessage) {
     showToast(error.message || '更新できませんでした', 'error');
   }
 }
-async function toggleSkip(id, value) {
-  await patchAssignment(id, {skip_parent_approval: value}, '保護者スキップを更新しました');
-}
 async function setAssignmentActive(id, value) {
   await patchAssignment(id, {is_active: value}, value ? '紐付けを有効化しました' : '紐付けを無効化しました');
 }
 function openReminderModal(id) {
   const assignment = assignments.find(item => item.id === id);
-  if (!assignment || assignment.skip_parent_approval) return;
+  if (!assignment) return;
   editingReminderId = id;
   reminderEnabledInput.checked = assignment.reminder_enabled;
   reminderDaysInput.value = assignment.reminder_days_after || 1;
@@ -208,13 +244,16 @@ function closeReminderModal() {
   editingReminderId = '';
 }
 async function loadAssignmentsPage() {
-  const [assignmentRows, tutorRows] = await Promise.all([
+  const [assignmentRows, tutorRows, parentRows] = await Promise.all([
     api('/api/assignments'),
-    api('/api/users?roles=tutor&per_page=100')
+    api('/api/users?roles=tutor&per_page=100'),
+    api('/api/users?roles=parent&per_page=100')
   ]);
   assignments = assignmentRows;
   tutors = tutorRows.items || tutorRows;
+  parentUsers = (parentRows.items || parentRows).filter(u => u.is_active && !u.deleted_at);
   renderTutorOptions();
+  renderParents();
   renderAssignments();
 }
 toggleCreateForm.addEventListener('click', () => createForm.classList.toggle('hidden'));

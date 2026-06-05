@@ -68,7 +68,7 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
         out.last_return_at = last_return_event.created_at
     out.unread_count = unread
     out.student_name = report.assignment.student_name if report.assignment else None
-    out.skip_parent_approval = bool(report.assignment and report.assignment.skip_parent_approval)
+    out.skip_parent_approval = bool(report.parent and report.parent.skip_parent_approval)
     out.tutor_name = report.tutor.display_name if report.tutor else None
     out.closed_by_name = report.closed_by_user.display_name if report.closed_by_user else None
     out.events = [
@@ -185,9 +185,10 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
     if user.role == "tutor":
         stmt = stmt.where(LessonReport.tutor_id == user.id)
     elif user.role == "parent":
+        if user.skip_parent_approval:
+            return []
         stmt = stmt.join(Assignment, LessonReport.assignment_id == Assignment.id).where(
             LessonReport.parent_id == user.id,
-            Assignment.skip_parent_approval.is_(False),
             LessonReport.status.in_(
                 [
                     ReportStatus.awaiting_parent_approval.value,
