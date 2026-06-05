@@ -28,7 +28,7 @@ router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 
 _DETAIL_FIELDS = (
     "customer_id", "our_staff", "contract_start", "contract_end",
-    "monthly_minutes", "weekly_lessons", "shift_note", "work_content", "has_scoring",
+    "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
 )
 
 
@@ -44,6 +44,7 @@ def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask])
         setattr(profile, f"task_name_{index}", (task.task_name or None) if task else None)
         setattr(profile, f"task_id_{index}", (task.task_id or None) if task else None)
         setattr(profile, f"contract_id_{index}", (task.contract_id or None) if task else None)
+        setattr(profile, f"task_format_{index}", (task.task_format or "minutes") if task else None)
 
 
 def _tasks_from_columns(profile: WorkAssignmentProfile) -> list[ContractTask]:
@@ -53,7 +54,12 @@ def _tasks_from_columns(profile: WorkAssignmentProfile) -> list[ContractTask]:
         task_id = getattr(profile, f"task_id_{index}")
         contract_id = getattr(profile, f"contract_id_{index}")
         if name or task_id or contract_id:
-            tasks.append(ContractTask(task_name=name, task_id=task_id, contract_id=contract_id))
+            tasks.append(ContractTask(
+                task_name=name,
+                task_id=task_id,
+                contract_id=contract_id,
+                task_format=getattr(profile, f"task_format_{index}") or "minutes",
+            ))
     return tasks
 
 
@@ -73,7 +79,6 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         weekly_lessons=profile.weekly_lessons,
         shift_note=profile.shift_note,
         work_content=profile.work_content,
-        has_scoring=profile.has_scoring,
         tasks=_tasks_from_columns(profile),
         is_active=profile.is_active,
         created_at=profile.created_at,
@@ -174,7 +179,6 @@ def list_contracts_for_tutor(
             weekly_lessons=p.weekly_lessons,
             shift_note=p.shift_note,
             work_content=p.work_content,
-            has_scoring=p.has_scoring,
             tasks=_tasks_from_columns(p),
             column_definition=build_column_definition(p),
         )

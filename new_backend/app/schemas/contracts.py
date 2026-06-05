@@ -5,13 +5,23 @@ from datetime import date, datetime
 from pydantic import BaseModel, field_validator
 
 MAX_TASKS = 5
+TASK_FORMATS = ("minutes", "count_minutes")
 
 
 class ContractTask(BaseModel):
-    """委託業務（業務名・委託業務ID・個別契約ID）。"""
+    """委託業務（業務名・委託業務ID・個別契約ID・入力形式）。
+
+    task_format: 'minutes'（分のみ1列）/ 'count_minutes'（回＋分の2列）。
+    """
     task_name: str | None = None
     task_id: str | None = None
     contract_id: str | None = None
+    task_format: str = "minutes"
+
+    @field_validator("task_format", mode="before")
+    @classmethod
+    def _normalize_format(cls, value: str | None) -> str:
+        return value if value in TASK_FORMATS else "minutes"
 
     def is_empty(self) -> bool:
         return not any([
@@ -30,7 +40,6 @@ class ContractBase(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
-    has_scoring: bool = False
     tasks: list[ContractTask] = []
 
     @field_validator("tasks")
@@ -65,7 +74,6 @@ class ContractForTutorOut(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
-    has_scoring: bool = False
     tasks: list[ContractTask] = []
     column_definition: list[dict] = []
 
@@ -85,7 +93,6 @@ class ContractOut(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
-    has_scoring: bool = False
     tasks: list[ContractTask] = []
     is_active: bool
     created_at: datetime

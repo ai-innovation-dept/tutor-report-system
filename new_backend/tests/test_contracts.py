@@ -63,7 +63,6 @@ def _payload(setup, **overrides):
         "weekly_lessons": 3,
         "shift_note": "月9:30-",
         "work_content": "数学指導",
-        "has_scoring": True,
         "tasks": [{"task_name": "数学指導", "task_id": "11111", "contract_id": "99992601"}],
     }
     data.update(overrides)
@@ -77,9 +76,9 @@ class TestContractCreate:
         body = res.json()
         assert body["tutor_name"] == "tutorユーザー"
         assert body["school_name"] == "schoolユーザー"
-        assert body["has_scoring"] is True
         assert len(body["tasks"]) == 1
         assert body["tasks"][0]["task_id"] == "11111"
+        assert body["tasks"][0]["task_format"] == "minutes"
         # assignment が自動作成され紐付く
         assert db.query(Assignment).filter_by(tutor_id=setup["tutor"].id, parent_id=setup["school"].id).count() == 1
 
@@ -121,12 +120,12 @@ class TestContractForTutor:
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()
 
     def test_for_tutor_returns_column_definition(self, client, db, setup):
+        # 委託業務②を「回数＋分数」形式にすると 回・分 の2列が生成される
         self._create(
             client, setup,
-            has_scoring=True,
             tasks=[
                 {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
-                {"task_name": "英語指導", "task_id": "T2", "contract_id": "C2"},
+                {"task_name": "採点", "task_id": "T2", "contract_id": "C2", "task_format": "count_minutes"},
             ],
         )
         res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
@@ -136,23 +135,28 @@ class TestContractForTutor:
         entry = body[0]
         assert entry["school_id"] == str(setup["school"].id)
         keys = [c["key"] for c in entry["column_definition"]]
-        # 固定先頭 → 委託業務2件 → 採点2列 → 固定末尾 の順
+        # 固定先頭 → 委託業務①(分のみ) → 委託業務②(回＋分) → 固定末尾 の順
         assert keys == [
             "date", "start", "end", "subject_period",
-            "task_minutes_1", "task_minutes_2",
-            "scoring_count", "scoring_minutes",
+            "task_minutes_1",
+            "task_count_2", "task_minutes_2",
             "break_minutes", "commute_fee", "note",
         ]
         col1 = next(c for c in entry["column_definition"] if c["key"] == "task_minutes_1")
         assert col1["label"] == "数学指導（分）"
         assert col1["summable"] is True
         assert col1["task_id"] == "T1"
+        count2 = next(c for c in entry["column_definition"] if c["key"] == "task_count_2")
+        assert count2["label"] == "採点（回）"
+        minutes2 = next(c for c in entry["column_definition"] if c["key"] == "task_minutes_2")
+        assert minutes2["label"] == "採点（分）"
 
-    def test_for_tutor_without_scoring_omits_scoring_columns(self, client, db, setup):
-        self._create(client, setup, has_scoring=False)
+    def test_for_tutor_minutes_only_omits_count_column(self, client, db, setup):
+        # 分のみ（デフォルト）の委託業務は 分 列のみで 回 列は生成されない
+        self._create(client, setup)
         entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
         keys = [c["key"] for c in entry["column_definition"]]
-        assert "scoring_count" not in keys and "scoring_minutes" not in keys
+        assert "task_count_1" not in keys
         assert "task_minutes_1" in keys
 
     def test_for_tutor_only_own_contracts(self, client, db, setup):

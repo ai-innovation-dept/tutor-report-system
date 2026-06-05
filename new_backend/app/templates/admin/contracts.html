@@ -75,19 +75,27 @@ function userOptions(users, selectedId) {
 }
 function taskRow(index, task) {
   const hidden = index > visibleTaskCount;
-  return `<div class="task-row grid gap-2 sm:grid-cols-3 ${hidden ? 'hidden' : ''}" data-task-index="${index}">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">委託業務名${index === 1 ? '①（必須）' : `（${'①②③④⑤'[index - 1]}）`}</span>
-      <input data-task="name" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">委託業務ID</span>
-      <input data-task="task_id" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">個別契約ID</span>
-      <input data-task="contract_id" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
+  const fmt = task?.task_format === 'count_minutes' ? 'count_minutes' : 'minutes';
+  return `<div class="task-row rounded-lg border border-slate-200 bg-slate-50/60 p-3 ${hidden ? 'hidden' : ''}" data-task-index="${index}">
+    <div class="grid gap-2 sm:grid-cols-3">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務名${index === 1 ? '①（必須）' : `（${'①②③④⑤'[index - 1]}）`}</span>
+        <input data-task="name" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務ID</span>
+        <input data-task="task_id" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">個別契約ID</span>
+        <input data-task="contract_id" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+    </div>
+    <div class="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+      <span class="text-slate-600">入力形式</span>
+      <label class="inline-flex items-center gap-1"><input type="radio" name="taskFormat_${index}" data-task="format" data-index="${index}" value="minutes" ${fmt === 'minutes' ? 'checked' : ''}>分のみ（nn分）</label>
+      <label class="inline-flex items-center gap-1"><input type="radio" name="taskFormat_${index}" data-task="format" data-index="${index}" value="count_minutes" ${fmt === 'count_minutes' ? 'checked' : ''}>回数＋分数（nn回／nn分）</label>
+    </div>
   </div>`;
 }
 function renderForm(contract) {
@@ -135,14 +143,6 @@ function renderForm(contract) {
         </div>
       </div>
 
-      <fieldset class="block text-sm">
-        <span class="mb-1 block text-slate-700">採点列</span>
-        <div class="flex gap-4">
-          <label class="inline-flex items-center gap-1"><input type="radio" name="hasScoring" value="true" ${contract?.has_scoring ? 'checked' : ''}>有</label>
-          <label class="inline-flex items-center gap-1"><input type="radio" name="hasScoring" value="false" ${contract && contract.has_scoring ? '' : 'checked'}>無</label>
-        </div>
-      </fieldset>
-
       <p id="formMessage" class="hidden rounded-lg px-3 py-2 text-sm"></p>
       <div class="flex justify-end gap-2 pb-4">
         <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeForm()">キャンセル</button>
@@ -170,7 +170,8 @@ function collectTasks() {
     const name = formDrawer.querySelector(`[data-task="name"][data-index="${i}"]`)?.value.trim() || '';
     const taskId = formDrawer.querySelector(`[data-task="task_id"][data-index="${i}"]`)?.value.trim() || '';
     const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-index="${i}"]`)?.value.trim() || '';
-    if (name || taskId || contractId) tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
+    const format = formDrawer.querySelector(`[data-task="format"][data-index="${i}"]:checked`)?.value || 'minutes';
+    if (name || taskId || contractId) tasks.push({task_name: name, task_id: taskId, contract_id: contractId, task_format: format});
   }
   return tasks;
 }
@@ -195,7 +196,6 @@ function buildPayload() {
     weekly_lessons: numberOrNull(document.getElementById('weeklyLessons').value),
     shift_note: document.getElementById('shiftNote').value.trim() || null,
     work_content: document.getElementById('workContent').value.trim() || null,
-    has_scoring: formDrawer.querySelector('input[name="hasScoring"]:checked')?.value === 'true',
     tasks: collectTasks(),
   };
 }

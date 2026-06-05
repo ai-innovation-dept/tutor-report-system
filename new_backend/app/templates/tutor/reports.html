@@ -1,13 +1,12 @@
 {% extends "base.html" %}
 {% block content %}
 <div>
-  <!-- 当月の報告書一覧（学校ごと）。別の学校の報告書もここから作成・切替できる -->
+  <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
   <section id="reportListPanel" class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-    <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-      <h2 class="font-semibold text-slate-800">当月の報告書（学校ごと）</h2>
-      <button id="newReportBtn" type="button" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 別の学校の報告書を作成</button>
+    <div class="flex items-center gap-3 px-4 py-3">
+      <button id="newReportBtn" type="button" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 別の学校の報告書を作成</button>
+      <div id="reportList" class="flex flex-1 gap-2 overflow-x-auto"></div>
     </div>
-    <div id="reportList" class="flex gap-2 overflow-x-auto px-4 py-3"></div>
   </section>
 
   <section class="rounded-xl border border-slate-200 bg-white shadow-sm" id="formPanel">
@@ -470,7 +469,6 @@ function startNewReport() {
   if (sel) sel.value = '';
   clearFormMessage();
   renderReportList();
-  formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 function renderMonthFilter() {
   const months = [];
@@ -783,7 +781,6 @@ function editReport(id) {
   updateStudentBadge();
   renderCurrentList();
   resetReportForm(true);
-  formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 async function loadContracts() {
   // 契約管理に登録された自分の契約（学校ごと）＋動的列定義を取得
@@ -885,8 +882,6 @@ reportForm.addEventListener('submit', async e => {
   form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
   // 契約管理の列定義をスナップショット保存（保存済み報告書は契約更新の影響を受けない）
   form_data.meta.column_definition = activeColumnDefinition();
-  const contract = contractForSchool(selectedSchoolId);
-  if (contract) form_data.meta.has_scoring = contract.has_scoring;
   // 学校に対応する紐付けを取得/作成（無ければここで作る＝別の学校の報告書を新規作成できる）
   let assignmentId = selectedAssignmentId;
   try {
