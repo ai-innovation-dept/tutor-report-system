@@ -1,12 +1,19 @@
-﻿# 家庭教師 指導実績報告システム 仕様書
+﻿# 指導実績報告システム 仕様書
 
-**バージョン**: 1.1.0  
-**最終更新日**: 2026-06-02  
+**バージョン**: 2.0.0  
+**最終更新日**: 2026-06-05  
+
+> **本書の対象**: 本リポジトリには **2つのシステム** が同居している。
+> - **第 I 部（§1〜§13）**: 旧システム＝**家庭教師 指導実績報告**（`backend/`、ポート 8000。tutor→parent→admin の承認フロー）
+> - **第 II 部（§14〜）**: 新システム＝**業務連絡表**（`new_backend/`、ポート 8001。tutor→school→office→sales→経理 の承認フロー）
+>
+> 両システムは同一 PostgreSQL（`tutor`）を共有する。データモデル全体像は `DATA_MODEL.md` を参照。
 
 ---
 
 ## 目次
 
+### 第 I 部：旧システム（家庭教師 指導実績報告 / port 8000）
 1. [システム概要](#1-システム概要)
 2. [登場人物とロール](#2-登場人物とロール)
 3. [業務フロー](#3-業務フロー)
@@ -21,7 +28,21 @@
 12. [運用手順](#12-運用手順)
 13. [将来拡張予定](#13-将来拡張予定)
 
+### 第 II 部：新システム（業務連絡表 / port 8001）
+14. [新システム概要](#14-新システム概要)
+15. [新システムの登場人物とロール](#15-新システムの登場人物とロール)
+16. [新システムの業務フロー（ワークフロー）](#16-新システムの業務フローワークフロー)
+17. [新システムの報告書ステータス一覧](#17-新システムの報告書ステータス一覧)
+18. [新システムの画面一覧](#18-新システムの画面一覧)
+19. [新システムのAPI仕様](#19-新システムのapi仕様)
+20. [新システムのデータモデル](#20-新システムのデータモデル)
+21. [契約管理機能](#21-契約管理機能)
+22. [報告書フォーム（動的列定義）](#22-報告書フォーム動的列定義)
+23. [新システムの通知仕様](#23-新システムの通知仕様)
+
 ---
+
+# 第 I 部：旧システム（家庭教師 指導実績報告 / port 8000）
 
 ## 1. システム概要
 
@@ -1080,3 +1101,340 @@ docker compose exec -T db psql -U postgres tutor < backup_YYYYMMDD_HHMMSS.sql
 
 - 現在はユーザー・担当紐付けを画面から手動管理
 - 人事システム・塾管理システムとの CSV / API 連携による自動同期を検討
+
+---
+
+# 第 II 部：新システム（業務連絡表 / port 8001）
+
+新システム（`new_backend/`）は、学校へ派遣された講師が月次の「業務連絡表」を作成し、**学校 → 事務 → 営業 → 経理** の順で承認を得る業務システムである。旧システム（指導実績報告）とは別ワークフロー・別テーブル（`work_*`）で構成され、`users` / `assignments` / `invitations` テーブルのみ共有する。
+
+## 14. 新システム概要
+
+### 目的
+
+学校に派遣された講師の月次稼働（業務連絡表）を記録し、学校確認 → 社内（事務・営業・経理）の多段階承認を経て確定する。契約（講師×学校）ごとに報告書フォームの列構成（委託業務・採点）を動的に切り替えられる点が特徴。
+
+### システム構成図
+
+```
++--------------------------------------------------------------------+
+|                         ブラウザ (クライアント)                      |
+|  Jinja2 テンプレート + Tailwind CSS + バニラ JavaScript              |
++---------------------------+----------------------------------------+
+                            | HTTP (Cookie 認証 / 共通 /api/auth)
+                            v
++--------------------------------------------------------------------+
+|              FastAPI アプリケーション (new_backend, port 8001)       |
+|  pages router (HTML)  |  API routers /api/w/*  |  APScheduler        |
+|                       |  (reports/users/admin/ |  (月末リマインダ    |
+|                       |   assignments/contracts|   09:00 / stale     |
+|                       |   /invitations/chat)   |   check 06:00 JST)  |
++----------------------------+---------------------------+-----------+
+                             | SQLAlchemy (psycopg)      | aiosmtplib
+                             v                           v
+              +---------------------------+   +----------------------+
+              | PostgreSQL 16 (port 5432) |   |  MailHog (port 1025) |
+              | tutor DB（旧と共有）       |   |  (開発用 SMTP)        |
+              | work_* テーブル + 共有     |   +----------------------+
+              +---------------------------+
+```
+
+### 旧システムとの主な違い
+
+| 観点 | 旧システム | 新システム |
+|------|-----------|-----------|
+| 報告書の単位 | 指導日ごと1レコード（lesson_reports） | 紐付け×月で1レコード（work_reports、明細は form_data の JSONB） |
+| 承認フロー | 講師→保護者→受付→再鑑→最終 | 講師→学校→事務→営業→経理 |
+| フォーム | 固定項目（日付・時刻・科目・内容） | 契約に応じた動的列定義（委託業務①〜⑤・採点） |
+| ロール | tutor / parent / admin_receiver / admin_reviewer / admin_master | tutor / school / office / sales / admin_master(経理) |
+| API プレフィックス | `/api/...` | `/api/w/...`（認証のみ `/api/auth` を共有） |
+| テーブル | 専用テーブル群 | `work_*` プレフィックス群（共有テーブルは追加カラムのみ） |
+
+---
+
+## 15. 新システムの登場人物とロール
+
+| ロール | 呼称 | 主な役割 |
+|--------|------|---------|
+| `tutor` | 講師 | 業務連絡表の作成・提出・再提出。下書き／差戻し中の削除 |
+| `school` | 学校 | 講師の業務連絡表を承認／差戻し（差戻し先は講師） |
+| `office` | 事務 | 学校承認後の確認。営業・経理からの差戻し（returned_to_office）を受けて前進または講師へ差戻し |
+| `sales` | 営業 | 事務確認後の確認／差戻し（差戻し先は事務） |
+| `admin_master` | 経理（管理者） | 最終承認。完了後の修正依頼（差戻し）。ユーザー管理・契約管理・紐付け管理 |
+
+### 権限の要点
+
+- 講師は自分の `assignment` に紐づく報告書のみ操作可能。提出先（派遣先学校）は**経理の契約管理に登録された自分の契約校のみ**から選択する。
+- 学校は自校（`assignment.parent_id` が自分）の報告書を全ステータス参照可能。
+- 事務・営業・経理（admin_master）は全報告書を取得し、各画面で自ロールのキューに絞り込んで表示する。
+- ユーザー管理・契約管理・招待・紐付け管理は `admin_master` のみ（一部 `office` が profiles の作成・更新に参加）。
+- 複数ロールを持つユーザーはログイン後にロール選択（`/select-role`、API `POST /api/auth/select-role`）を行う。
+
+---
+
+## 16. 新システムの業務フロー（ワークフロー）
+
+ワークフローは `new_backend/app/workflow/definitions.py` の `TRANSITIONS` テーブルが唯一の定義源。アクションは `submit` / `approve` / `return` / `skip_school` / `close`。`return` はコメント必須。
+
+### 16.1 通常フロー
+
+```
+【講師】        【学校】       【事務】       【営業】       【経理】
+  draft
+   | submit
+   v
+awaiting_school
+   | approve(学校)
+   v
+awaiting_office
+   | approve(事務)
+   v
+awaiting_sales
+   | approve(営業)
+   v
+awaiting_finance
+   | approve(経理=admin_master)
+   v
+approved（完了）
+```
+
+### 16.2 学校承認スキップ
+
+学校承認が不要な契約（`assignment.skip_parent_approval = True`）では、提出時に学校確認を飛ばして事務確認へ進む。手動でも `skip_school`（sales / office / admin_master）で `draft → awaiting_office` に進められる。
+
+### 16.3 差戻しフロー
+
+| 差戻し元 | アクション | 遷移 | 差戻し先 |
+|----------|-----------|------|---------|
+| 学校 | return(school) | awaiting_school → `returned_to_tutor` | 講師 |
+| 事務 | return(office) | awaiting_office → `returned_to_tutor` | 講師 |
+| 営業 | return(sales) | awaiting_sales → `returned_to_office` | 事務 |
+| 経理 | return(admin_master) | awaiting_finance → `returned_to_office` | 事務 |
+| 経理（完了後） | return(admin_master) | approved → `returned_to_office` | 事務 |
+
+### 16.4 再提出・事務の処理
+
+```
+returned_to_tutor  --submit(講師)-->  awaiting_school
+returned_to_office --submit(事務)-->  awaiting_sales
+returned_to_office --approve(事務)--> awaiting_sales（事務が前進）
+returned_to_office --return(事務)-->  returned_to_tutor（事務が講師へ差戻し）
+```
+
+> 営業／経理からの差戻しは事務（office）が受け持つ。事務は「承認＝営業へ前進」「差戻し＝講師へ」のいずれかを選ぶ。
+
+---
+
+## 17. 新システムの報告書ステータス一覧
+
+| 値 | 日本語名 | 承認担当 | 終端 |
+|----|---------|----------|:----:|
+| `draft` | 下書き | tutor | |
+| `awaiting_school` | 学校承認待ち | school | |
+| `awaiting_office` | 事務確認待ち | office | |
+| `awaiting_sales` | 営業確認待ち | sales | |
+| `awaiting_finance` | 経理（最終）確認待ち | admin_master | |
+| `approved` | 最終承認済み（完了） | — | ✓ |
+| `returned_to_tutor` | 講師へ差戻し | tutor | |
+| `returned_to_office` | 事務へ差戻し | office | |
+| `closed` | クローズ（強制終了） | — | ✓ |
+
+各遷移は `work_report_events` に監査ログとして記録される（action / from_status / to_status / comment / actor）。報告書の現在の承認担当は `work_reports.current_approver_role` に保持する。
+
+---
+
+## 18. 新システムの画面一覧
+
+### HTML ページ（pages router）
+
+| パス | テンプレート | 対象ロール | 概要 |
+|------|-------------|-----------|------|
+| `GET /` | （ロール別リダイレクト） | 認証済み | ロールに応じた初期画面へ |
+| `GET /login` | login.html | 未認証 | ログイン |
+| `GET /select-role` | select_role.html | 認証済み（複数ロール） | 使用ロール選択 |
+| `GET /register` | register.html | 未認証 | 招待トークンからの登録 |
+| `GET /forgot-password` / `GET /reset-password` | forgot_password.html / reset_password.html | 未認証 | パスワードリセット |
+| `GET /tutor/reports` | tutor/reports.html | tutor | 報告書一覧・作成（業務連絡表） |
+| `GET /tutor/reports/new` | tutor/reports.html | tutor | 新規作成（フォームへスクロール） |
+| `GET /tutor/reports/{id}` | tutor/report_detail.html | tutor | 報告書詳細 |
+| `GET /tutor/approval` | tutor/approval.html | tutor | 承認管理（提出・再依頼・差戻し確認） |
+| `GET /tutor/submit` | （/tutor/reports へリダイレクト） | tutor | — |
+| `GET /school/approval` | school/approval.html | school | 学校承認（講師×月のカード） |
+| `GET /office/queue` | office/queue.html | office | 事務キュー（タスク・パイプライン） |
+| `GET /sales/queue` | sales/queue.html | sales | 営業キュー |
+| `GET /finance/queue` | finance/queue.html | admin_master | 経理キュー |
+| `GET /admin/dashboard` | admin/dashboard.html | admin_master | 統合ダッシュボード |
+| `GET /admin/users` | admin/users.html | admin_master | ユーザー管理（招待統合） |
+| `GET /admin/assignments` | admin/assignments.html | admin_master | 紐付け（学校一覧）管理 |
+| `GET /admin/contracts` | admin/contracts.html | admin_master | 契約管理（CSV一括登録対応） |
+| `GET /admin/reports/{id}` | admin/report_detail.html | sales / office / admin_master | 報告書詳細（管理側） |
+| `GET /admin/stale-reports` | admin/stale_reports.html | admin_master | 未処理報告一覧 |
+| `GET /reports/{id}/view` | report_view.html | 認証済み（全ロール） | 読み取り専用の報告書ビュー（別ウィンドウ） |
+
+> 事務・営業・経理の3キュー（office/sales/finance/queue.html）と admin/dashboard.html はほぼ同一構造。表示ロジック変更時は4ファイルすべてに反映する。
+
+---
+
+## 19. 新システムのAPI仕様
+
+すべて `/api/w` プレフィックス（認証のみ `/api/auth` を旧システムと共有）。認可は各エンドポイントの `require_role(...)` に従う。
+
+### 認証 API（共有）
+
+| メソッド | URL | 認可 | 概要 |
+|---------|-----|------|------|
+| POST | `/api/auth/login` | 不要 | ログイン |
+| POST | `/api/auth/select-role` | ログイン済み | 複数ロール時の使用ロール選択 |
+| POST | `/api/auth/logout` | ログイン済み | ログアウト |
+| GET | `/api/auth/me` | ログイン済み | 現在ユーザー情報 |
+| GET/POST | `/api/auth/register` | 不要（token） | 招待情報取得 / 登録 |
+| POST | `/api/auth/forgot-password` | 不要 | リセットメール送信 |
+| GET/POST | `/api/auth/reset-password` | 不要（token） | トークン確認 / パスワード設定 |
+
+### 報告書 API
+
+| メソッド | URL | 認可 | 概要 |
+|---------|-----|------|------|
+| POST | `/api/w/reports` | tutor | 報告書作成 |
+| GET | `/api/w/reports` | 認証済み | 一覧（ロール別フィルタ） |
+| GET | `/api/w/reports/monthly-summary` | tutor / admin_master | 月別サマリー |
+| POST | `/api/w/reports/bulk-action` | 認証済み | 複数報告書への一括アクション |
+| GET | `/api/w/reports/export` | 認証済み | PDF 一括エクスポート |
+| GET | `/api/w/reports/{id}` | 認証済み | 詳細取得 |
+| PATCH | `/api/w/reports/{id}` | tutor / sales | 編集 |
+| DELETE | `/api/w/reports/{id}` | tutor | 削除（draft / returned_to_tutor の本人分のみ） |
+| POST | `/api/w/reports/{id}/action` | 認証済み | ワークフロー遷移（submit/approve/return/skip_school） |
+| POST | `/api/w/reports/{id}/close` | 認証済み | クローズ |
+| GET | `/api/w/reports/{id}/events` | 認証済み | イベント履歴 |
+| GET | `/api/w/reports/{id}/export` | 認証済み | 単一 PDF 出力 |
+| GET | `/api/w/stale-count` / `/api/w/stale-reports` | 認証済み | 未処理報告 件数 / 一覧 |
+
+### ユーザー API
+
+| メソッド | URL | 認可 | 概要 |
+|---------|-----|------|------|
+| GET | `/api/w/users/me` | 認証済み | 現在ユーザー |
+| GET | `/api/w/users` | 認証済み（一覧は admin_master、role フィルタ可） | ユーザー一覧 |
+| PATCH | `/api/w/users/{id}` | admin_master | 更新 |
+| PATCH | `/api/w/users/{id}/roles` | admin_master | ロール更新（営業・事務） |
+| PATCH | `/api/w/users/{id}/disable` / `/enable` | admin_master | 無効化 / 有効化 |
+| DELETE | `/api/w/users/{id}` | admin_master | 論理削除 |
+| POST | `/api/w/users/{id}/reset-password` | admin_master | パスワード初期化 |
+
+### 契約・紐付け・招待・チャット API
+
+| メソッド | URL | 認可 | 概要 |
+|---------|-----|------|------|
+| GET / POST | `/api/w/contracts` | admin_master | 契約一覧 / 作成 |
+| GET | `/api/w/contracts/import-template` | admin_master | CSV テンプレート DL |
+| POST | `/api/w/contracts/import` | admin_master | CSV 一括登録 |
+| GET | `/api/w/contracts/for-tutor` | tutor | 自分の契約＋動的列定義 |
+| GET / PATCH / DELETE | `/api/w/contracts/{id}` | admin_master | 詳細 / 更新 / 論理削除 |
+| POST / GET | `/api/w/admin/profiles` | admin_master（GET は sales も） / office | プロファイル作成 / 一覧 |
+| PATCH | `/api/w/admin/profiles/{id}` | admin_master / office | プロファイル更新 |
+| POST | `/api/w/assignments` | admin_master | 紐付け作成 |
+| POST | `/api/w/assignments/for-school` | tutor | (講師×学校) 紐付けの取得／作成 |
+| GET | `/api/w/assignments` | 認証済み（講師は自分のみ） | 一覧 |
+| PATCH / DELETE | `/api/w/assignments/{id}` | 認証済み / admin_master | 編集 / 削除（報告書なし時） |
+| POST / GET / DELETE | `/api/w/invitations` | admin_master | 招待 作成・再送 / 一覧 / 削除 |
+| GET / POST | `/api/w/reports/{id}/messages` | 認証済み | チャット一覧 / 投稿 |
+| POST | `/api/w/reports/{id}/messages/{msg_id}/read` | 認証済み | 既読登録 |
+
+---
+
+## 20. 新システムのデータモデル
+
+詳細スキーマは `DATA_MODEL.md §3` を参照。新システム専用テーブルは `work_` プレフィックスを持つ。
+
+| テーブル | 役割 |
+|----------|------|
+| `work_assignment_profiles` | 契約マスタ 兼 フォーム設定。(講師, 学校) ごと1件、`assignment` と 1:1 |
+| `work_reports` | 業務連絡表。紐付け×月で1件（`UNIQUE(assignment_id, target_month)`）。明細・ヘッダーは `form_data`(JSONB) |
+| `work_report_events` | ワークフロー操作の監査ログ |
+| `work_chat_messages` / `work_chat_reads` | 報告書チャット・既読管理 |
+| `work_notifications` | 通知ログ |
+
+- 共有テーブル（`users` / `assignments` / `invitations`）は新システム用に `users.user_no` / `users.allowed_systems` / `assignments.system_type` を追加。
+- マイグレーションは `new_backend/migrations/`、バージョンテーブルは `work_alembic_version`（旧システムの `alembic_version` と分離）。新システムコンテナは起動時に `alembic upgrade head` を実行。
+- `work_reports.form_data` の構造（lines / meta）は `DATA_MODEL.md §3` を参照。`meta.column_definition` に作成時の動的列定義をスナップショットし、保存後は契約変更の影響を受けない。
+
+---
+
+## 21. 契約管理機能
+
+経理（admin_master）が `/admin/contracts` 画面で管理する。契約 = (講師, 学校) ごと1件で、対応する `assignment` を自動解決／作成する。
+
+### 契約の項目
+
+- 基本: お客様ID・弊社担当・契約期間（開始／終了）・月固定分・週コマ数・シフト備考・従事業務内容
+- 委託業務①〜⑤: 業務名・委託業務ID・個別契約ID（業務名があるもののみ報告書に「業務名（分）」列を生成）
+- 採点欄: `採点を追加する`（scoring_enabled）＋ 委託業務ID・個別契約ID（有効時のみ報告書末尾に「採点（回）」列を生成）
+
+### CSV 一括登録
+
+| 機能 | エンドポイント | 仕様 |
+|------|---------------|------|
+| テンプレート DL | `GET /api/w/contracts/import-template` | UTF-8(BOM付)。ヘッダー＋記入例1行 |
+| インポート | `POST /api/w/contracts/import`（multipart） | 文字コード UTF-8 / Shift-JIS 自動判定 |
+
+- 識別子: 講師＝講師番号（`user_no` または `tutor_no`）、学校＝学校名（`display_name`）。
+- 重複（講師×学校）は **upsert**（既存上書き）。
+- 検証は **全件成功か全件中止**（1件でもエラーなら行番号付きでエラー一覧を返し全件ロールバック）。
+- 記入例・コメント行（講師番号が空 or 先頭 `#`）と空行はスキップ。
+
+---
+
+## 22. 報告書フォーム（動的列定義）
+
+報告書（業務連絡表）の明細列は、契約（`work_assignment_profiles`）から `services/contract_form_service.build_column_definition()` で動的生成する。
+
+### 列構成（左 → 右）
+
+| 区分 | 列 | データキー | 種別 |
+|------|----|-----------|------|
+| 固定（先頭） | 日付 | date | date |
+| 固定（先頭） | 業務開始時間 | start | time |
+| 固定（先頭） | 業務終了時間 | end | time |
+| 固定（先頭） | 担当時限（1〜10） | subject_period | number |
+| 動的 | 委託業務①〜⑤（登録分のみ）「業務名（分）」 | task_minutes_1..5 | number（合計対象） |
+| 動的 | 採点（scoring_enabled時のみ）「採点（回）」 | scoring_count / scoring_minutes | count_minutes（1セルに 回／分 を併記） |
+| 固定（末尾） | 休憩時間（分） | break_minutes | number（合計対象） |
+| 固定（末尾） | 往復交通費（円） | commute_fee | number（合計対象） |
+| 固定（末尾） | 内容 | note | text |
+
+> 「回数」「曜日」列はフロント側が自動生成するためデータ列には含めない。委託業務は常に「分のみ」、採点のみ「回＋分」併記。
+
+### デフォルトフォーム（契約未設定時）
+
+`forms/definitions.py` の `monthly_dispatch`（月次派遣報告、最大26行）。列: 日付 / 開始時刻 / 終了時刻 / 担当時限 / 数学科指導（分）/ 休憩時間（分）/ 往復交通費（円）/ 内容。合計対象: teach_minutes・break_minutes・commute_fee。
+
+> 注意（既存制約）: 読み取り専用ビュー（`report_view.html`）と PDF エクスポート（`export_service.py`）は静的フォーム定義（`monthly_dispatch`）を用いるため、契約由来の動的列（委託業務・採点）は反映されない。動的列を消費するのは `tutor/reports.html` のみ。
+
+---
+
+## 23. 新システムの通知仕様
+
+`services/notification_service.py` がワークフロー遷移・スケジューラに応じて `work_notifications` レコードを作成し、メール（MailHog 経由）を送信する。
+
+### 通知種別
+
+| 通知種別 | テンプレート | 宛先 | トリガー |
+|----------|-------------|------|---------|
+| approval_request | notify_approval_request.txt | school / office / sales / admin_master | submit / approve で次の承認待ちへ |
+| approved_by_school | notify_parent_approved.txt | tutor | 学校が承認 |
+| final_approved | notify_admin_approved.txt | tutor / school | 最終承認（approved） |
+| returned | notify_returned.txt | tutor / office | return 実行 |
+| reminder_unapproved | （記録のみ） | school | 月末リマインダー（awaiting_school） |
+| reminder_unsubmitted | （記録のみ） | tutor | 月末リマインダー（draft / returned_to_tutor） |
+| reminder_school_approval | （記録のみ） | school | 学校承認督促（assignment.reminder_* に基づく） |
+| stale_report_{level} | （記録のみ） | sales / office / admin_master | 未処理報告アラート（remind / warn / escalate） |
+
+### スケジューラ（APScheduler / JST）
+
+- **月末リマインダー**: 毎日 09:00。月末が近い未提出・未承認報告へ通知。
+- **未処理報告チェック（stale check）**: 毎日 06:00。一定期間滞留した報告に `stale_since` を設定しエスカレーション通知。
+- **学校承認リマインド**: 紐付け単位（`reminder_days_after` 間隔・`reminder_count` 回まで・JST 同日重複防止）。
+
+### メールテンプレート一覧（`new_backend/app/templates/email/`）
+
+invitation.txt / invitation_tutor.txt / invitation_staff.txt / notify_approval_request.txt / notify_returned.txt / notify_admin_approved.txt / notify_parent_approved.txt / notify_submitted_to_admin.txt / password_reset.txt / status_changed.txt
