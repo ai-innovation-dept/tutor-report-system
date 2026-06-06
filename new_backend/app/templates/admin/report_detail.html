@@ -44,7 +44,18 @@
     statusBadge.textContent = STATUS_LABELS[report.status] || report.status;
     metaText.textContent = `${report.target_month} / ${report.form_type} / 次: ${report.current_sales_role || '-'}`;
     formDataView.textContent = JSON.stringify(report.form_data || {}, null, 2);
-    pdfLink.href = `/api/w/reports/${reportId}/export`;
+    // PDF出力は最終承認済み（approved）のみ。未承認はグレイアウトして無効化する。
+    if (report.status === 'approved') {
+      pdfLink.href = `/api/w/reports/${reportId}/export`;
+      pdfLink.classList.remove('pointer-events-none', 'opacity-50', 'bg-slate-300');
+      pdfLink.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+      pdfLink.removeAttribute('title');
+    } else {
+      pdfLink.removeAttribute('href');
+      pdfLink.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+      pdfLink.classList.add('pointer-events-none', 'opacity-50', 'bg-slate-300', 'cursor-not-allowed');
+      pdfLink.title = '最終承認の完了後にダウンロードできます';
+    }
     const events = await api(`/api/w/reports/${reportId}/events`);
     eventList.innerHTML = events.length ? events.map(e => `
       <div class="rounded-lg border ${e.action === 'return' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'} p-4 text-sm">
