@@ -219,7 +219,13 @@ def list_reports(
     # 運営スタッフ（事務・営業・経理）は進捗パイプライン全体を見るため全件取得する。
     # 「あなたのタスク」は画面側で current_approver / ステータスにより絞り込む。
     if active_role in {"office", "sales", "admin_master"}:
-        stmt = select(WorkReport)
+        # 進捗タイムライン（承認依頼/承認/差戻し＋コメント＋実行者）を表示するため
+        # events と actor、表示名解決用の assignment/tutor をまとめて読み込む（N+1回避）。
+        stmt = select(WorkReport).options(
+            selectinload(WorkReport.assignment).selectinload(Assignment.parent),
+            selectinload(WorkReport.tutor),
+            selectinload(WorkReport.events).selectinload(WorkReportEvent.actor),
+        )
         if target_month:
             stmt = stmt.where(WorkReport.target_month == target_month)
         return list(db.scalars(stmt.order_by(WorkReport.target_month.desc(), WorkReport.created_at)))
@@ -497,6 +503,7 @@ def get_events(
 ):
     events = db.scalars(
         select(WorkReportEvent)
+        .options(selectinload(WorkReportEvent.actor))
         .where(WorkReportEvent.report_id == report_id)
         .order_by(WorkReportEvent.created_at)
     ).all()

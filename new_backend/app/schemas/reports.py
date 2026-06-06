@@ -60,6 +60,20 @@ class CloseRequest(BaseModel):
     close_reason: str
 
 
+class ReportEventOut(BaseModel):
+    id: uuid.UUID
+    report_id: uuid.UUID
+    action: str
+    from_status: str | None
+    to_status: str | None
+    comment: str | None
+    actor_name: str | None = None
+    actor_role: str | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class ReportOut(BaseModel):
     id: uuid.UUID
     assignment_id: uuid.UUID
@@ -80,19 +94,8 @@ class ReportOut(BaseModel):
     student_name: str | None = None
     tutor_name: str | None = None
     school_name: str | None = None
+    events: list[ReportEventOut] = []
     created_at: datetime
     updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
-class ReportEventOut(BaseModel):
-    id: uuid.UUID
-    report_id: uuid.UUID
-    action: str
-    from_status: str | None
-    to_status: str | None
-    comment: str | None
-    created_at: datetime
 
     model_config = {"from_attributes": True}

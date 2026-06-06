@@ -161,6 +161,14 @@ class WorkReportEvent(Base):
     report = relationship("WorkReport", foreign_keys=[report_id])
     actor = relationship("User", foreign_keys=[actor_id])
 
+    @property
+    def actor_name(self) -> str | None:
+        return self.actor.display_name if self.actor else None
+
+    @property
+    def actor_role(self) -> str | None:
+        return self.actor.role if self.actor else None
+
 
 class WorkChatMessage(Base):
     __tablename__ = "work_chat_messages"
