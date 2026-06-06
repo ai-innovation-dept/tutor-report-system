@@ -41,7 +41,7 @@
     <span class="text-slate-700">講師選択</span>
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
-  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto" href="#">PDFでダウンロード</a>
+  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto sm:ml-auto" href="#">完了分をすべてPDFダウンロード</a>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -214,6 +214,17 @@ function groupedByAssignment(reports) {
 }
 function currentGroups() {
   return groupReports(visibleReports());
+}
+function openReportWindow(key) {
+  // グループ（生徒×講師×対象月）の指導実績を参照専用ウィンドウで開く（保護者ロールと同レイアウト）
+  const group = currentGroups().find(item => item.key === key);
+  if (!group) return;
+  const url = `/admin/report-view?assignment_id=${encodeURIComponent(group.assignment_id)}&month=${encodeURIComponent(group.target_month)}`;
+  window.open(url, `report_${group.assignment_id}_${group.target_month}`, 'width=1000,height=800,noopener');
+}
+function groupPdfUrl(group) {
+  const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only', format: 'pdf'});
+  return `/api/reports/export?${params.toString()}`;
 }
 function eventsForGroup(group) {
   const seen = new Set();
@@ -516,6 +527,10 @@ function showDetails(key) {
     ${statusBadge(overallStatus)}
   </div>
   <div class="p-5">
+    <div class="mb-4 flex flex-wrap gap-2">
+      <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="openReportWindow('${key}')">報告書を確認</button>
+      ${activeStatus === 'admin_approved' ? `<a class="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700" href="${groupPdfUrl(group)}">PDFダウンロード</a>` : ''}
+    </div>
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>

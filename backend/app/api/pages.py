@@ -371,7 +371,15 @@ def parent_report_view_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
     if not user or user.role != "parent":
         return _login_redirect()
-    return templates.TemplateResponse(request, "parent/report_view.html", context=_base_context(request, user))
+    return templates.TemplateResponse(request, "report_view.html", context=_base_context(request, user))
+
+
+@router.get("/admin/report-view", response_class=HTMLResponse)
+def admin_report_view_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master"}:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "report_view.html", context=_base_context(request, user))
 
 
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
