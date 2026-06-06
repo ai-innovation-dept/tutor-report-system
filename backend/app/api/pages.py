@@ -366,6 +366,14 @@ def parent_approval_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "parent/approval.html", context=context)
 
 
+@router.get("/parent/report-view", response_class=HTMLResponse)
+def parent_report_view_page(request: Request, db: Session = Depends(get_db)):
+    user = get_current_user_from_cookie(request, db)
+    if not user or user.role != "parent":
+        return _login_redirect()
+    return templates.TemplateResponse(request, "parent/report_view.html", context=_base_context(request, user))
+
+
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)

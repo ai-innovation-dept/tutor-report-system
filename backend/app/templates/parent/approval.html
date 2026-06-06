@@ -22,7 +22,6 @@
 {% block scripts %}
 <script>
 setBreadcrumb('保護者ポータル', '承認管理');
-const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const currentMonth = new Date().toISOString().slice(0, 7);
 const parentAssignments = {{ assignments | default([]) | tojson }};
 let allReports = [];
@@ -34,10 +33,6 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
 function timeText(value) { return (value || '').slice(0, 5); }
-function dateLabel(value) {
-  const d = new Date(`${value}T00:00:00`);
-  return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
-}
 function dateTimeLabel(value) {
   if (!value) return '-';
   const d = new Date(value);
@@ -161,16 +156,18 @@ function operationHistory(reports) {
     </ul>
   </div>`;
 }
-function renderReportRows(reports) {
-  return reports.map((report, index) => `<tr class="border-t align-top ${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
-    <td class="p-2">${index + 1}</td>
-    <td class="p-2">${dateLabel(report.lesson_date)}</td>
-    <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
-    <td class="p-2">${Number(report.break_minutes || 0)}分</td>
-    <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
-    <td class="p-2">${escapeHtml(report.subject || '')}</td>
-    <td class="p-2">${statusBadge(report.status)}</td>
-  </tr>`).join('');
+function groupStatus(reports) {
+  const statuses = new Set(reports.map(report => report.status));
+  if (statuses.has('returned_to_tutor')) return 'returned_to_tutor';
+  if (statuses.has('awaiting_parent_approval')) return 'awaiting_parent_approval';
+  if ([...statuses].every(status => status === 'admin_approved')) return 'admin_approved';
+  return 'parent_approved';
+}
+function openReportWindow(month) {
+  const current = selectedAssignment();
+  const assignmentId = selectedAssignmentId || (current && current.id) || '';
+  const url = `/parent/report-view?assignment_id=${encodeURIComponent(assignmentId)}&month=${encodeURIComponent(month)}`;
+  window.open(url, `report_${assignmentId}_${month}`, 'width=1000,height=800,noopener');
 }
 function monthReturnForm(month) {
   if (expandedReturnMonth !== month) return '';
@@ -210,27 +207,18 @@ function renderMonthSection(month, reports) {
   if (!sorted.length) {
     return '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">この月の報告書はありません。</div>';
   }
-  return `<section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-    <div class="border-b border-slate-200 bg-slate-50 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">${monthLabel(month)}　全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</h2>
+  const first = sorted[0];
+  return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="flex flex-wrap items-start justify-between gap-3">
+      <div class="font-semibold text-slate-800">${monthLabel(month)}　生徒名：${escapeHtml(first.student_name || '生徒')}　講師名：${escapeHtml(first.tutor_name || '講師')}</div>
+      ${statusBadge(groupStatus(sorted))}
     </div>
-    <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-          <tr>
-            <th class="px-4 py-3 text-left">回</th>
-            <th class="px-4 py-3 text-left">指導日</th>
-            <th class="px-4 py-3 text-left">在室時間</th>
-            <th class="px-4 py-3 text-left">休憩</th>
-            <th class="px-4 py-3 text-left">指導時間</th>
-            <th class="px-4 py-3 text-left">科目</th>
-            <th class="px-4 py-3 text-left">状態</th>
-          </tr>
-        </thead>
-        <tbody>${renderReportRows(sorted)}</tbody>
-      </table>
+    <div class="mt-2 text-sm text-slate-600">全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</div>
+    <div class="mt-3">
+      <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="openReportWindow('${month}')">報告書を確認</button>
     </div>
-    <div class="border-t border-slate-200 p-5">${operationHistory(sorted)}${renderActionArea(month, sorted)}</div>
+    ${operationHistory(sorted)}
+    ${renderActionArea(month, sorted)}
   </section>`;
 }
 function renderApproval() {
