@@ -573,6 +573,49 @@ function reportCard(report) {
     </div>
   </div>`;
 }
+function assignmentById(id) {
+  return allAssignments.find(assignment => assignment.id === id) || null;
+}
+// 保護者承認待ちフロー向けのリマインドメール設定パネル（運営が案件単位で設定）。
+function reminderPanel(group, activeStatus) {
+  if (activeStatus !== 'awaiting_parent_approval') return '';
+  const assignment = assignmentById(group.assignment_id);
+  const enabled = Boolean(assignment?.reminder_enabled);
+  const days = assignment?.reminder_days_after || 3;
+  return `<div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+    <div class="text-sm font-semibold text-amber-800">🔔 保護者へのリマインドメール</div>
+    <p class="mt-1 text-xs text-amber-700">保護者が承認するまで、設定した日数ごとに自動でリマインドメールを送信します。承認されると自動的に停止します。</p>
+    <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+      <input id="reminderEnabled" type="checkbox" class="h-4 w-4 rounded border-slate-300" ${enabled ? 'checked' : ''} onchange="toggleReminderInputs()">
+      <span>リマインドメールを送る</span>
+    </label>
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+      <span>承認されない場合、</span>
+      <input id="reminderDays" type="number" min="1" max="60" value="${days}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400" ${enabled ? '' : 'disabled'}>
+      <span>日ごとに送信</span>
+      <button id="reminderSave" class="ml-auto rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700" onclick="saveReminder('${group.assignment_id}')">保存</button>
+    </div>
+  </div>`;
+}
+function toggleReminderInputs() {
+  const enabled = document.getElementById('reminderEnabled')?.checked;
+  const days = document.getElementById('reminderDays');
+  if (days) days.disabled = !enabled;
+}
+async function saveReminder(assignmentId) {
+  const enabled = document.getElementById('reminderEnabled')?.checked || false;
+  const days = Math.min(60, Math.max(1, Number(document.getElementById('reminderDays')?.value || 3)));
+  const btn = document.getElementById('reminderSave');
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/assignments/${assignmentId}`, {method: 'PATCH', body: JSON.stringify({reminder_enabled: enabled, reminder_days_after: days})});
+    showToast(enabled ? `リマインドメールを有効にしました（${days}日ごと）` : 'リマインドメールを無効にしました', 'success');
+    await loadAdmin();  // 再読込で詳細ドロワーは openCardKey から自動再描画される
+  } catch (error) {
+    showToast(error.message || '保存に失敗しました', 'error');
+    if (btn) btn.disabled = false;
+  }
+}
 function showDetails(key) {
   openCardKey = key;
   const group = currentGroups().find(item => item.key === key);
@@ -594,6 +637,7 @@ function showDetails(key) {
       <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="openReportWindow('${key}')">報告書を確認</button>
       ${activeStatus === 'admin_approved' ? `<a class="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700" href="${groupPdfUrl(group)}">PDFダウンロード</a>` : ''}
     </div>
+    ${reminderPanel(group, activeStatus)}
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>

@@ -42,7 +42,12 @@ def enqueue_month_end_reminders(db: Session, today: date | None = None) -> int:
 
 
 def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
-    """承認依頼からX日後にリマインドを送る"""
+    """保護者の承認依頼後、設定した間隔日数ごとにリマインドを送る。
+
+    保護者が承認するまでエンドレスに送信する（回数上限なし）。承認されると報告書が
+    awaiting_parent_approval から外れるため、自然と送信は停止する。
+    リマインドの有効/無効・間隔日数は案件(Assignment)単位で運営が設定する。
+    """
     today = today or get_current_jst_date()
     reports = db.scalars(
         select(LessonReport)
@@ -57,20 +62,19 @@ def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
             continue
         if not report.parent_id:
             continue
+        interval = max(1, assignment.reminder_days_after)
         submitted_date = report.submitted_to_parent_at.date()
         days_since = (today - submitted_date).days
-        if days_since > 0 and days_since % assignment.reminder_days_after == 0:
-            times_reminded = days_since // assignment.reminder_days_after
-            if times_reminded <= assignment.reminder_count:
-                enqueue(
-                    db,
-                    report.parent_id,
-                    "reminder_approval",
-                    "【指導実績】承認のお願い（リマインド）",
-                    f"{assignment.student_name}の指導実績報告書の承認をお願いします。",
-                    report.id,
-                )
-                count += 1
+        if days_since > 0 and days_since % interval == 0:
+            enqueue(
+                db,
+                report.parent_id,
+                "reminder_approval",
+                "【指導実績】承認のお願い（リマインド）",
+                f"{assignment.student_name}の指導実績報告書の承認をお願いします。",
+                report.id,
+            )
+            count += 1
     if count:
         db.flush()
     return count

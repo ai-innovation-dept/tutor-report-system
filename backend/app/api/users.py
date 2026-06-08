@@ -231,7 +231,11 @@ async def create_assignment(payload: AssignmentCreate, request: Request, db: Ses
     return assignment
 
 
-_TUTOR_PATCH_ALLOWED = {"reminder_enabled", "reminder_days_after", "reminder_count"}
+# リマインダー設定（保護者承認待ちの自動リマインド）は運営が管理する。
+# admin_master は案件の全項目を編集可、受付/再鑑はリマインダー設定のみ編集可。
+# reminder_count は「エンドレス送信」化により既存システムでは未使用だが、
+# assignments テーブルを共有する新システムが利用するため列・編集経路は残す。
+_REMINDER_PATCH_ALLOWED = {"reminder_enabled", "reminder_days_after", "reminder_count"}
 
 
 @router.patch("/assignments/{assignment_id}", response_model=AssignmentOut)
@@ -241,10 +245,8 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
         raise HTTPException(status_code=404, detail="assignment not found")
     if has_role(current_user, "admin_master"):
         data = payload.model_dump(exclude_unset=True)
-    elif has_role(current_user, "tutor"):
-        if assignment.tutor_id != current_user.id:
-            raise HTTPException(status_code=403, detail="insufficient role")
-        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k in _TUTOR_PATCH_ALLOWED}
+    elif is_admin(current_user):
+        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k in _REMINDER_PATCH_ALLOWED}
     else:
         raise HTTPException(status_code=403, detail="insufficient role")
     if "tutor_id" in data and data["tutor_id"] is not None:

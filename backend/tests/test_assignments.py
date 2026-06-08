@@ -160,36 +160,48 @@ def test_tutor_can_create_assignment_with_parent_invitation(client, db, monkeypa
     assert sent and sent[-1][0] == "new-parent@example.com"
 
 
-def test_tutor_can_patch_reminder_settings_on_own_assignment(client, db):
+def test_tutor_cannot_patch_reminder_settings(client, db):
+    # リマインダー設定は運営（管理者）画面へ移管したため、講師は編集できない。
     tutor_token = token(client, "tutor@example.com")
     assignment = db.query(Assignment).first()
 
     res = client.patch(
         f"/api/assignments/{assignment.id}",
         headers={"Authorization": f"Bearer {tutor_token}"},
-        json={"reminder_enabled": True, "reminder_days_after": 3, "reminder_count": 2},
+        json={"reminder_enabled": True, "reminder_days_after": 3},
     )
-    assert res.status_code == 200
-    assert res.json()["reminder_enabled"] is True
-    assert res.json()["reminder_days_after"] == 3
-    assert res.json()["reminder_count"] == 2
+    assert res.status_code == 403
 
 
-def test_tutor_cannot_patch_restricted_fields_on_own_assignment(client, db):
-    tutor_token = token(client, "tutor@example.com")
+def test_admin_roles_can_patch_reminder_settings(client, db):
+    # 受付・再鑑・管理者の全運営ロールがリマインダー設定を編集できる。
+    assignment = db.query(Assignment).first()
+    for email in ("receiver@example.com", "reviewer@example.com", "master@example.com"):
+        admin_token = token(client, email)
+        res = client.patch(
+            f"/api/assignments/{assignment.id}",
+            headers={"Authorization": f"Bearer {admin_token}"},
+            json={"reminder_enabled": True, "reminder_days_after": 5},
+        )
+        assert res.status_code == 200, email
+        assert res.json()["reminder_enabled"] is True
+        assert res.json()["reminder_days_after"] == 5
+
+
+def test_admin_receiver_cannot_patch_non_reminder_fields(client, db):
+    # 受付・再鑑はリマインダー設定のみ編集可。生徒名などは変更されない。
+    receiver_token = token(client, "receiver@example.com")
     assignment = db.query(Assignment).first()
     original_student_name = assignment.student_name
-    original_skip = assignment.skip_parent_approval
 
     res = client.patch(
         f"/api/assignments/{assignment.id}",
-        headers={"Authorization": f"Bearer {tutor_token}"},
-        json={"student_name": "改ざん 生徒", "skip_parent_approval": True},
+        headers={"Authorization": f"Bearer {receiver_token}"},
+        json={"student_name": "改ざん 生徒", "reminder_enabled": True},
     )
     assert res.status_code == 200
-    # restricted fields must remain unchanged
     assert res.json()["student_name"] == original_student_name
-    assert res.json()["skip_parent_approval"] == original_skip
+    assert res.json()["reminder_enabled"] is True
 
 
 def test_tutor_cannot_patch_another_tutors_assignment(client, db):
