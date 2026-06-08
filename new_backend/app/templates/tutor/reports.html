@@ -522,9 +522,19 @@ async function selectSchool(schoolId) {
   resetReportForm(true);
   renderCurrentList();
 }
+const SUBJECT_PERIOD_HINT = '1〜10の数値のみ入力可、それ以外は入力不可';
 function columnLabel(column) {
-  if (column.key === 'subject_period') return '担当時限（1〜10の数値のみ入力可、それ以外は入力不可）';
+  if (column.key === 'subject_period') return '担当時限';
   return column.label;
+}
+// ヘッダーセルの内部HTML。担当時限は項目名が長いため、ラベルを短くし
+// 「！」アイコンのクリックで入力ルールをツールチップ表示する。
+function columnHeaderHtml(column) {
+  const label = escapeHtml(columnLabel(column));
+  if (column.key === 'subject_period') {
+    return `${label}<button type="button" class="field-hint-btn ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 align-middle text-[10px] font-bold leading-none text-white hover:bg-amber-500" data-hint="${escapeHtml(SUBJECT_PERIOD_HINT)}" aria-label="入力ルールを表示">!</button>`;
+  }
+  return label;
 }
 function renderLineHeader(form) {
   const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
@@ -532,7 +542,7 @@ function renderLineHeader(form) {
   for (let index = 0; index < columns.length; index += 1) {
     const column = columns[index];
     if (column.key === 'date') {
-      headers.push(`<th class="w-36 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push(`<th class="w-36 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
       headers.push('<th class="w-14 px-2 py-2 text-center">曜日</th>');
     } else if (column.key === 'start') {
       const next = columns[index + 1];
@@ -540,16 +550,16 @@ function renderLineHeader(form) {
         headers.push('<th class="w-48 px-2 py-2 text-left">業務開始時間〜業務終了時間</th>');
         index += 1;
       } else {
-        headers.push(`<th class="w-28 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+        headers.push(`<th class="w-28 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
       }
     } else if (column.key === 'end') {
-      headers.push(`<th class="w-28 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push(`<th class="w-28 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'note') {
-      headers.push(`<th class="min-w-64 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push(`<th class="min-w-64 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'count_minutes') {
-      headers.push(`<th class="w-48 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push(`<th class="w-48 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else {
-      headers.push(`<th class="w-32 px-2 py-2 text-left">${escapeHtml(columnLabel(column))}</th>`);
+      headers.push(`<th class="w-32 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     }
   }
   lineHead.innerHTML = `<tr>${headers.join('')}</tr>`;
@@ -960,6 +970,30 @@ document.getElementById('dispatchPlaceSchool').addEventListener('change', event 
   selectSchool(event.target.value);
 });
 document.getElementById('newReportBtn').addEventListener('click', startNewReport);
+
+// 「！」ヒントアイコン: クリックでツールチップ表示、外側クリックで閉じる。
+// ヘッダーは動的描画のためイベント委譲で拾う。
+const fieldHintTip = document.createElement('div');
+fieldHintTip.className = 'fixed z-50 hidden max-w-xs rounded-md bg-slate-800 px-3 py-2 text-xs leading-relaxed text-white shadow-lg';
+document.body.appendChild(fieldHintTip);
+document.addEventListener('click', event => {
+  const btn = event.target.closest('.field-hint-btn');
+  if (btn) {
+    event.preventDefault();
+    fieldHintTip.textContent = btn.dataset.hint || '';
+    fieldHintTip.classList.remove('hidden');
+    const rect = btn.getBoundingClientRect();
+    let left = rect.left;
+    if (left + fieldHintTip.offsetWidth > window.innerWidth - 8) {
+      left = window.innerWidth - fieldHintTip.offsetWidth - 8;
+    }
+    fieldHintTip.style.left = `${Math.max(8, left)}px`;
+    fieldHintTip.style.top = `${rect.bottom + 6}px`;
+  } else if (event.target !== fieldHintTip) {
+    fieldHintTip.classList.add('hidden');
+  }
+});
+
 window.authReady.then(async user => {
   if (!user) return;
   await loadContracts();
