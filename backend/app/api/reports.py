@@ -189,18 +189,20 @@ def list_reports(status: str | None = None, target_month: str | None = None, ass
     if user.role == "tutor":
         stmt = stmt.where(LessonReport.tutor_id == user.id)
     elif user.role == "parent":
-        if user.skip_parent_approval:
-            return []
+        # スキップ保護者は承認には関与しないが、最終承認済み(admin_approved)は閲覧・PDF取得できるようにする。
+        parent_statuses = (
+            [ReportStatus.admin_approved.value]
+            if user.skip_parent_approval
+            else [
+                ReportStatus.awaiting_parent_approval.value,
+                ReportStatus.returned_to_tutor.value,
+                ReportStatus.parent_approved.value,
+                ReportStatus.admin_approved.value,
+            ]
+        )
         stmt = stmt.join(Assignment, LessonReport.assignment_id == Assignment.id).where(
             LessonReport.parent_id == user.id,
-            LessonReport.status.in_(
-                [
-                    ReportStatus.awaiting_parent_approval.value,
-                    ReportStatus.returned_to_tutor.value,
-                    ReportStatus.parent_approved.value,
-                    ReportStatus.admin_approved.value,
-                ]
-            ),
+            LessonReport.status.in_(parent_statuses),
         )
     elif not user.role.startswith("admin_"):
         raise HTTPException(status_code=403, detail="not allowed")

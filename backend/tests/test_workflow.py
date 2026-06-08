@@ -116,6 +116,31 @@ def test_parent_report_list_hides_skip_parent_approval_reports(client, db):
     assert res.json() == []
 
 
+def test_parent_with_skip_can_see_admin_approved_reports(client, db):
+    # スキップ保護者でも最終承認済み(admin_approved)は閲覧・PDF取得できる。
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    parent_user = db.get(User, assignment.parent_id)
+    parent_user.skip_parent_approval = True
+    db.add(LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=date.today(),
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        content="final approved",
+        target_month=date.today().strftime("%Y-%m"),
+        status=ReportStatus.admin_approved.value,
+    ))
+    db.commit()
+
+    res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
+
+    assert res.status_code == 200
+    assert [report["status"] for report in res.json()] == [ReportStatus.admin_approved.value]
+
+
 def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
