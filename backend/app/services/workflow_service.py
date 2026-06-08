@@ -19,6 +19,7 @@ PARENT_APPROVED_SUBJECT = "【指導実績】保護者が承認しました"
 SUBMITTED_TO_ADMIN_SUBJECT = "【指導実績】報告書が提出されました"
 ADMIN_RETURN_SUBJECT = "【指導実績】運営から差戻しがありました"
 ADMIN_APPROVED_SUBJECT = "【指導実績】最終承認が完了しました"
+REPORT_MODIFIED_SUBJECT = "【指導実績】報告書が修正されました"
 
 
 TRANSITIONS = {
@@ -189,6 +190,48 @@ def _parent(report: LessonReport) -> User | None:
 def _student_name(report: LessonReport) -> str:
     assignment = _assignment(report)
     return assignment.student_name if assignment else "未設定"
+
+
+def _format_changes(changes: list[tuple[str, str, str]]) -> str:
+    """(項目名, 変更前, 変更後) のリストを本文用の差分テキストに整形する。
+
+    テンプレートは str.format で展開されるため、本文に紛れ込む波括弧は二重化してエスケープする。
+    """
+    def esc(value: str) -> str:
+        return str(value).replace("{", "{{").replace("}", "}}")
+
+    lines: list[str] = []
+    for label, old, new in changes:
+        if "\n" in str(old) or "\n" in str(new) or len(str(old)) > 30 or len(str(new)) > 30:
+            lines.append(f"・{label}：\n　（修正前）{esc(old)}\n　（修正後）{esc(new)}")
+        else:
+            lines.append(f"・{label}：{esc(old)} → {esc(new)}")
+    return "\n".join(lines)
+
+
+async def notify_report_modified(
+    db: Session, report: LessonReport, changes: list[tuple[str, str, str]], actor: User
+) -> None:
+    """受付による報告書修正を講師・保護者へ通知する。保護者は未設定/承認スキップなら送らない。"""
+    context = {
+        "base_url": _base_url(),
+        "student_name": _student_name(report),
+        "target_month": report.target_month,
+        "lesson_date": _format_lesson_date(report),
+        "actor_name": actor.display_name,
+        "changes": _format_changes(changes),
+    }
+    tutor = _tutor(report)
+    await _send_email(
+        db, tutor, REPORT_MODIFIED_SUBJECT, "notify_report_modified.txt",
+        context | {"name": tutor.display_name if tutor else "講師"},
+    )
+    parent = _parent(report)
+    if parent and not parent.skip_parent_approval:
+        await _send_email(
+            db, parent, REPORT_MODIFIED_SUBJECT, "notify_report_modified.txt",
+            context | {"name": parent.display_name},
+        )
 
 
 async def _send_group_notification(db: Session, action: str, reports: list[LessonReport], actor: User, comment: str | None = None) -> None:

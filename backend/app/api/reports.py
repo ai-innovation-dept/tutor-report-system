@@ -9,12 +9,13 @@ from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.core.rbac import has_role, is_admin
+from app.core.rbac import has_role, is_admin, require_role
 from app.core.time import get_current_jst_month, month_string
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import ReportCreate, ReportEventOut, ReportOut, ReportPatch
+from app.services.workflow_service import notify_report_modified
 
 STATUS_RANK = {
     ReportStatus.draft.value: 0,
@@ -584,6 +585,79 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
     db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))
     db.commit()
     db.refresh(report)
+    return _report_out(db, report, user)
+
+
+# 受付が修正できるのは「受付の手元にある」3状態のみ（承認依頼が届いた／受領済み／再鑑・管理者から差戻し）。
+ADMIN_EDIT_STATUSES = {
+    ReportStatus.submitted_to_admin.value,
+    ReportStatus.received.value,
+    ReportStatus.returned_to_receiver.value,
+}
+_EDIT_FIELD_LABELS = {
+    "lesson_date": "指導日",
+    "start_time": "開始時刻",
+    "end_time": "終了時刻",
+    "break_minutes": "休憩時間",
+    "subject": "科目",
+    "content": "指導内容",
+}
+
+
+def _format_field_value(field: str, value) -> str:
+    if value is None or value == "":
+        return "（なし）"
+    if field in {"start_time", "end_time"}:
+        return value.strftime("%H:%M")
+    if field == "break_minutes":
+        return f"{value}分"
+    if field == "lesson_date":
+        return value.isoformat()
+    return str(value)
+
+
+def _collect_changes(report: LessonReport, data: dict) -> list[tuple[str, str, str]]:
+    """修正前後で変化した項目を (項目名, 変更前, 変更後) のリストで返す（適用前に呼ぶこと）。"""
+    changes: list[tuple[str, str, str]] = []
+    for field, new_value in data.items():
+        label = _EDIT_FIELD_LABELS.get(field)
+        if not label:
+            continue
+        old_value = getattr(report, field)
+        if old_value == new_value:
+            continue
+        changes.append((label, _format_field_value(field, old_value), _format_field_value(field, new_value)))
+    return changes
+
+
+@router.patch("/{report_id}/admin-edit", response_model=ReportOut)
+async def admin_edit_report(
+    report_id: UUID,
+    payload: ReportPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("admin_receiver")),
+):
+    # 受付担当による報告書修正。講師の編集フロー(patch_report)とは別系統で、再承認は不要・通知のみ。
+    report = get_report_for_user(report_id, user, db)
+    if report.status not in ADMIN_EDIT_STATUSES:
+        raise HTTPException(status_code=409, detail="受付が修正できるのは、承認依頼中・受領済み・差戻し中の報告書のみです")
+    data = payload.model_dump(exclude_unset=True)
+    changes = _collect_changes(report, data)
+    for key, value in data.items():
+        setattr(report, key, value)
+    if report.start_time >= report.end_time:
+        raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
+    if "lesson_date" in data:
+        # 受付は過去月の訂正もあり得るため当月制限は課さない。対象月のみ追従させる。
+        report.target_month = month_string(report.lesson_date)
+    db.add(ReportEvent(
+        report_id=report.id, actor_id=user.id, action=ReportAction.update.value,
+        from_status=report.status, to_status=report.status, comment="受付による修正",
+    ))
+    db.commit()
+    db.refresh(report)
+    if changes:
+        await notify_report_modified(db, report, changes, user)
     return _report_out(db, report, user)
 
 

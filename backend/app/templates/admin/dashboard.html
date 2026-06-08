@@ -79,6 +79,39 @@
     </div>
   </div>
 </div>
+
+<div id="adminEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeAdminEditModal()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">報告書の修正（受付）</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeAdminEditModal()">閉じる</button>
+    </div>
+    <div class="space-y-3 p-5">
+      <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">修正を実行すると、講師・保護者へ修正内容がメールで通知されます。</p>
+      <label class="block text-sm"><span class="mb-1 block text-slate-600">指導日</span>
+        <input id="aeDate" type="date" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></label>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-sm"><span class="mb-1 block text-slate-600">開始時刻</span>
+          <input id="aeStart" type="time" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-600">終了時刻</span>
+          <input id="aeEnd" type="time" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></label>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-sm"><span class="mb-1 block text-slate-600">休憩時間（分）</span>
+          <input id="aeBreak" type="number" min="0" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-600">科目</span>
+          <input id="aeSubject" type="text" maxlength="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></label>
+      </div>
+      <label class="block text-sm"><span class="mb-1 block text-slate-600">指導内容</span>
+        <textarea id="aeContent" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000"></textarea></label>
+      <div id="aeError" class="hidden text-sm text-red-700"></div>
+      <div class="flex justify-end gap-2 pt-1">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeAdminEditModal()">キャンセル</button>
+        <button type="button" id="aeSubmit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50" onclick="submitAdminEdit()">修正して通知</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -503,6 +536,7 @@ function reportCard(report) {
     <div class="flex flex-wrap items-center gap-2">
       <span class="text-sm font-medium text-slate-800">指導日：${escapeHtml(report.lesson_date || '-')}</span>
       ${statusBadge(report.status)}
+      ${canAdminEdit(report) ? `<button type="button" class="ml-auto rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-100" onclick="openAdminEditModal('${report.id}')">編集</button>` : ''}
     </div>
     ${closedSection}
     <div class="mt-3 ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
@@ -564,6 +598,61 @@ function closeReturnModal() {
   returnTargetKey = '';
   returnModal.classList.add('hidden');
   returnModal.classList.remove('flex');
+}
+// 受付による報告書修正（受付の手元にある3状態のみ・修正で講師/保護者へ通知）
+const ADMIN_EDIT_STATUSES = new Set(['submitted_to_admin', 'received', 'returned_to_receiver']);
+let adminEditReportId = '';
+function canAdminEdit(report) {
+  return currentRole === 'admin_receiver' && ADMIN_EDIT_STATUSES.has(report.status);
+}
+function openAdminEditModal(reportId) {
+  const report = allReports.find(item => item.id === reportId);
+  if (!report) return;
+  adminEditReportId = reportId;
+  document.getElementById('aeDate').value = report.lesson_date || '';
+  document.getElementById('aeStart').value = (report.start_time || '').slice(0, 5);
+  document.getElementById('aeEnd').value = (report.end_time || '').slice(0, 5);
+  document.getElementById('aeBreak').value = report.break_minutes ?? 0;
+  document.getElementById('aeSubject').value = report.subject || '';
+  document.getElementById('aeContent').value = report.content || '';
+  document.getElementById('aeError').classList.add('hidden');
+  adminEditModal.classList.remove('hidden');
+  adminEditModal.classList.add('flex');
+}
+function closeAdminEditModal() {
+  adminEditReportId = '';
+  adminEditModal.classList.add('hidden');
+  adminEditModal.classList.remove('flex');
+}
+async function submitAdminEdit() {
+  if (!adminEditReportId) return;
+  const err = document.getElementById('aeError');
+  const start = document.getElementById('aeStart').value;
+  const end = document.getElementById('aeEnd').value;
+  const content = document.getElementById('aeContent').value.trim();
+  if (!content) { err.textContent = '指導内容を入力してください'; err.classList.remove('hidden'); return; }
+  if (start && end && start >= end) { err.textContent = '終了時刻は開始時刻より後の時刻にしてください'; err.classList.remove('hidden'); return; }
+  const payload = {
+    lesson_date: document.getElementById('aeDate').value,
+    start_time: start,
+    end_time: end,
+    break_minutes: Number(document.getElementById('aeBreak').value || 0),
+    subject: document.getElementById('aeSubject').value.trim() || null,
+    content,
+  };
+  const btn = document.getElementById('aeSubmit');
+  btn.disabled = true;
+  try {
+    await api(`/api/reports/${adminEditReportId}/admin-edit`, {method: 'PATCH', body: JSON.stringify(payload)});
+    showToast('報告書を修正し、講師・保護者へ通知しました', 'success');
+    closeAdminEditModal();
+    await loadAdmin();
+  } catch (error) {
+    err.textContent = error.message || '修正できませんでした';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
 }
 async function submitReturn() {
   const group = currentGroups().find(item => item.key === returnTargetKey);
