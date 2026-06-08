@@ -98,7 +98,7 @@ function renderStudentTabs() {
     return;
   }
   const current = selectedAssignment();
-  selectedStudentLabel.textContent = `選択中：${current.student_name}（担当講師：${current.tutor_name || '講師'}）`;
+  selectedStudentLabel.textContent = `選択中：${current.student_name}（担当講師：${nameWithNo(current.tutor_name, current.tutor_no) || '講師'}）`;
   selectedStudentLabel.classList.remove('hidden');
   studentTabs.classList.remove('hidden');
   studentTabs.classList.add('flex');
@@ -106,7 +106,7 @@ function renderStudentTabs() {
     const active = assignment.id === selectedAssignmentId;
     const cardClass = active ? 'border border-blue-600 bg-blue-50 shadow-md' : 'border border-slate-200 bg-white hover:border-blue-300 hover:shadow-md';
     return `<button type="button" class="rounded-xl ${cardClass} w-full px-4 py-3 text-left shadow-sm transition sm:w-auto sm:min-w-36" onclick="selectStudent('${assignment.id}')">
-      <div class="text-sm text-slate-600">講師：<span class="font-medium text-slate-800">${escapeHtml(assignment.tutor_name || '講師')}</span></div>
+      <div class="text-sm text-slate-600">講師：<span class="font-medium text-slate-800">${escapeHtml(nameWithNo(assignment.tutor_name, assignment.tutor_no) || '講師')}</span></div>
       <div class="text-sm text-slate-600">生徒：<span class="font-medium text-slate-800">${escapeHtml(assignment.student_name)}</span></div>
     </button>`;
   }).join('');
@@ -210,7 +210,7 @@ function renderMonthSection(month, reports) {
   const first = sorted[0];
   return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="flex flex-wrap items-start justify-between gap-3">
-      <div class="font-semibold text-slate-800">${monthLabel(month)}　生徒名：${escapeHtml(first.student_name || '生徒')}　講師名：${escapeHtml(first.tutor_name || '講師')}</div>
+      <div class="font-semibold text-slate-800">${monthLabel(month)}　生徒名：${escapeHtml(first.student_name || '生徒')}　講師名：${escapeHtml(nameWithNo(first.tutor_name, first.tutor_no) || '講師')}</div>
       ${statusBadge(groupStatus(sorted))}
     </div>
     <div class="mt-2 text-sm text-slate-600">全${sorted.length}件 / 合計${durationLabel(totalMinutes)}</div>

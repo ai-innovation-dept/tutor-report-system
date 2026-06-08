@@ -90,7 +90,7 @@ function escapeHtml(value) {
 function renderStudents() {
   studentRows.innerHTML = assignments.length ? assignments.map(assignment => `<tr class="border-t border-slate-100 hover:bg-slate-50">
     <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(assignment.student_name)}</td>
-    <td class="px-4 py-3" data-label="保護者名">${escapeHtml(assignment.parent_name || '未登録')}</td>
+    <td class="px-4 py-3" data-label="保護者名">${escapeHtml(nameWithNo(assignment.parent_name, assignment.parent_no) || '未登録')}</td>
     <td class="px-4 py-3" data-label="保護者メール">${escapeHtml(assignment.parent_email || '-')}</td>
     <td class="px-4 py-3" data-label="状態">${assignment.is_active ? '有効' : '無効'}</td>
   </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="4">担当生徒はまだありません。</td></tr>';

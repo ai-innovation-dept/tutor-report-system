@@ -99,8 +99,16 @@ class Assignment(Base):
         return self.tutor.display_name if self.tutor else None
 
     @property
+    def tutor_no(self) -> str | None:
+        return self.tutor.user_no if self.tutor else None
+
+    @property
     def parent_name(self) -> str | None:
         return self.parent.display_name if self.parent else None
+
+    @property
+    def parent_no(self) -> str | None:
+        return self.parent.user_no if self.parent else None
 
     @property
     def parent_email(self) -> str | None:

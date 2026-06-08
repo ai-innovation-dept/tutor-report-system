@@ -96,7 +96,7 @@ function renderRows() {
   emptyState.classList.toggle('hidden', staleReports.length > 0);
   staleRows.innerHTML = staleReports.map(report => `<tr class="border-t border-slate-100 align-top hover:bg-slate-50">
     <td class="px-4 py-3">${escapeHtml(report.target_month)}</td>
-    <td class="px-4 py-3">${escapeHtml(report.tutor_name || '')}</td>
+    <td class="px-4 py-3">${escapeHtml(nameWithNo(report.tutor_name, report.tutor_no))}</td>
     <td class="px-4 py-3">${escapeHtml(report.student_name || '')}</td>
     <td class="px-4 py-3"><span class="rounded-full bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800">${escapeHtml(statusLabel(report.status))}</span></td>
     <td class="px-4 py-3">${formatDate(report.stale_since)}</td>

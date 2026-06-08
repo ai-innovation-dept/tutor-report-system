@@ -130,6 +130,12 @@
       return role;
     }
 
+    // 報告書画面で「名前（No）」形式に整形する共通ヘルパー。NoがなければそのままName。
+    function nameWithNo(name, no) {
+      const label = name || '';
+      return no ? `${label}（${no}）` : label;
+    }
+
     function openSidebar() {
       sidebarPanel.classList.remove('-translate-x-full');
       sidebarBackdrop.classList.remove('hidden');

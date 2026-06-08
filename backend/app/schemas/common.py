@@ -135,7 +135,9 @@ class AssignmentOut(BaseModel):
     parent_id: UUID | None = None
     parent_display_name: str | None = None
     tutor_name: str | None = None
+    tutor_no: str | None = None
     parent_name: str | None = None
+    parent_no: str | None = None
     parent_email: str | None = None
     student_name: str
     is_active: bool
@@ -215,7 +217,10 @@ class ReportOut(BaseModel):
     assignment_id: UUID
     tutor_id: UUID
     tutor_name: str | None = None
+    tutor_no: str | None = None
     parent_id: UUID | None = None
+    parent_name: str | None = None
+    parent_no: str | None = None
     student_name: str | None = None
     skip_parent_approval: bool = False
     lesson_date: date

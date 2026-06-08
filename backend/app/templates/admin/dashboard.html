@@ -196,6 +196,7 @@ function groupReports(reports) {
         target_month: report.target_month,
         student_name: report.student_name || studentName(report.assignment_id),
         tutor_name: report.tutor_name || tutorName(report.tutor_id),
+        tutor_no: report.tutor_no || '',
         reports: []
       };
     }
@@ -364,7 +365,7 @@ function renderTasks(groups) {
     return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
-        <div class="mt-1 text-xs text-slate-500">${escapeHtml(group.tutor_name)}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
+        <div class="mt-1 text-xs text-slate-500">${escapeHtml(nameWithNo(group.tutor_name, group.tutor_no))}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
       </div>
       <div class="flex flex-col gap-2 sm:flex-row">
         <button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
@@ -399,7 +400,7 @@ function renderPipeline(groups) {
           const status = currentGroupStatus(group.reports);
           return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${openCardKey === group.key ? 'ring-2 ring-blue-200' : ''}" onclick="toggleDetails('${group.key}')">
             <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.student_name)}</div>
-            <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(group.tutor_name)} / ${escapeHtml(statusLabel(status))}</div>
+            <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(nameWithNo(group.tutor_name, group.tutor_no))} / ${escapeHtml(statusLabel(status))}</div>
           </button>`;
         }).join('') : '<div class="px-2 py-4 text-center text-xs text-slate-400">なし</div>'}
       </div>
@@ -523,7 +524,7 @@ function showDetails(key) {
   });
   detailDrawer.classList.remove('hidden');
   detailDrawer.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3">
-    <h2 class="font-semibold text-slate-800">📄 ${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}（講師：${escapeHtml(group.tutor_name)}）</h2>
+    <h2 class="font-semibold text-slate-800">📄 ${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}（講師：${escapeHtml(nameWithNo(group.tutor_name, group.tutor_no))}）</h2>
     ${statusBadge(overallStatus)}
   </div>
   <div class="p-5">
