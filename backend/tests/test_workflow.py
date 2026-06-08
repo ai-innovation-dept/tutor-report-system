@@ -252,6 +252,7 @@ def test_return_report_permission_denied_for_other_parent(client, db):
         role="parent",
         roles=["parent"],
         display_name="Other Parent",
+        allowed_systems=["legacy"],
         password_hash=hash_password("Passw0rd!"),
     )
     db.add(other_parent)
@@ -964,6 +965,7 @@ def test_selected_role_cookie_is_respected(client, db):
         role="admin_receiver",
         roles=["admin_receiver", "admin_reviewer"],
         display_name="Multi Admin",
+        allowed_systems=["legacy"],
         password_hash=hash_password("Passw0rd!"),
     )
     db.add(multi_role_user)

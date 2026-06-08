@@ -42,11 +42,11 @@ def db():
 
 @pytest.fixture()
 def client(db):
-    tutor = User(email="tutor@example.com", role="tutor", roles=["tutor"], display_name="Tutor", password_hash=hash_password("Passw0rd!"))
-    parent = User(email="parent@example.com", role="parent", roles=["parent"], display_name="Parent", password_hash=hash_password("Passw0rd!"))
-    receiver = User(email="receiver@example.com", role="admin_receiver", roles=["admin_receiver"], display_name="Receiver", password_hash=hash_password("Passw0rd!"))
-    reviewer = User(email="reviewer@example.com", role="admin_reviewer", roles=["admin_reviewer"], display_name="Reviewer", password_hash=hash_password("Passw0rd!"))
-    master = User(email="master@example.com", role="admin_master", roles=["admin_master"], display_name="Master", password_hash=hash_password("Passw0rd!"))
+    tutor = User(email="tutor@example.com", role="tutor", roles=["tutor"], display_name="Tutor", allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"))
+    parent = User(email="parent@example.com", role="parent", roles=["parent"], display_name="Parent", allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"))
+    receiver = User(email="receiver@example.com", role="admin_receiver", roles=["admin_receiver"], display_name="Receiver", allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"))
+    reviewer = User(email="reviewer@example.com", role="admin_reviewer", roles=["admin_reviewer"], display_name="Reviewer", allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"))
+    master = User(email="master@example.com", role="admin_master", roles=["admin_master"], display_name="Master", allowed_systems=["legacy", "new"], password_hash=hash_password("Passw0rd!"))
     db.add_all([tutor, parent, receiver, reviewer, master])
     db.flush()
     db.add(Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name="Student"))

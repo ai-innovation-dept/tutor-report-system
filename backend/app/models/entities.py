@@ -61,6 +61,9 @@ class User(Base):
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     skip_parent_approval: Mapped[bool] = mapped_column(Boolean, default=False)
+    # アクセス可能システムの配列（'legacy'=指導実績報告システム / 'new'=業務連絡表システム）。
+    # 物理カラムは new_backend のマイグレーション 0002 で追加済み。所属判定の唯一の基準。
+    allowed_systems: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

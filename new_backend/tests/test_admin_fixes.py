@@ -27,7 +27,13 @@ def client():
     return TestClient(app)
 
 
-def _add_user(db, email, role, *, allowed_systems=None, is_active=True):
+_UNSET = object()
+
+
+def _add_user(db, email, role, *, allowed_systems=_UNSET, is_active=True):
+    # 既定では新システム所属（ログイン可）。明示的に None / ["legacy"] を渡せば未所属を再現できる。
+    if allowed_systems is _UNSET:
+        allowed_systems = ["new"]
     user = User(
         email=email,
         role=role,
@@ -53,7 +59,8 @@ def _auth(client, email):
 # ---------------------------------------------------------------------------
 
 class TestUserListAllUsers:
-    def test_users_without_new_system_are_listed(self, client, db):
+    def test_only_new_system_users_are_listed(self, client, db):
+        # 所属の基準は allowed_systems。新システム(new)に登録のあるユーザーのみ一覧に出る。
         _add_user(db, "master@x.example.com", "admin_master", allowed_systems=["new"])
         _add_user(db, "legacy@x.example.com", "tutor", allowed_systems=["legacy"])
         _add_user(db, "nosys@x.example.com", "school", allowed_systems=None)
@@ -61,7 +68,9 @@ class TestUserListAllUsers:
         res = client.get("/api/w/users", headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 200
         emails = {u["email"] for u in res.json()["items"]}
-        assert {"master@x.example.com", "legacy@x.example.com", "nosys@x.example.com"} <= emails
+        assert "master@x.example.com" in emails
+        assert "legacy@x.example.com" not in emails
+        assert "nosys@x.example.com" not in emails
 
     def test_pagination_meta_and_role_counts(self, client, db):
         _add_user(db, "master@x.example.com", "admin_master")

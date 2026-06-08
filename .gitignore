@@ -9,3 +9,4 @@ dist/
 build/
 postgres-data/
 *.log
+backups/

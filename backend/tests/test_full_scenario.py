@@ -40,13 +40,13 @@ def scenario_client(scenario_db):
     2講師2保護者3生徒受付再鑑管理者を作成する。
     """
     users = {
-        "tutor_a": User(email="tutor_a@example.com", role="tutor", roles=["tutor"], display_name="大橋悟史", password_hash=hash_password(PASSWORD)),
-        "tutor_b": User(email="tutor_b@example.com", role="tutor", roles=["tutor"], display_name="鈴木二郎", password_hash=hash_password(PASSWORD)),
-        "parent_a": User(email="parent_a@example.com", role="parent", roles=["parent"], display_name="保護者ア", password_hash=hash_password(PASSWORD)),
-        "parent_b": User(email="parent_b@example.com", role="parent", roles=["parent"], display_name="保護者イ", password_hash=hash_password(PASSWORD)),
-        "receiver": User(email="receiver@scenario.com", role="admin_receiver", roles=["admin_receiver"], display_name="受付", password_hash=hash_password(PASSWORD)),
-        "reviewer": User(email="reviewer@scenario.com", role="admin_reviewer", roles=["admin_reviewer"], display_name="再鑑", password_hash=hash_password(PASSWORD)),
-        "master": User(email="master@scenario.com", role="admin_master", roles=["admin_master"], display_name="管理者", password_hash=hash_password(PASSWORD)),
+        "tutor_a": User(email="tutor_a@example.com", role="tutor", roles=["tutor"], display_name="大橋悟史", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "tutor_b": User(email="tutor_b@example.com", role="tutor", roles=["tutor"], display_name="鈴木二郎", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "parent_a": User(email="parent_a@example.com", role="parent", roles=["parent"], display_name="保護者ア", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "parent_b": User(email="parent_b@example.com", role="parent", roles=["parent"], display_name="保護者イ", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "receiver": User(email="receiver@scenario.com", role="admin_receiver", roles=["admin_receiver"], display_name="受付", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "reviewer": User(email="reviewer@scenario.com", role="admin_reviewer", roles=["admin_reviewer"], display_name="再鑑", allowed_systems=["legacy"], password_hash=hash_password(PASSWORD)),
+        "master": User(email="master@scenario.com", role="admin_master", roles=["admin_master"], display_name="管理者", allowed_systems=["legacy", "new"], password_hash=hash_password(PASSWORD)),
     }
     scenario_db.add_all(users.values())
     scenario_db.flush()

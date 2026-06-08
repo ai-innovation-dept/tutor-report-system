@@ -40,7 +40,18 @@
       event.preventDefault();
       const data = new URLSearchParams(new FormData(event.target));
       const res = await fetch('/api/auth/login', { method: 'POST', body: data });
-      if (!res.ok) { document.querySelector('#error').textContent = 'ログインできません'; document.querySelector('#error').classList.remove('hidden'); return; }
+      if (!res.ok) {
+        const errorEl = document.querySelector('#error');
+        // 403（未登録システム）はサーバーの案内文を表示、それ以外は汎用メッセージ。
+        let message = 'ログインできません';
+        if (res.status === 403) {
+          const body = await res.json().catch(() => null);
+          if (body && body.detail) message = body.detail;
+        }
+        errorEl.textContent = message;
+        errorEl.classList.remove('hidden');
+        return;
+      }
       const json = await res.json();
       localStorage.setItem('access_token', json.access_token);
       localStorage.setItem('token', json.access_token);

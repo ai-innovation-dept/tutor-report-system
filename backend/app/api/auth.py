@@ -77,6 +77,12 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
     user = authenticate_user(db, form.username, form.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="メールアドレスまたはパスワードが違います")
+    # 所属チェック: 既存システム(legacy)に登録のないユーザーはログイン不可（招待による登録が必要）。
+    if "legacy" not in (user.allowed_systems or []):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="このシステムには登録がありません。ご利用には管理者の招待が必要です。",
+        )
     if not user.roles:
         sync_user_roles(user, [user.role])
         db.commit()
@@ -195,9 +201,32 @@ def register_info(token: str, db: Session = Depends(get_db)):
 @router.post("/register", response_model=RegisterOut)
 def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
     invitation = _valid_invitation(payload.token, db)
-    if db.scalar(select(User).where(User.email == invitation.email)):
-        raise HTTPException(status_code=409, detail="email already exists")
     assignment = db.get(Assignment, invitation.assignment_id) if invitation.assignment_id else None
+    existing_user = db.scalar(select(User).where(User.email == invitation.email))
+    if existing_user:
+        if "legacy" in (existing_user.allowed_systems or []):
+            raise HTTPException(status_code=409, detail="email already exists")
+        # 他システムに登録済みのユーザーを、同一ユーザーのまま既存システムへ統合する（招待受諾）。
+        # 既存パスワードを引き継ぐため password は変更しない。
+        systems = list(existing_user.allowed_systems or [])
+        systems.append("legacy")
+        if invitation.role == "admin_master" and "new" not in systems:
+            systems.append("new")
+        existing_user.allowed_systems = systems
+        roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
+        if invitation.role not in roles:
+            roles.append(invitation.role)
+        existing_user.roles = roles
+        if not existing_user.role:
+            existing_user.role = invitation.role
+        if invitation.role == "tutor" and invitation.tutor_no and not existing_user.tutor_no:
+            existing_user.tutor_no = invitation.tutor_no
+        if invitation.role == "parent" and assignment:
+            assignment.parent_id = existing_user.id
+            db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": existing_user.id}, synchronize_session=False)
+        invitation.accepted_at = datetime.now(timezone.utc)
+        db.commit()
+        return RegisterOut(message="registered")
     if invitation.role == "parent":
         display_name = f"{assignment.student_name}の保護者" if assignment else invitation.email.split("@", 1)[0]
     elif invitation.role == "tutor":
@@ -218,6 +247,8 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         roles=[invitation.role],
         display_name=display_name,
         tutor_no=invitation.tutor_no if invitation.role == "tutor" else None,
+        # admin_master は常に両システム、それ以外は当(legacy)システムのみ。
+        allowed_systems=["legacy", "new"] if invitation.role == "admin_master" else ["legacy"],
         password_hash=hash_password(payload.password),
         is_active=True,
     )

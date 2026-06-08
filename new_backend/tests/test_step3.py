@@ -24,10 +24,10 @@ def db():
 
 @pytest.fixture()
 def users(db):
-    tutor = User(email="step3-tutor@example.com", role="tutor", roles=["tutor"], display_name="講師", password_hash=hash_password("Passw0rd!"))
-    other = User(email="step3-other@example.com", role="tutor", roles=["tutor"], display_name="別講師", password_hash=hash_password("Passw0rd!"))
-    school = User(email="step3-school@example.com", role="school", roles=["school"], display_name="学校", password_hash=hash_password("Passw0rd!"))
-    sales = User(email="step3-sales@example.com", role="sales", roles=["sales"], display_name="営業", password_hash=hash_password("Passw0rd!"))
+    tutor = User(email="step3-tutor@example.com", role="tutor", roles=["tutor"], display_name="講師", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    other = User(email="step3-other@example.com", role="tutor", roles=["tutor"], display_name="別講師", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    school = User(email="step3-school@example.com", role="school", roles=["school"], display_name="学校", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    sales = User(email="step3-sales@example.com", role="sales", roles=["sales"], display_name="営業", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     db.add_all([tutor, other, school, sales])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, parent_id=school.id, student_name="Step3生徒")

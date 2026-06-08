@@ -32,6 +32,7 @@ def _add_user(db, email, role):
         role=role,
         roles=[role],
         display_name=f"{role}ユーザー",
+        allowed_systems=["legacy", "new"] if role == "admin_master" else ["new"],
         password_hash=hash_password("Passw0rd!"),
     )
     db.add(user)

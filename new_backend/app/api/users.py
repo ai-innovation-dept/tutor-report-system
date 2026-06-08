@@ -75,8 +75,9 @@ def list_users(
         stmt = stmt.where(
             or_(func.lower(User.display_name).like(kw), func.lower(User.email).like(kw))
         )
-    # 登録済みユーザーは現在存在するユーザーの全量を表示する（allowed_systemsでは絞らない）
     users = db.scalars(stmt.order_by(User.created_at.desc())).all()
+    # 所属の唯一の基準は allowed_systems。新システム(new)に登録のあるユーザーのみ表示する。
+    users = [u for u in users if "new" in (u.allowed_systems or [])]
 
     role_counts = {"all": len(users)}
     for key in ROLE_TAB_KEYS:

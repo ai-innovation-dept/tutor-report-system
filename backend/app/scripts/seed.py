@@ -8,13 +8,17 @@ from app.models import Assignment, User
 PASSWORD = "Passw0rd!"
 
 
-def upsert_user(db, email, role, name, tutor_no=None):
+def upsert_user(db, email, role, name, tutor_no=None, allowed_systems=None):
+    # admin_master は常に両システム、それ以外は当(legacy)システムのみ。
+    if allowed_systems is None:
+        allowed_systems = ["legacy", "new"] if role == "admin_master" else ["legacy"]
     user = db.scalar(select(User).where(User.email == email))
     if user:
         user.role = role
         user.roles = [role]
         user.display_name = name
         user.tutor_no = tutor_no
+        user.allowed_systems = allowed_systems
         user.password_hash = hash_password(PASSWORD)
         user.is_active = True
         return user
@@ -25,6 +29,7 @@ def upsert_user(db, email, role, name, tutor_no=None):
         roles=[role],
         display_name=name,
         tutor_no=tutor_no,
+        allowed_systems=allowed_systems,
         password_hash=hash_password(PASSWORD),
         is_active=True,
     )

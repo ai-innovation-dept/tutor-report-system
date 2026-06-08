@@ -29,6 +29,7 @@ def users(db):
         role="tutor",
         roles=["tutor"],
         display_name="講師A",
+        allowed_systems=["new"],
         password_hash=hash_password("Passw0rd!"),
     )
     school = User(
@@ -36,6 +37,7 @@ def users(db):
         role="school",
         roles=["school"],
         display_name="学校担当",
+        allowed_systems=["new"],
         password_hash=hash_password("Passw0rd!"),
     )
     sales = User(
@@ -43,6 +45,7 @@ def users(db):
         role="sales",
         roles=["sales"],
         display_name="営業担当",
+        allowed_systems=["new"],
         password_hash=hash_password("Passw0rd!"),
     )
     office = User(
@@ -50,6 +53,7 @@ def users(db):
         role="office",
         roles=["office"],
         display_name="事務担当",
+        allowed_systems=["new"],
         password_hash=hash_password("Passw0rd!"),
     )
     master = User(
@@ -57,6 +61,7 @@ def users(db):
         role="admin_master",
         roles=["admin_master"],
         display_name="管理者",
+        allowed_systems=["legacy", "new"],
         password_hash=hash_password("Passw0rd!"),
     )
     db.add_all([tutor, school, sales, office, master])

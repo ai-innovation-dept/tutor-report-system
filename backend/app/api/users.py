@@ -66,7 +66,8 @@ def list_users(
         keyword = f"%{search.strip().lower()}%"
         stmt = stmt.where(or_(func.lower(User.display_name).like(keyword), func.lower(User.email).like(keyword)))
     users = db.scalars(stmt.order_by(User.created_at.desc())).all()
-    users = [user for user in users if getattr(user, "allowed_systems", None) is None or "legacy" in user.allowed_systems]
+    # 所属の唯一の基準は allowed_systems。既存システム(legacy)に登録のあるユーザーのみ表示する。
+    users = [user for user in users if "legacy" in (user.allowed_systems or [])]
     role_counts = {key: 0 for key in ["all", "tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master"]}
     role_counts["all"] = len(users)
     for user in users:

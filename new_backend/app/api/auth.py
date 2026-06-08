@@ -25,9 +25,9 @@ from app.schemas.users import UserOut
 from app.services.notification_service import send_email
 from app.services.user_service import (
     ROLE_LABELS,
+    allowed_systems_for_role,
     authenticate,
     effective_roles,
-    has_new_system_role,
 )
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -58,8 +58,12 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     user = authenticate(db, str(payload.username), payload.password)
     if not user:
         raise HTTPException(status_code=401, detail="invalid credentials")
-    if not has_new_system_role(user):
-        raise HTTPException(status_code=403, detail="new system access not granted")
+    # 所属チェック: 新システム(new)に登録のないユーザーはログイン不可（招待による登録が必要）。
+    if "new" not in (user.allowed_systems or []):
+        raise HTTPException(
+            status_code=403,
+            detail="このシステムには登録がありません。ご利用には管理者の招待が必要です。",
+        )
 
     roles = effective_roles(user)
     token = create_access_token({"sub": str(user.id)})
@@ -162,6 +166,9 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         systems = list(existing_user.allowed_systems or [])
         if "new" not in systems:
             systems.append("new")
+        # admin_master は常に両システム。
+        if inv.role == "admin_master" and "legacy" not in systems:
+            systems.append("legacy")
         existing_user.allowed_systems = systems
         roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
         if inv.role not in roles:
@@ -184,7 +191,8 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
         display_name=display_name,
         user_no=user_no,
         tutor_no=user_no if inv.role == "tutor" else None,  # legacy 互換
-        allowed_systems=["new"],
+        # admin_master は常に両システム、それ以外は当(new)システムのみ。
+        allowed_systems=allowed_systems_for_role(inv.role),
         password_hash=hash_password(payload.password),
         is_active=True,
     )

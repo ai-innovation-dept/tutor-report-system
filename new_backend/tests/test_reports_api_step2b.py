@@ -33,11 +33,11 @@ def db():
 
 @pytest.fixture()
 def users(db):
-    tutor = User(email="b-tutor@example.com", role="tutor", roles=["tutor"], display_name="講師", password_hash=hash_password("Passw0rd!"))
-    school = User(email="b-school@example.com", role="school", roles=["school"], display_name="学校", password_hash=hash_password("Passw0rd!"))
-    sales = User(email="b-sales@example.com", role="sales", roles=["sales"], display_name="営業", password_hash=hash_password("Passw0rd!"))
-    office = User(email="b-office@example.com", role="office", roles=["office"], display_name="事務", password_hash=hash_password("Passw0rd!"))
-    master = User(email="b-master@example.com", role="admin_master", roles=["admin_master"], display_name="管理者", password_hash=hash_password("Passw0rd!"))
+    tutor = User(email="b-tutor@example.com", role="tutor", roles=["tutor"], display_name="講師", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    school = User(email="b-school@example.com", role="school", roles=["school"], display_name="学校", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    sales = User(email="b-sales@example.com", role="sales", roles=["sales"], display_name="営業", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    office = User(email="b-office@example.com", role="office", roles=["office"], display_name="事務", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
+    master = User(email="b-master@example.com", role="admin_master", roles=["admin_master"], display_name="管理者", allowed_systems=["legacy", "new"], password_hash=hash_password("Passw0rd!"))
     db.add_all([tutor, school, sales, office, master])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, parent_id=school.id, student_name="Step2B生徒")

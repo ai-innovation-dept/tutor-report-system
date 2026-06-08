@@ -16,15 +16,15 @@ from tests.conftest import TestSession
 def scenario():
     db = TestSession()
     tutor = User(email="tutor@scenario.example.com", role="tutor", roles=["tutor"],
-                 display_name="テスト講師", password_hash=hash_password("Passw0rd!"))
+                 display_name="テスト講師", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     school = User(email="school@scenario.example.com", role="school", roles=["school"],
-                  display_name="学校担当", password_hash=hash_password("Passw0rd!"))
+                  display_name="学校担当", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     sales = User(email="sales@scenario.example.com", role="sales", roles=["sales"],
-                 display_name="営業担当", password_hash=hash_password("Passw0rd!"))
+                 display_name="営業担当", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     office = User(email="office@scenario.example.com", role="office", roles=["office"],
-                  display_name="事務担当", password_hash=hash_password("Passw0rd!"))
+                  display_name="事務担当", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     master = User(email="master@scenario.example.com", role="admin_master", roles=["admin_master"],
-                  display_name="管理者", password_hash=hash_password("Passw0rd!"))
+                  display_name="管理者", allowed_systems=["legacy", "new"], password_hash=hash_password("Passw0rd!"))
     db.add_all([tutor, school, sales, office, master])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, student_name="シナリオ生徒")

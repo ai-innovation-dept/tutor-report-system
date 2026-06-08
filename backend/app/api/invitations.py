@@ -201,9 +201,12 @@ async def create_invitation(
 
     now = datetime.now(timezone.utc)
     existing_user = db.scalar(select(User).where(User.email == email))
-    if existing_user and not (payload.role == "parent" and existing_user.role == "parent"):
+    # 所属の基準は allowed_systems。既に当(legacy)システムに登録済みの場合のみ重複扱い。
+    # 他システムのみ登録済みのユーザーは招待を許可し、登録時に同一ユーザーへ統合する。
+    existing_in_legacy = bool(existing_user and "legacy" in (existing_user.allowed_systems or []))
+    if existing_in_legacy and not (payload.role == "parent" and existing_user.role == "parent"):
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
-    if existing_user:
+    if existing_in_legacy:
         assignment = _assignment_for_parent_payload(payload, db)
         assignment.parent_id = existing_user.id
         db.flush()

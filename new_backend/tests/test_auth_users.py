@@ -229,7 +229,8 @@ class TestRegistration:
         db = TestSession()
         from sqlalchemy import select as sa_select
         user = db.scalar(sa_select(User).where(User.email == "am_reg@x.example.com"))
-        assert user.allowed_systems == ["new"]
+        # admin_master は常に両システム所属で登録される。
+        assert set(user.allowed_systems) == {"legacy", "new"}
         db.close()
 
     def test_register_used_token_returns_409(self, client, master_user):

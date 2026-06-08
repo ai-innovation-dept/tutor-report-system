@@ -52,7 +52,13 @@
           body: JSON.stringify(data)
         });
         if (!res.ok) {
-          errorEl.textContent = 'メールアドレスまたはパスワードが正しくありません';
+          // 403（未登録システム）はサーバーの案内文を表示、それ以外は汎用メッセージ。
+          let message = 'メールアドレスまたはパスワードが正しくありません';
+          if (res.status === 403) {
+            const body = await res.json().catch(() => null);
+            if (body && body.detail) message = body.detail;
+          }
+          errorEl.textContent = message;
           errorEl.classList.remove('hidden');
           return;
         }
