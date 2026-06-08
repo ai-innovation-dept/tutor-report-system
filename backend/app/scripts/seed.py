@@ -4,6 +4,7 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.database import SessionLocal
 from app.models import Assignment, User
+from app.services.user_no_service import assign_missing_user_nos
 
 PASSWORD = "Passw0rd!"
 
@@ -76,6 +77,7 @@ def main():
     db = SessionLocal()
     try:
         create_initial_users(db)
+        assign_missing_user_nos(db)
         db.commit()
         print("seed complete")
     finally:

@@ -17,6 +17,7 @@ from app.config import settings
 from app.models import Assignment, Invitation, LessonReport, PasswordResetToken, User
 from app.schemas import ForgotPasswordIn, RegisterIn, RegisterInfoOut, RegisterOut, ResetPasswordIn, ResetTokenInfoOut, TokenOut, UserOut
 from app.services.notification_service import send_email_notification
+from app.services.user_no_service import user_no_for_new_user
 
 
 ROLE_LABELS = {
@@ -221,6 +222,8 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
             existing_user.role = invitation.role
         if invitation.role == "tutor" and invitation.tutor_no and not existing_user.tutor_no:
             existing_user.tutor_no = invitation.tutor_no
+        if not existing_user.user_no:
+            existing_user.user_no = user_no_for_new_user(db, invitation.role, existing_user.tutor_no)
         if invitation.role == "parent" and assignment:
             assignment.parent_id = existing_user.id
             db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": existing_user.id}, synchronize_session=False)
@@ -254,6 +257,7 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
     )
     db.add(user)
     db.flush()
+    user.user_no = user_no_for_new_user(db, invitation.role, user.tutor_no)
     if invitation.role == "parent" and assignment:
         assignment.parent_id = user.id
         db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": user.id}, synchronize_session=False)

@@ -89,10 +89,11 @@
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-4 py-3 text-left">ロール</th>
+          <th class="px-4 py-3 text-left">No</th>
           <th class="px-4 py-3 text-left">名前</th>
+          <th class="px-4 py-3 text-left">ロール</th>
+          <th class="px-4 py-3 text-left">役割</th>
           <th class="px-4 py-3 text-left">メール</th>
-          <th class="px-4 py-3 text-left">講師No</th>
           <th class="px-4 py-3 text-left">送信日時</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
@@ -159,6 +160,13 @@ function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
 function roleLabel(role) { return ROLE_LABELS[role] || role; }
+// 役割（表示区分）: 講師=講師 / 保護者=保護者 / 受付・再鑑・管理者=運営スタッフ
+const ROLE_CATEGORY = {
+  tutor: '講師', parent: '保護者',
+  admin_receiver: '運営スタッフ', admin_reviewer: '運営スタッフ', admin_master: '運営スタッフ'
+};
+function categoryOf(role) { return ROLE_CATEGORY[role] || '-'; }
+function userCategory(user) { return categoryOf(primaryRole(user)); }
 function userRoles(user) { return user.roles && user.roles.length ? user.roles : [user.role]; }
 function primaryRole(user) { return userRoles(user)[0] || user.role; }
 function isParent(user) { return userRoles(user).includes('parent'); }
@@ -236,10 +244,11 @@ function pendingInvitations() {
 }
 function pendingInvitationRow(invitation) {
   return `<tr class="border-t border-slate-100 bg-amber-50/40 hover:bg-amber-50">
-    <td class="min-w-72 px-4 py-3 text-xs text-slate-500" data-label="ロール">${escapeHtml(roleLabel(invitation.role))}</td>
+    <td class="px-4 py-3 text-slate-500" data-label="No">${escapeHtml(invitation.user_no || '-')}</td>
     <td class="px-4 py-3" data-label="名前">${escapeHtml(invitation.display_name || '-')}</td>
+    <td class="min-w-72 px-4 py-3 text-xs text-slate-500" data-label="ロール">${escapeHtml(roleLabel(invitation.role))}</td>
+    <td class="px-4 py-3" data-label="役割">${escapeHtml(categoryOf(invitation.role))}</td>
     <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
-    <td class="px-4 py-3" data-label="講師No">${escapeHtml(invitation.tutor_no || '-')}</td>
     <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
     <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
     <td class="px-4 py-3" data-label="操作">
@@ -276,10 +285,11 @@ function userRow(user) {
   const changed = userHasRoleChanges(user);
   const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
   return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
-    <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
+    <td class="px-4 py-3 font-medium text-slate-700" data-label="No">${escapeHtml(user.user_no || '-')}</td>
     <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
+    <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
+    <td class="px-4 py-3" data-label="役割">${escapeHtml(userCategory(user))}</td>
     <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
-    <td class="px-4 py-3" data-label="講師No">${escapeHtml(user.tutor_no || '-')}</td>
     <td class="px-4 py-3" data-label="送信日時">${sentAtText(user)}</td>
     <td class="px-4 py-3" data-label="状態">${active}</td>
     <td class="px-4 py-3" data-label="操作">
@@ -294,7 +304,7 @@ function renderUsers() {
   renderRoleTabs();
   // 未登録の招待も同じ一覧に表示する（招待済み一覧は廃止）。承認済み招待は除外し登録済みユーザーとの重複を防ぐ。
   const rows = [...pendingInvitations().map(pendingInvitationRow), ...users.map(userRow)];
-  userRows.innerHTML = rows.length ? rows.join('') : '<tr><td class="p-4 text-slate-600" colspan="7">登録済みユーザーはありません。</td></tr>';
+  userRows.innerHTML = rows.length ? rows.join('') : '<tr><td class="p-4 text-slate-600" colspan="8">登録済みユーザーはありません。</td></tr>';
   renderPagination();
 }
 function renderPagination() {
@@ -409,9 +419,9 @@ function renderDetailDrawer(id) {
     <section>
       <h3 class="font-semibold text-slate-800">ユーザー基本情報</h3>
       <dl class="mt-3 grid grid-cols-[120px_1fr] gap-2 text-sm">
+        <dt class="text-slate-500">No</dt><dd>${escapeHtml(user.user_no || '-')}</dd>
         <dt class="text-slate-500">名前</dt><dd>${escapeHtml(user.display_name)}</dd>
         <dt class="text-slate-500">メール</dt><dd>${escapeHtml(user.email)}</dd>
-        <dt class="text-slate-500">講師No</dt><dd>${escapeHtml(user.tutor_no || '-')}</dd>
         <dt class="text-slate-500">登録日</dt><dd>${formatDate(user.created_at)}</dd>
         <dt class="text-slate-500">最終ログイン日</dt><dd>${formatDateTime(user.last_login_at)}</dd>
       </dl>

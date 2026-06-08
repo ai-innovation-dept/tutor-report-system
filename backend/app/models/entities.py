@@ -58,6 +58,9 @@ class User(Base):
     roles: Mapped[list[str]] = mapped_column(JSON, default=list)
     display_name: Mapped[str] = mapped_column(String(100))
     tutor_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # 全ロール共通のユーザーNo（T1xxx=講師 / T2xxx=保護者 / T3xxx=運営スタッフ）。
+    # 物理カラムは new_backend のマイグレーション 0002 で追加済み。採番は user_no_service が管理。
+    user_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
     phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     skip_parent_approval: Mapped[bool] = mapped_column(Boolean, default=False)

@@ -14,6 +14,7 @@ from app.database import get_db
 from app.models import Assignment, Invitation, User
 from app.schemas import InvitationCreate, InvitationOut
 from app.services.notification_service import EmailChannel
+from app.services.user_no_service import derive_user_no_from_tutor_no
 
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 
@@ -40,6 +41,8 @@ def _invitation_out(invitation: Invitation, message: str | None = None) -> Invit
         tutor_name=invitation.assignment.tutor.display_name if invitation.assignment and invitation.assignment.tutor else None,
         display_name=invitation.display_name,
         tutor_no=invitation.tutor_no,
+        # 講師の招待は tutor_no から banded な No を導出して表示。保護者/運営は登録時に採番。
+        user_no=derive_user_no_from_tutor_no(invitation.tutor_no) if invitation.role == "tutor" else None,
         student_name=invitation.assignment.student_name if invitation.assignment else None,
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,

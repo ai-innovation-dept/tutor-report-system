@@ -17,6 +17,7 @@ class UserOut(BaseModel):
     roles: list[str] = Field(default_factory=list)
     display_name: str
     tutor_no: str | None = None
+    user_no: str | None = None
     phone: str | None = None
     is_active: bool
     skip_parent_approval: bool = False
@@ -164,6 +165,7 @@ class InvitationOut(BaseModel):
     tutor_name: str | None = None
     display_name: str | None = None
     tutor_no: str | None = None
+    user_no: str | None = None
     student_name: str | None = None
     expires_at: datetime
     accepted_at: datetime | None = None
