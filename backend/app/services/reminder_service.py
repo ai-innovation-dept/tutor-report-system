@@ -1,20 +1,26 @@
 # === Phase 7: 通知・リマインダー START ===
+import asyncio
 import calendar
 import os
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
+from logging import getLogger
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.background import BackgroundScheduler
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.core.rbac import has_role
 from app.core.time import get_current_jst_date
 from app.database import SessionLocal
-from app.models import LessonReport, ReportStatus, User
-from app.services.notification_service import enqueue
+from app.models import LessonReport, Notification, ReportStatus, User
+from app.services.notification_service import EmailChannel, enqueue
 from app.services.report_service import get_stale_reports, set_stale_since
+
+logger = getLogger(__name__)
+
+APPROVAL_REMINDER_TYPE = "reminder_approval"
 
 
 def is_reminder_day(today: date, days_before_month_end: int) -> bool:
@@ -41,14 +47,30 @@ def enqueue_month_end_reminders(db: Session, today: date | None = None) -> int:
     return count
 
 
-def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
-    """保護者の承認依頼後、設定した間隔日数ごとにリマインドを送る。
+def _as_utc(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
-    保護者が承認するまでエンドレスに送信する（回数上限なし）。承認されると報告書が
-    awaiting_parent_approval から外れるため、自然と送信は停止する。
-    リマインドの有効/無効・間隔日数は案件(Assignment)単位で運営が設定する。
+
+def _approval_reminder_body(assignment) -> str:
+    base_url = settings.base_url.rstrip("/")
+    return (
+        f"{assignment.student_name}の指導実績報告書の承認をお願いします。\n\n"
+        f"以下より内容のご確認・承認をお願いいたします。\n{base_url}/parent/approval"
+    )
+
+
+def enqueue_approval_reminders(db: Session, now: datetime | None = None) -> int:
+    """保護者の承認依頼後、設定した間隔ごとにリマインド通知を作成する。
+
+    ★テスト用「分」単位モード：Assignment.reminder_days_after を「分」として解釈する。
+      （日単位運用へ戻す際は本関数とスケジューラ間隔・管理画面ラベルを日へ戻すこと）
+
+    保護者が承認するまでエンドレスに作成する（回数上限なし）。承認されると報告書が
+    awaiting_parent_approval から外れるため自然に停止する。
+    判定は「承認依頼からの経過で本来送られているべき回数 > 既に作成済みの件数」の場合に
+    1件作成する方式とし、ジョブの実行タイミングに依存しない・重複しないようにしている。
     """
-    today = today or get_current_jst_date()
+    now = _as_utc(now or datetime.now(timezone.utc))
     reports = db.scalars(
         select(LessonReport)
         .options(selectinload(LessonReport.assignment))
@@ -62,16 +84,24 @@ def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
             continue
         if not report.parent_id:
             continue
-        interval = max(1, assignment.reminder_days_after)
-        submitted_date = report.submitted_to_parent_at.date()
-        days_since = (today - submitted_date).days
-        if days_since > 0 and days_since % interval == 0:
+        interval_minutes = max(1, assignment.reminder_days_after)
+        elapsed_minutes = (now - _as_utc(report.submitted_to_parent_at)).total_seconds() / 60
+        due_count = int(elapsed_minutes // interval_minutes)
+        if due_count <= 0:
+            continue
+        already_sent = db.scalar(
+            select(func.count(Notification.id)).where(
+                Notification.report_id == report.id,
+                Notification.type == APPROVAL_REMINDER_TYPE,
+            )
+        ) or 0
+        if due_count > already_sent:
             enqueue(
                 db,
                 report.parent_id,
-                "reminder_approval",
+                APPROVAL_REMINDER_TYPE,
                 "【指導実績】承認のお願い（リマインド）",
-                f"{assignment.student_name}の指導実績報告書の承認をお願いします。",
+                _approval_reminder_body(assignment),
                 report.id,
             )
             count += 1
@@ -80,11 +110,46 @@ def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
     return count
 
 
+def _send_pending_approval_emails(db: Session) -> int:
+    """未送信の承認リマインド通知を実際にメール送信し、sent_at を記録する。"""
+    pending = db.scalars(
+        select(Notification).where(
+            Notification.type == APPROVAL_REMINDER_TYPE,
+            Notification.sent_at.is_(None),
+            Notification.channel == "email",
+        )
+    ).all()
+    sent = 0
+    for notification in pending:
+        user = db.get(User, notification.user_id)
+        if not user or not user.email:
+            continue
+        try:
+            asyncio.run(EmailChannel().send(user.email, notification.subject, notification.body))
+            notification.sent_at = datetime.now(timezone.utc)
+            sent += 1
+        except Exception:
+            logger.exception("failed to send approval reminder email to %s", user.email)
+    return sent
+
+
+def run_approval_reminder_job() -> None:
+    """承認リマインドの作成＋メール送信。スケジューラから毎分実行する（分単位テスト）。"""
+    db = SessionLocal()
+    try:
+        enqueue_approval_reminders(db)
+        db.flush()
+        _send_pending_approval_emails(db)
+        db.commit()
+    finally:
+        db.close()
+
+
 def run_reminder_job() -> None:
+    # 月末リマインドは日次。承認リマインドは run_approval_reminder_job（毎分）で処理する。
     db = SessionLocal()
     try:
         enqueue_month_end_reminders(db)
-        enqueue_approval_reminders(db)
         db.commit()
     finally:
         db.close()
@@ -156,6 +221,8 @@ def daily_stale_check(db: Session) -> None:
 def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.timezone))
     scheduler.add_job(run_reminder_job, "cron", hour=9, minute=0, id="month_end_reminders", replace_existing=True)
+    # ★承認リマインドは分単位テストのため毎分実行（日単位運用へ戻す際は間隔も日次へ戻すこと）
+    scheduler.add_job(run_approval_reminder_job, "interval", minutes=1, id="approval_reminders", replace_existing=True)
     scheduler.add_job(_run_stale_job, "cron", hour=6, minute=0, id="stale_report_check", replace_existing=True)
     scheduler.start()
     return scheduler
