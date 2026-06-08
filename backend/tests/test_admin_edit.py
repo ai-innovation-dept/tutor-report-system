@@ -59,8 +59,9 @@ def test_receiver_can_edit_received_report_and_notifies(client, db, monkeypatch)
     assert "修正内容" in body
     assert "二次関数と平方完成" in body
 
-    events = db.query(ReportEvent).filter(ReportEvent.report_id == report.id, ReportEvent.action == "update").all()
+    events = db.query(ReportEvent).filter(ReportEvent.report_id == report.id, ReportEvent.action == "receiver_edit").all()
     assert len(events) == 1
+    assert "修正項目" in (events[0].comment or "")
 
 
 def test_receiver_cannot_edit_non_pipeline_report(client, db, monkeypatch):
@@ -91,3 +92,5 @@ def test_no_change_sends_no_email(client, db, monkeypatch):
     })
     assert res.status_code == 200, res.text
     assert sent == []  # 変更がなければ通知しない
+    edits = db.query(ReportEvent).filter(ReportEvent.report_id == report.id, ReportEvent.action == "receiver_edit").all()
+    assert edits == []  # 変更がなければ履歴も残さない

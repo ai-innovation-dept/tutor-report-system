@@ -650,10 +650,13 @@ async def admin_edit_report(
     if "lesson_date" in data:
         # 受付は過去月の訂正もあり得るため当月制限は課さない。対象月のみ追従させる。
         report.target_month = month_string(report.lesson_date)
-    db.add(ReportEvent(
-        report_id=report.id, actor_id=user.id, action=ReportAction.update.value,
-        from_status=report.status, to_status=report.status, comment="受付による修正",
-    ))
+    if changes:
+        # 進捗履歴に残す。コメントに修正項目を列挙（差分の前後はメールで通知）。
+        db.add(ReportEvent(
+            report_id=report.id, actor_id=user.id, action=ReportAction.receiver_edit.value,
+            from_status=report.status, to_status=report.status,
+            comment="修正項目：" + "、".join(label for label, _, _ in changes),
+        ))
     db.commit()
     db.refresh(report)
     if changes:

@@ -47,6 +47,7 @@ class ReportAction(str, enum.Enum):
     return_from_reviewer = "return_from_reviewer"
     admin_approve = "admin_approve"
     return_from_master = "return_from_master"
+    receiver_edit = "receiver_edit"  # 受付担当による報告書修正
 
 
 class User(Base):

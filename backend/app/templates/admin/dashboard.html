@@ -144,10 +144,12 @@ const ACTION_LABELS = {
   re_review: '再鑑承認',
   return_from_reviewer: '差戻し',
   admin_approve: '承認',
-  return_from_master: '差戻し'
+  return_from_master: '差戻し',
+  receiver_edit: '受付修正'
 };
 const RETURN_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
 const APPROVAL_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
+const EDIT_ACTIONS = new Set(['receiver_edit']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_parent_approval', label: '保護者承認待ち', statuses: ['awaiting_parent_approval', 'parent_approved']},
@@ -458,11 +460,13 @@ function currentWaitLabel(status) {
 function eventDotClass(action) {
   if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
   if (APPROVAL_ACTIONS.has(action)) return 'bg-[#16A34A]';
+  if (EDIT_ACTIONS.has(action)) return 'bg-[#2563EB]';
   return 'bg-slate-400';
 }
 function actionBadge(action) {
-  const returnStyle = RETURN_ACTIONS.has(action);
-  const cls = returnStyle ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#DCFCE7] text-[#166534]';
+  let cls = 'bg-[#DCFCE7] text-[#166534]';
+  if (RETURN_ACTIONS.has(action)) cls = 'bg-[#FEE2E2] text-[#991B1B]';
+  else if (EDIT_ACTIONS.has(action)) cls = 'bg-[#DBEAFE] text-[#1E40AF]';
   return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
 }
 function statusBadge(status) {
@@ -488,6 +492,13 @@ function closedReportInfo(group) {
 }
 function timelineRow(event) {
   const isReturn = RETURN_ACTIONS.has(event.action);
+  const isEdit = EDIT_ACTIONS.has(event.action);
+  let commentBox = '';
+  if (isReturn && event.comment) {
+    commentBox = `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>`;
+  } else if (isEdit && event.comment) {
+    commentBox = `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#EFF6FF] px-3 py-2 text-sm text-slate-700" style="border-color:#2563EB;">${escapeHtml(event.comment)}</div>`;
+  }
   return `<div class="relative pb-5 pl-8">
     <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full ${eventDotClass(event.action)}"></span>
     <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -496,7 +507,7 @@ function timelineRow(event) {
       <span>${escapeHtml(event.actor_name || '-')}</span>
       ${actionBadge(event.action)}
     </div>
-    ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+    ${commentBox}
   </div>`;
 }
 function currentTimelineRow(status) {
