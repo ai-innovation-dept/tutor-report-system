@@ -15,7 +15,7 @@ from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import ReportCreate, ReportEventOut, ReportOut, ReportPatch
-from app.services.workflow_service import notify_report_modified
+from app.services.workflow_service import notify_report_modified, separation_locks
 
 STATUS_RANK = {
     ReportStatus.draft.value: 0,
@@ -567,6 +567,15 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         onLaterPages=lambda canvas, doc: _draw_approval_stamps_grid(canvas, doc, stamps, font_name),
     )
     return buf.getvalue()
+
+
+@router.get("/admin-separation-locks")
+def admin_separation_locks(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # 職務分掌のUI制御用：現在のスタッフが受付/再鑑を担当済みの講師IDを返す。
+    # 受付承認した講師は再鑑承認ボタンを、再鑑承認した講師は受付承認ボタンを無効化するために使う。
+    if not user.role.startswith("admin_"):
+        raise HTTPException(status_code=403, detail="not allowed")
+    return separation_locks(db, user)
 
 
 @router.get("/{report_id}", response_model=ReportOut)

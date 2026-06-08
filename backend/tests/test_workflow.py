@@ -1275,4 +1275,146 @@ def test_create_report_accepts_valid_times(client, db):
         "content": "lesson",
     })
     assert res.status_code == 200
+
+
+# --- 職務分掌：受付承認と再鑑承認は同一講師で兼務不可 ---
+
+def _make_dual_admin(db, email="dual-admin@example.com", name="Dual Admin"):
+    user = User(
+        email=email,
+        role="admin_receiver",
+        roles=["admin_receiver", "admin_reviewer"],
+        display_name=name,
+        allowed_systems=["legacy"],
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(user)
+    db.commit()
+    return user
+
+
+def _make_report(db, assignment, status, content="report"):
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content=content,
+        target_month=today.strftime("%Y-%m"),
+        status=status,
+    )
+    db.add(report)
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+def _make_second_tutor_assignment(db, email="tutorE@example.com", name="Tutor E"):
+    parent = db.query(User).filter(User.role == "parent").first()
+    tutor = User(
+        email=email, role="tutor", roles=["tutor"], display_name=name,
+        allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(tutor)
+    db.flush()
+    assignment = Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name=f"{name} Student")
+    db.add(assignment)
+    db.commit()
+    db.refresh(assignment)
+    return assignment
+
+
+def test_dual_admin_cannot_re_review_tutor_they_received(client, db):
+    """例①：受付・再鑑の両ロールを持つ人が、自分が受付承認した講師を再鑑承認できない。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
+
+    received = client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+    assert received.status_code == 200
+    assert received.json()["status"] == ReportStatus.received.value
+
+    re_reviewed = client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+    assert re_reviewed.status_code == 409
+    assert "再鑑承認はできません" in re_reviewed.json()["detail"]
+
+
+def test_dual_admin_cannot_receive_tutor_they_re_reviewed(client, db):
+    """逆方向：先に再鑑承認した講師は、同じ人が受付承認できない。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    reviewed = _make_report(db, assignment, ReportStatus.received.value, content="reviewed first")
+    res = client.post(f"/api/reports/{reviewed.id}/re-review", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+    assert res.status_code == 200
+
+    # 同じ講師の別報告書を受付しようとするとブロック
+    to_receive = _make_report(db, assignment, ReportStatus.submitted_to_admin.value, content="to receive")
+    blocked = client.post(f"/api/reports/{to_receive.id}/receive", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+    assert blocked.status_code == 409
+    assert "受付承認はできません" in blocked.json()["detail"]
+
+
+def test_dual_admin_can_re_review_other_tutor_received_by_someone_else(client, db):
+    """例④：自分が受付承認したのは講師B。講師Eは他者が受付承認済みなら再鑑承認できる。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    receiver_token = token(client, "receiver@example.com")
+    tutor_b = db.query(Assignment).first()
+    # 講師Bを受付承認
+    report_b = _make_report(db, tutor_b, ReportStatus.submitted_to_admin.value, content="tutorB")
+    assert client.post(f"/api/reports/{report_b.id}/receive", headers={"Authorization": f"Bearer {dual_token}"}, json={}).status_code == 200
+
+    # 講師Eは別の受付担当が受付承認
+    tutor_e = _make_second_tutor_assignment(db)
+    report_e = _make_report(db, tutor_e, ReportStatus.submitted_to_admin.value, content="tutorE")
+    assert client.post(f"/api/reports/{report_e.id}/receive", headers={"Authorization": f"Bearer {receiver_token}"}, json={}).status_code == 200
+
+    # dual は講師Eを再鑑承認できる
+    re_reviewed = client.post(f"/api/reports/{report_e.id}/re-review", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+    assert re_reviewed.status_code == 200
+    assert re_reviewed.json()["status"] == ReportStatus.re_reviewed.value
+
+
+def test_other_dual_admin_can_re_review_tutor_received_by_first(client, db):
+    """例②：別人(C)は、Aが受付承認した講師Bを再鑑承認できる。"""
+    _make_dual_admin(db, email="dualA@example.com", name="Dual A")
+    _make_dual_admin(db, email="dualC@example.com", name="Dual C")
+    token_a = token(client, "dualA@example.com")
+    token_c = token(client, "dualC@example.com")
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
+    assert client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {token_a}"}, json={}).status_code == 200
+    re_reviewed = client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {token_c}"}, json={})
+    assert re_reviewed.status_code == 200
+
+
+def test_admin_master_is_exempt_from_separation(client, db):
+    """admin_master はフルアクセスのため職務分掌の対象外（受付・再鑑の両方を実行できる）。"""
+    master_token = token(client, "master@example.com")
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
+    assert client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {master_token}"}, json={}).status_code == 200
+    re_reviewed = client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {master_token}"}, json={})
+    assert re_reviewed.status_code == 200
+
+
+def test_separation_locks_endpoint_reports_acted_tutors(client, db):
+    """UI制御用エンドポイントが受付/再鑑済みの講師IDを返す。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
+    client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {dual_token}"}, json={})
+
+    res = client.get("/api/reports/admin-separation-locks", headers={"Authorization": f"Bearer {dual_token}"})
+    assert res.status_code == 200
+    data = res.json()
+    assert str(assignment.tutor_id) in data["received_tutor_ids"]
+    assert data["reviewed_tutor_ids"] == []
 # === Phase 5 END ===

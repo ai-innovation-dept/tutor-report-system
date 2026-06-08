@@ -42,9 +42,51 @@ RETURN_ACTIONS = {
     ReportAction.return_from_master.value,
 }
 
+# 職務分掌：受付承認(receive)と再鑑承認(re_review)は、同一講師に対して同一スタッフが
+# 兼務できない。一度どちらかを承認すると、その講師に対するもう一方の承認は全期間にわたり
+# 不可（例：講師Bを受付承認した人は講師Bを再鑑承認できない）。
+# admin_master（最終承認者・フルアクセス）はこの制約の対象外。
+SEPARATION_CONFLICT = {
+    ReportAction.receive.value: ReportAction.re_review.value,
+    ReportAction.re_review.value: ReportAction.receive.value,
+}
+_SEPARATION_MESSAGE = {
+    ReportAction.receive.value: "この講師はあなたが再鑑承認を担当済みのため、受付承認はできません（受付と再鑑は同一講師で兼務できません）。",
+    ReportAction.re_review.value: "この講師はあなたが受付承認を担当済みのため、再鑑承認はできません（受付と再鑑は同一講師で兼務できません）。",
+}
+
 
 def _role_allowed(required: str, actor: User) -> bool:
     return has_role(actor, required) or (has_role(actor, "admin_master") and required.startswith("admin_"))
+
+
+def _tutor_ids_acted_by(db: Session, actor_id, action: str) -> set:
+    """actor が指定アクション(receive/re_review)を承認済みの講師IDの集合を返す。"""
+    rows = db.scalars(
+        select(LessonReport.tutor_id)
+        .join(ReportEvent, ReportEvent.report_id == LessonReport.id)
+        .where(ReportEvent.actor_id == actor_id, ReportEvent.action == action)
+        .distinct()
+    ).all()
+    return set(rows)
+
+
+def _assert_separation_of_duties(db: Session, report: LessonReport, actor: User, action: str) -> None:
+    conflicting = SEPARATION_CONFLICT.get(action)
+    if not conflicting or has_role(actor, "admin_master"):
+        return
+    if report.tutor_id in _tutor_ids_acted_by(db, actor.id, conflicting):
+        raise HTTPException(status_code=409, detail=_SEPARATION_MESSAGE[action])
+
+
+def separation_locks(db: Session, actor: User) -> dict[str, list[str]]:
+    """UI用：現在のユーザーが受付/再鑑を担当済みの講師ID一覧。admin_master は対象外のため空。"""
+    if has_role(actor, "admin_master"):
+        return {"received_tutor_ids": [], "reviewed_tutor_ids": []}
+    return {
+        "received_tutor_ids": [str(tid) for tid in _tutor_ids_acted_by(db, actor.id, ReportAction.receive.value)],
+        "reviewed_tutor_ids": [str(tid) for tid in _tutor_ids_acted_by(db, actor.id, ReportAction.re_review.value)],
+    }
 
 
 def transition(db: Session, report: LessonReport, actor: User, action: str, comment: str | None = None) -> LessonReport:
@@ -58,6 +100,7 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
         raise HTTPException(status_code=400, detail="return comment is required")
     if report.status not in allowed_from:
         raise HTTPException(status_code=409, detail=f"invalid transition from {report.status}")
+    _assert_separation_of_duties(db, report, actor, action)
     skip_parent_approval = action == ReportAction.submit_to_parent.value and bool(report.parent and report.parent.skip_parent_approval)
     if skip_parent_approval:
         to_status = ReportStatus.submitted_to_admin.value
