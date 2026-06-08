@@ -361,6 +361,14 @@ def _tutor_name(report: LessonReport) -> str:
     return report.tutor.display_name if report.tutor else "講師未設定"
 
 
+def _tutor_label(report: LessonReport) -> str:
+    # PDF表示用：講師名にユーザーID(user_no)を併記する（例 大橋悟史（10003））。
+    if not report.tutor:
+        return "講師未設定"
+    name = report.tutor.display_name
+    return f"{name}（{report.tutor.user_no}）" if report.tutor.user_no else name
+
+
 def _month_label(target_month: str) -> str:
     year, month_str = target_month.split("-")
     return f"{year}年{int(month_str):02d}月"
@@ -521,7 +529,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         first = items[0]
         story.append(Paragraph("指導実績", styles["Title"]))
         story.append(Spacer(1, 4 * mm))
-        story.append(Paragraph(f"生徒名：{_student_name(first)}　講師名：{_tutor_name(first)}　対象月：{_month_label(target_month)}", styles["Normal"]))
+        story.append(Paragraph(f"生徒名：{_student_name(first)}　講師名：{_tutor_label(first)}　対象月：{_month_label(target_month)}", styles["Normal"]))
         story.append(Spacer(1, 5 * mm))
         rows = [headers]
         for report in items:
