@@ -15,13 +15,14 @@ ROLE_LABELS = {
     "admin_master": "管理者",
 }
 
-# (最小番号, プレフィックス)
+# (最小番号, プレフィックス) — ユーザーID採番ポリシー（数値5桁）
+#   講師=1nnnn（両システム共通の通し番号） / 学校=4nnnn / 事務・営業・経理(admin_master)=5nnnn
 _NO_RANGE: dict[str, tuple[int, str]] = {
     "tutor":        (10001, ""),
-    "school":       (20001, ""),
-    "sales":        (30001, ""),
-    "office":       (30001, ""),
-    "admin_master": (30001, ""),
+    "school":       (40001, ""),
+    "sales":        (50001, ""),
+    "office":       (50001, ""),
+    "admin_master": (50001, ""),
 }
 
 

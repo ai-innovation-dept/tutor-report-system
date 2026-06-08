@@ -14,7 +14,7 @@ from app.database import get_db
 from app.models import Assignment, Invitation, User
 from app.schemas import InvitationCreate, InvitationOut
 from app.services.notification_service import EmailChannel
-from app.services.user_no_service import derive_user_no_from_tutor_no
+from app.services.user_no_service import generate_user_no
 
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 
@@ -41,8 +41,8 @@ def _invitation_out(invitation: Invitation, message: str | None = None) -> Invit
         tutor_name=invitation.assignment.tutor.display_name if invitation.assignment and invitation.assignment.tutor else None,
         display_name=invitation.display_name,
         tutor_no=invitation.tutor_no,
-        # 講師の招待は tutor_no から banded な No を導出して表示。保護者/運営は登録時に採番。
-        user_no=derive_user_no_from_tutor_no(invitation.tutor_no) if invitation.role == "tutor" else None,
+        # 講師の招待は事前採番済みの数値 tutor_no をそのまま No として表示。保護者/運営は登録時に採番。
+        user_no=invitation.tutor_no if invitation.role == "tutor" else None,
         student_name=invitation.assignment.student_name if invitation.assignment else None,
         expires_at=invitation.expires_at,
         accepted_at=invitation.accepted_at,
@@ -92,15 +92,8 @@ async def _send_invitation_email(invitation: Invitation, request: Request) -> No
 
 
 def generate_tutor_no(db: Session) -> str:
-    tutors = db.scalars(select(User.tutor_no).where(User.role == "tutor", User.tutor_no.is_not(None))).all()
-    invitations = db.scalars(select(Invitation.tutor_no).where(Invitation.role == "tutor", Invitation.tutor_no.is_not(None), Invitation.accepted_at.is_(None))).all()
-    max_no = 0
-    for tutor_no in [*tutors, *invitations]:
-        try:
-            max_no = max(max_no, int(str(tutor_no).replace("T", "")))
-        except ValueError:
-            continue
-    return f"T{max_no + 1:03d}"
+    # 講師番号は user_no と同じ数値（1nnnn 帯）。採番ロジックは user_no_service に一元化。
+    return generate_user_no(db, "tutor")
 
 
 def _validate_invitation_payload(payload: InvitationCreate) -> None:

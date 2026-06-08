@@ -77,25 +77,25 @@ class TestInvitationCreate:
         assert res.status_code == 201
         data = res.json()
         assert data["user_no"].isdigit()
-        assert int(data["user_no"]) >= 20001
+        assert int(data["user_no"]) >= 40001
 
     def test_invite_sales_ok(self, client, master_user):
         res = self._invite(client, "sales", master_user)
         assert res.status_code == 201
         assert res.json()["user_no"].isdigit()
-        assert int(res.json()["user_no"]) >= 30001
+        assert int(res.json()["user_no"]) >= 50001
 
     def test_invite_office_ok(self, client, master_user):
         res = self._invite(client, "office", master_user)
         assert res.status_code == 201
         assert res.json()["user_no"].isdigit()
-        assert int(res.json()["user_no"]) >= 30001
+        assert int(res.json()["user_no"]) >= 50001
 
     def test_invite_admin_master_ok(self, client, master_user):
         res = self._invite(client, "admin_master", master_user)
         assert res.status_code == 201
         assert res.json()["user_no"].isdigit()
-        assert int(res.json()["user_no"]) >= 30001
+        assert int(res.json()["user_no"]) >= 50001
 
     def test_non_admin_cannot_invite(self, client, master_user):
         db = TestSession()
@@ -218,7 +218,7 @@ class TestRegistration:
         assert user is not None
         assert user.role == "school"
         assert user.user_no.isdigit()
-        assert int(user.user_no) >= 20001
+        assert int(user.user_no) >= 40001
         assert user.allowed_systems == ["new"]
         db.close()
 
