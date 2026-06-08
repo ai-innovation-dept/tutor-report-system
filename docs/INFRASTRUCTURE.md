@@ -81,6 +81,20 @@ sudo docker compose up -d --build
 sudo docker compose exec backend alembic upgrade head
 ```
 
+### 4. allowed_systems 分離リリースの初回デプロイ時のみ（1回限り）
+
+ユーザー所属を `allowed_systems` で分離したリリースを本番へ反映する際は、デプロイ後に
+**1回だけ**正規化スクリプトを実行する。これにより `allowed_systems` 未設定の既存ユーザーが
+ログインできなくなる事態を防ぐ（NULL→["legacy"]、admin_master→両システムを保証、既存値は尊重）。
+冪等なので複数回実行しても安全。
+
+```bash
+# 念のためバックアップ
+sudo docker compose exec -T db pg_dump -U postgres -d tutor > backup_$(date +%Y%m%d_%H%M%S).sql
+# 正規化（このリリースの初回のみ）
+sudo docker compose exec backend python -m app.scripts.normalize_allowed_systems
+```
+
 ### 開発用データリセット（開発環境のみ）
 
 ```bash
