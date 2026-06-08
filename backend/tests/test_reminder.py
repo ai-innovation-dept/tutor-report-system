@@ -1,7 +1,7 @@
 # === Phase 7: 通知・リマインダー START ===
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timezone
 
-from app.models import Assignment, LessonReport, Notification, ReportStatus
+from app.models import Assignment, LessonReport, Notification, ReportStatus, User
 from app.services.reminder_service import (
     _send_pending_approval_emails,
     enqueue_approval_reminders,
@@ -50,15 +50,14 @@ def _awaiting_report(db, assignment, submitted_at, status=ReportStatus.awaiting_
     return report
 
 
-def test_approval_reminder_due_by_minutes(client, db):
-    # reminder_days_after は「分」として解釈する（テスト用 分単位モード）
+def test_approval_reminder_due_by_days(client, db):
     assignment = db.query(Assignment).first()
     assignment.reminder_enabled = True
-    assignment.reminder_days_after = 10
-    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
-    _awaiting_report(db, assignment, now - timedelta(minutes=10))
+    assignment.reminder_days_after = 2
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc))
 
-    assert enqueue_approval_reminders(db, now) == 1
+    # 提出から2日後（間隔2日）→ 1件
+    assert enqueue_approval_reminders(db, date(2026, 5, 3)) == 1
     notification = db.query(Notification).filter(Notification.type == "reminder_approval").one()
     assert "承認のお願い" in notification.subject
 
@@ -66,25 +65,24 @@ def test_approval_reminder_due_by_minutes(client, db):
 def test_approval_reminder_not_due_before_interval(client, db):
     assignment = db.query(Assignment).first()
     assignment.reminder_enabled = True
-    assignment.reminder_days_after = 10
-    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
-    _awaiting_report(db, assignment, now - timedelta(minutes=5))
+    assignment.reminder_days_after = 3
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc))
 
-    assert enqueue_approval_reminders(db, now) == 0
+    # 提出から1日後（間隔3日）→ まだ送らない
+    assert enqueue_approval_reminders(db, date(2026, 5, 2)) == 0
 
 
-def test_approval_reminder_endless_by_minutes(client, db):
-    # 間隔10分・経過25分 → 本来2回送信されているべき。1回1件ずつ作成し、上限なくエンドレス。
+def test_approval_reminder_endless_regardless_of_count(client, db):
+    # 間隔2日・経過4日 → 本来2回。1回1件ずつ作成し、旧 reminder_count 上限は無視。
     assignment = db.query(Assignment).first()
     assignment.reminder_enabled = True
-    assignment.reminder_days_after = 10
+    assignment.reminder_days_after = 2
     assignment.reminder_count = 1  # 旧上限は無視される
-    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
-    _awaiting_report(db, assignment, now - timedelta(minutes=25))
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc))
 
-    assert enqueue_approval_reminders(db, now) == 1
-    assert enqueue_approval_reminders(db, now) == 1
-    assert enqueue_approval_reminders(db, now) == 0  # 2件作成済みで打ち止め（次は次の10分到来後）
+    assert enqueue_approval_reminders(db, date(2026, 5, 5)) == 1
+    assert enqueue_approval_reminders(db, date(2026, 5, 5)) == 1
+    assert enqueue_approval_reminders(db, date(2026, 5, 5)) == 0  # 2件作成済みで打ち止め
     assert db.query(Notification).filter(Notification.type == "reminder_approval").count() == 2
 
 
@@ -93,10 +91,23 @@ def test_approval_reminder_stops_after_parent_approves(client, db):
     assignment = db.query(Assignment).first()
     assignment.reminder_enabled = True
     assignment.reminder_days_after = 1
-    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
-    _awaiting_report(db, assignment, now - timedelta(minutes=60), status=ReportStatus.parent_approved.value)
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc), status=ReportStatus.parent_approved.value)
 
-    assert enqueue_approval_reminders(db, now) == 0
+    assert enqueue_approval_reminders(db, date(2026, 5, 21)) == 0
+
+
+def test_approval_reminder_body_mentions_tutor_and_student(client, db):
+    # 文言に講師名・生徒名が含まれること（誰からの依頼か伝わること）を確認。
+    assignment = db.query(Assignment).first()
+    assignment.reminder_enabled = True
+    assignment.reminder_days_after = 1
+    tutor = db.get(User, assignment.tutor_id)
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc))
+
+    assert enqueue_approval_reminders(db, date(2026, 5, 2)) == 1
+    notification = db.query(Notification).filter(Notification.type == "reminder_approval").one()
+    assert tutor.display_name in notification.body
+    assert assignment.student_name in notification.body
 
 
 def test_approval_reminder_emails_are_sent(client, db, monkeypatch):
@@ -110,10 +121,9 @@ def test_approval_reminder_emails_are_sent(client, db, monkeypatch):
     assignment = db.query(Assignment).first()
     assignment.reminder_enabled = True
     assignment.reminder_days_after = 1
-    now = datetime(2026, 5, 1, 12, 0, tzinfo=timezone.utc)
-    _awaiting_report(db, assignment, now - timedelta(minutes=5))
+    _awaiting_report(db, assignment, datetime(2026, 5, 1, tzinfo=timezone.utc))
 
-    assert enqueue_approval_reminders(db, now) == 1
+    assert enqueue_approval_reminders(db, date(2026, 5, 2)) == 1
     db.flush()
     assert _send_pending_approval_emails(db) == 1
     db.commit()
