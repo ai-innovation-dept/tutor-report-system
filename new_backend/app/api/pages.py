@@ -54,11 +54,12 @@ def _roles(user: User) -> list[str]:
     return list(user.roles or []) or ([user.role] if user.role else [])
 
 
-def _require_page_role(request: Request, role: str, db: Session) -> tuple[User | None, RedirectResponse | None]:
+def _require_page_role(request: Request, role_or_roles: str | list[str], db: Session) -> tuple[User | None, RedirectResponse | None]:
     user = _get_user_optional(request, db)
     if not user:
         return None, _login_redirect()
-    if role not in _roles(user):
+    required = [role_or_roles] if isinstance(role_or_roles, str) else role_or_roles
+    if not any(r in _roles(user) for r in required):
         return None, _login_redirect()
     return user, None
 
@@ -79,6 +80,7 @@ def root(request: Request, db: Session = Depends(get_db)):
         "sales": "/sales/queue",
         "office": "/office/queue",
         "admin_master": "/finance/queue",
+        "admin_chief": "/finance/queue",
     }
     return RedirectResponse(url=destinations.get(role, "/login"), status_code=302)
 
@@ -180,7 +182,7 @@ def office_queue(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/finance/queue", response_class=HTMLResponse)
 def finance_queue(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "finance/queue.html", _ctx(request, user))
@@ -188,7 +190,7 @@ def finance_queue(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/dashboard.html", _ctx(request, user))
@@ -199,7 +201,7 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
-    if not {"sales", "office", "admin_master"}.intersection(_roles(user)):
+    if not {"sales", "office", "admin_master", "admin_chief"}.intersection(_roles(user)):
         return _login_redirect()
     context = _ctx(request, user)
     context["report_id"] = report_id
@@ -208,7 +210,7 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
 
 @router.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
@@ -216,7 +218,7 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/contracts", response_class=HTMLResponse)
 def admin_contracts(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/contracts.html", _ctx(request, user))
@@ -224,7 +226,7 @@ def admin_contracts(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, "admin_master", db)
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/stale_reports.html", _ctx(request, user))

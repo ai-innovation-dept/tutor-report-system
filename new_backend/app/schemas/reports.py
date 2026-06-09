@@ -21,6 +21,7 @@ class ReportCreate(BaseModel):
 
 class ReportPatch(BaseModel):
     form_data: dict
+    comment: str | None = None
 
 
 class WorkflowAction(BaseModel):

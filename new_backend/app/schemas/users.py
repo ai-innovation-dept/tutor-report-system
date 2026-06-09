@@ -39,3 +39,4 @@ class UserListOut(BaseModel):
     total_pages: int = 1
     role_counts: dict[str, int] = {}
     active_admin_master_count: int = 0
+    active_admin_chief_count: int = 0

@@ -76,7 +76,7 @@ TRANSITIONS: list[Transition] = [
     Transition(
         from_status=WorkStatus.AWAITING_FINANCE,
         action=WorkAction.APPROVE,
-        allowed_roles=frozenset({"admin_master"}),
+        allowed_roles=frozenset({"admin_master", "admin_chief"}),
         to_status=WorkStatus.APPROVED,
         next_approver_role=None,
     ),
@@ -84,7 +84,7 @@ TRANSITIONS: list[Transition] = [
     Transition(
         from_status=WorkStatus.DRAFT,
         action=WorkAction.SKIP_SCHOOL,
-        allowed_roles=frozenset({"sales", "office", "admin_master"}),
+        allowed_roles=frozenset({"sales", "office", "admin_master", "admin_chief"}),
         to_status=WorkStatus.AWAITING_OFFICE,
         next_approver_role="office",
     ),
@@ -116,7 +116,7 @@ TRANSITIONS: list[Transition] = [
     Transition(
         from_status=WorkStatus.AWAITING_FINANCE,
         action=WorkAction.RETURN,
-        allowed_roles=frozenset({"admin_master"}),
+        allowed_roles=frozenset({"admin_master", "admin_chief"}),
         to_status=WorkStatus.RETURNED_TO_OFFICE,
         comment_required=True,
         next_approver_role="office",
@@ -125,7 +125,7 @@ TRANSITIONS: list[Transition] = [
     Transition(
         from_status=WorkStatus.APPROVED,
         action=WorkAction.RETURN,
-        allowed_roles=frozenset({"admin_master"}),
+        allowed_roles=frozenset({"admin_master", "admin_chief"}),
         to_status=WorkStatus.RETURNED_TO_OFFICE,
         comment_required=True,
         next_approver_role="office",

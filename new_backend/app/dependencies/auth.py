@@ -12,7 +12,7 @@ from app.core.security import decode_access_token
 from app.models.shared import User
 
 # 新システムで有効なロール
-NEW_SYSTEM_ROLES = {"tutor", "school", "sales", "office", "admin_master"}
+NEW_SYSTEM_ROLES = {"tutor", "school", "sales", "office", "admin_master", "admin_chief"}
 
 
 def get_current_user(
@@ -87,4 +87,4 @@ def has_role(user: User, role: str) -> bool:
 
 def is_admin(user: User) -> bool:
     roles: list[str] = list(user.roles or []) or ([user.role] if user.role else [])
-    return bool({"sales", "office", "admin_master"}.intersection(roles))
+    return bool({"sales", "office", "admin_master", "admin_chief"}.intersection(roles))

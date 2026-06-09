@@ -41,7 +41,7 @@ class ProfileOut(BaseModel):
 def create_profile(
     payload: ProfileCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "office")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "office")),
 ):
     assignment = db.get(Assignment, payload.assignment_id)
     if not assignment:
@@ -67,7 +67,7 @@ def create_profile(
 @router.get("/profiles", response_model=list[ProfileOut])
 def list_profiles(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "office", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "office", "sales")),
 ):
     return list(db.scalars(select(WorkAssignmentProfile)))
 
@@ -77,7 +77,7 @@ def patch_profile(
     profile_id: uuid.UUID,
     payload: dict,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "office")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "office")),
 ):
     profile = db.get(WorkAssignmentProfile, profile_id)
     if not profile:

@@ -169,14 +169,14 @@ def _stale_elapsed_days(stale_since) -> int:
 
 def _staff_users(db: Session) -> list[User]:
     users = db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
-    return [user for user in users if has_role(user, "sales") or has_role(user, "office") or has_role(user, "admin_master")]
+    return [user for user in users if has_role(user, "sales") or has_role(user, "office") or has_role(user, "admin_master") or has_role(user, "admin_chief")]
 
 
 def _admin_master_users(db: Session) -> list[User]:
     return [
         user
         for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
-        if has_role(user, "admin_master")
+        if has_role(user, "admin_master") or has_role(user, "admin_chief")
     ]
 
 

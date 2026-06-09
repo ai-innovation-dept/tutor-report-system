@@ -37,7 +37,7 @@ from app.services.report_service import (
     list_reports_for_tutor,
     update_report_data,
 )
-from app.services.notification_service import send_transition_notifications
+from app.services.notification_service import send_office_edit_notification, send_transition_notifications
 from app.services.export_service import build_report_pdf, build_reports_pdf
 from app.services.workflow_service import execute_transition
 from app.workflow.definitions import WorkAction, WorkStatus
@@ -48,11 +48,11 @@ stale_router = APIRouter(prefix="/api/w", tags=["work-stale"])
 
 _ACTION_ALLOWED_ROLES: dict[str, set[str]] = {
     WorkAction.SUBMIT: {"tutor"},
-    WorkAction.APPROVE: {"school", "sales", "office", "admin_master"},
-    WorkAction.RETURN: {"school", "sales", "office", "admin_master"},
-    WorkAction.SKIP_SCHOOL: {"sales", "office", "admin_master"},
+    WorkAction.APPROVE: {"school", "sales", "office", "admin_master", "admin_chief"},
+    WorkAction.RETURN: {"school", "sales", "office", "admin_master", "admin_chief"},
+    WorkAction.SKIP_SCHOOL: {"sales", "office", "admin_master", "admin_chief"},
 }
-_CLOSE_ROLES = {"sales", "office", "admin_master"}
+_CLOSE_ROLES = {"sales", "office", "admin_master", "admin_chief"}
 _TERMINAL_STATUSES = {WorkStatus.APPROVED, WorkStatus.CLOSED}
 
 
@@ -66,9 +66,10 @@ def _get_assignment(db: Session, assignment_id: uuid.UUID) -> Assignment:
 def _report_scope_stmt(user: User, active_role: str, target_month: str | None = None):
     roles = list(user.roles or []) or ([user.role] if user.role else [])
     stmt = select(WorkReport)
-    if active_role == "tutor" or ("tutor" in roles and active_role not in {"school", "sales", "office", "admin_master"}):
+    admin_roles = {"school", "sales", "office", "admin_master", "admin_chief"}
+    if active_role == "tutor" or ("tutor" in roles and active_role not in admin_roles):
         stmt = stmt.where(WorkReport.tutor_id == user.id)
-    elif active_role != "admin_master":
+    elif active_role not in {"admin_master", "admin_chief"}:
         stmt = stmt.where(WorkReport.current_approver_role == active_role)
     if target_month:
         stmt = stmt.where(WorkReport.target_month == target_month)
@@ -97,7 +98,7 @@ def _ensure_action_role_allowed(action: str, actor_role: str) -> None:
 
 
 def _report_in_role_scope(db: Session, report: WorkReport, user: User, actor_role: str) -> bool:
-    if actor_role == "admin_master":
+    if actor_role in {"admin_master", "admin_chief"}:
         return True
     if actor_role in {"sales", "office"}:
         return True
@@ -121,7 +122,7 @@ def _stale_stmt(user: User, active_role: str):
         stmt = stmt.where(WorkReport.tutor_id == user.id)
     elif active_role == "school":
         stmt = stmt.join(Assignment, Assignment.id == WorkReport.assignment_id).where(Assignment.parent_id == user.id)
-    elif active_role not in {"sales", "office", "admin_master"}:
+    elif active_role not in {"sales", "office", "admin_master", "admin_chief"}:
         stmt = stmt.where(False)
     return stmt
 
@@ -216,9 +217,9 @@ def list_reports(
         return list_reports_for_tutor(db, user.id, target_month)
     if active_role == "school":
         return list_reports_for_school(db, user.id, target_month)
-    # 運営スタッフ（事務・営業・経理）は進捗パイプライン全体を見るため全件取得する。
+    # 運営スタッフ（事務・営業・経理・管理責任者）は進捗パイプライン全体を見るため全件取得する。
     # 「あなたのタスク」は画面側で current_approver / ステータスにより絞り込む。
-    if active_role in {"office", "sales", "admin_master"}:
+    if active_role in {"office", "sales", "admin_master", "admin_chief"}:
         # 進捗タイムライン（承認依頼/承認/差戻し＋コメント＋実行者）を表示するため
         # events と actor、表示名解決用の assignment/tutor をまとめて読み込む（N+1回避）。
         stmt = select(WorkReport).options(
@@ -240,7 +241,7 @@ def monthly_summary(
     active_role: str = Depends(get_active_role),
 ):
     target_month = target_month or _current_month()
-    if active_role not in {"tutor", "admin_master"}:
+    if active_role not in {"tutor", "admin_master", "admin_chief"}:
         raise HTTPException(status_code=403, detail="monthly summary is only available to tutor/admin_master")
     reports = list(db.scalars(_report_scope_stmt(user, active_role, target_month)))
     status_counts: dict[str, int] = {}
@@ -357,7 +358,7 @@ def export_reports(
             WorkReport.status == WorkStatus.APPROVED,
         )
     elif is_admin(user):
-        if scope in {"all", "approved_only"}:
+        if scope in {"all", "approved_only"} or has_role(user, "admin_chief"):
             stmt = stmt.where(WorkReport.status == WorkStatus.APPROVED)
     else:
         raise HTTPException(status_code=403, detail="not allowed")
@@ -412,18 +413,23 @@ def get_report(
 
 
 @router.patch("/{report_id}", response_model=ReportOut)
-def patch_report(
+async def patch_report(
     report_id: uuid.UUID,
     payload: ReportPatch,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("tutor", "sales")),
+    user: User = Depends(require_role("tutor", "sales", "office")),
 ):
     report = get_report_or_404(db, report_id)
-    if "tutor" in (list(user.roles or []) or [user.role]):
+    user_roles = list(user.roles or []) or [user.role]
+    is_office_only = "office" in user_roles and "tutor" not in user_roles
+    if "tutor" in user_roles and not is_office_only:
         assert_tutor_owns(report, user)
     update_report_data(db, report, payload.form_data)
     db.commit()
     db.refresh(report)
+    # 事務担当が修正した場合、講師・学校へ通知する
+    if is_office_only:
+        await send_office_edit_notification(db, report, user, payload.comment)
     return report
 
 
@@ -557,6 +563,6 @@ def stale_reports(
     active_role: str = Depends(get_active_role),
 ):
     actor_role = _resolve_actor_role(user, active_role, None)
-    if actor_role not in _CLOSE_ROLES:
+    if actor_role not in _CLOSE_ROLES:  # _CLOSE_ROLES already includes admin_chief
         raise HTTPException(status_code=403, detail="stale reports are only available to admin roles")
     return list(db.scalars(_stale_stmt(user, actor_role).order_by(WorkReport.target_month, WorkReport.created_at)))

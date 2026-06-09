@@ -11,7 +11,7 @@
   <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
     先月以前の差戻し中未処理および未承認の報告があります。経理へ連絡ください。
     （<span id="stale-count"></span>件）
-    {% if active_role in ['sales', 'office', 'admin_master'] %}
+    {% if active_role in ['sales', 'office', 'admin_master', 'admin_chief'] %}
     <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
     {% endif %}
   </div>
@@ -28,7 +28,7 @@
     <div class="border-b border-slate-700 px-4 py-4">
       <p class="text-xs text-slate-400">ログイン中</p>
       <p class="mt-1 text-sm font-semibold text-white" id="sidebarUserName">{{ current_user.display_name }}</p>
-      {% set sidebar_role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理'} %}
+      {% set sidebar_role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理', 'admin_chief': '管理責任者'} %}
       <p class="mt-1 text-xs text-slate-400" id="sidebarUserRole">{{ sidebar_role_labels.get(active_role, active_role) }}</p>
       <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="sidebarTutorNo">No：{{ current_user.user_no or '-' }}</p>
       <p class="mt-1 text-xs text-slate-400 {% if active_role != 'tutor' %}hidden{% endif %}" id="navTutorTotal">合計：0分</p>
@@ -58,7 +58,7 @@
           <span id="breadcrumb"></span>
         </div>
         <div class="flex flex-col items-end">
-          {% set role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理'} %}
+          {% set role_labels = {'tutor': '講師', 'school': '学校', 'sales': '営業担当', 'office': '事務担当', 'admin_master': '経理', 'admin_chief': '管理責任者'} %}
           <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
           <span class="text-xs text-slate-400">{{ role_labels.get(active_role, active_role) }}{% if current_user.user_no %}・{{ current_user.user_no }}{% endif %}</span>
         </div>
@@ -128,6 +128,7 @@
       if (role === 'sales') return '営業担当';
       if (role === 'office') return '事務担当';
       if (role === 'admin_master') return '経理';
+      if (role === 'admin_chief') return '管理責任者';
       return role;
     }
 
@@ -236,6 +237,11 @@
         navHome.href = '/office/queue';
         items.push(navLink('/office/queue', 'ダッシュボード'));
       } else if (user.role === 'admin_master') {
+        navHome.href = '/finance/queue';
+        items.push(navLink('/finance/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/contracts', '契約管理'));
+        items.push(navLink('/admin/users', 'ユーザー管理'));
+      } else if (user.role === 'admin_chief') {
         navHome.href = '/finance/queue';
         items.push(navLink('/finance/queue', 'ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));

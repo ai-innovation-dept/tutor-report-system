@@ -73,7 +73,7 @@ def _resolve_notification_recipients(db: Session, report: WorkReport, recipient_
         user = db.get(User, assignment.parent_id)
         return [user] if user and user.is_active else []
 
-    if recipient_role in {"sales", "office", "admin_master"}:
+    if recipient_role in {"sales", "office", "admin_master", "admin_chief"}:
         return list(
             db.scalars(
                 select(User).where(
@@ -374,9 +374,10 @@ async def _send_group_notification(
             )
             return
         if report.status == WorkStatus.AWAITING_FINANCE:
+            finance_users = _staff_users(db, "admin_master") + _staff_users(db, "admin_chief")
             await _send_email_to_users(
                 db,
-                _staff_users(db, "admin_master"),
+                finance_users,
                 _APPROVAL_REQUEST_SUBJECT,
                 "notify_submitted_to_admin.txt",
                 context | {
@@ -417,3 +418,40 @@ async def send_notification(
 ) -> None:
     del smtp_host, smtp_port
     record_notification(db, user, report, notif_type, subject, body)
+
+
+_OFFICE_EDITED_SUBJECT = "【業務連絡表】報告書が修正されました"
+
+
+async def send_office_edit_notification(
+    db: Session,
+    report: WorkReport,
+    actor: User,
+    comment: str | None = None,
+) -> None:
+    """事務担当が報告書を修正した際に講師・学校へ通知する。"""
+    context = {
+        "base_url": _base_url(),
+        "target_month": report.target_month,
+        "student_name": _student_name(report),
+        "actor_name": actor.display_name,
+        "comment": comment or "",
+    }
+    tutor = _tutor(report)
+    school = _school(db, report)
+    if tutor:
+        await _send_email(
+            db,
+            tutor,
+            _OFFICE_EDITED_SUBJECT,
+            "notify_office_edited.txt",
+            context | {"name": tutor.display_name},
+        )
+    if school:
+        await _send_email(
+            db,
+            school,
+            _OFFICE_EDITED_SUBJECT,
+            "notify_office_edited.txt",
+            context | {"name": school.display_name},
+        )

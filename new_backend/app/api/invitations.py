@@ -1,4 +1,4 @@
-"""招待管理 API。admin_master のみ操作可能。"""
+"""招待管理 API。admin_master / admin_chief が操作可能。"""
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.dependencies.auth import require_role
+from app.dependencies.auth import has_role, require_role
 from app.models.shared import Invitation, User
 from app.schemas.invitations import InvitationCreate, InvitationOut
 from app.services.notification_service import send_email
@@ -28,6 +28,7 @@ _SUBJECTS = {
     "sales":  "【業務連絡表システム】アカウントのご案内",
     "office": "【業務連絡表システム】アカウントのご案内",
     "admin_master": "【業務連絡表システム】管理者アカウントのご案内",
+    "admin_chief":  "【業務連絡表システム】管理責任者アカウントのご案内",
 }
 
 
@@ -73,11 +74,14 @@ async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     email = str(payload.email).lower()
     if payload.role not in ALLOWED_INVITATION_ROLES:
         raise HTTPException(status_code=422, detail="role is invalid")
+    # 管理責任者の招待は管理責任者のみ
+    if payload.role == "admin_chief" and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の招待は管理責任者のみ可能です")
     if payload.display_name is not None and not payload.display_name.strip():
         raise HTTPException(status_code=422, detail="display_name cannot be blank")
     if payload.role == "school" and not payload.display_name:
@@ -126,11 +130,11 @@ async def create_invitation(
 @router.get("", response_model=list[InvitationOut])
 def list_invitations(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     invs = db.scalars(
         select(Invitation)
-        .where(Invitation.role.in_(["tutor", "school", "sales", "office", "admin_master"]))
+        .where(Invitation.role.in_(["tutor", "school", "sales", "office", "admin_master", "admin_chief"]))
         .order_by(Invitation.created_at.desc())
     ).all()
     return [_invitation_out(inv) for inv in invs]
@@ -140,7 +144,7 @@ def list_invitations(
 def delete_invitation(
     invitation_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     inv = db.get(Invitation, invitation_id)
     if not inv:

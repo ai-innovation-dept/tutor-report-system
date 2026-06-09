@@ -9,14 +9,14 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import hash_password
-from app.dependencies.auth import get_current_user, require_role
+from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
 
 # 経理画面のロールタブと一致させる
-ROLE_TAB_KEYS = ["tutor", "school", "sales", "office", "admin_master"]
+ROLE_TAB_KEYS = ["tutor", "school", "sales", "office", "admin_master", "admin_chief"]
 # ロール編集を許可する組み合わせ（営業・事務スタッフのみ付け替え可能）
 EDITABLE_STAFF_ROLES = {"sales", "office"}
 
@@ -32,6 +32,13 @@ def _active_admin_master_count(db: Session) -> int:
     return sum(1 for u in users if "admin_master" in _user_roles(u))
 
 
+def _active_admin_chief_count(db: Session) -> int:
+    users = db.scalars(
+        select(User).where(User.deleted_at.is_(None), User.is_active.is_(True))
+    ).all()
+    return sum(1 for u in users if "admin_chief" in _user_roles(u))
+
+
 def _get_user_or_404(db: Session, user_id: UUID) -> User:
     user = db.get(User, user_id)
     if not user or user.deleted_at:
@@ -39,13 +46,19 @@ def _get_user_or_404(db: Session, user_id: UUID) -> User:
     return user
 
 
-def _ensure_not_last_admin_master(db: Session, user: User) -> None:
+def _ensure_not_last_admin(db: Session, user: User) -> None:
     if (
         user.is_active
         and "admin_master" in _user_roles(user)
         and _active_admin_master_count(db) <= 1
     ):
         raise HTTPException(status_code=409, detail="最後の経理ユーザーのため操作できません")
+    if (
+        user.is_active
+        and "admin_chief" in _user_roles(user)
+        and _active_admin_chief_count(db) <= 1
+    ):
+        raise HTTPException(status_code=409, detail="最後の管理責任者のため操作できません")
 
 
 @router.get("/me", response_model=UserOut)
@@ -65,7 +78,7 @@ def list_users(
 ):
     requester_roles = _user_roles(user)
     role_filter = roles or role
-    if "admin_master" not in requester_roles and role_filter is None:
+    if not ({"admin_master", "admin_chief"} & set(requester_roles)) and role_filter is None:
         raise HTTPException(status_code=403, detail="forbidden")
     page = max(1, page)
     per_page = min(max(1, per_page), 100)
@@ -75,15 +88,20 @@ def list_users(
         stmt = stmt.where(
             or_(func.lower(User.display_name).like(kw), func.lower(User.email).like(kw))
         )
-    users = db.scalars(stmt.order_by(User.created_at.desc())).all()
+    users = db.scalars(stmt).all()
     # 所属の唯一の基準は allowed_systems。新システム(new)に登録のあるユーザーのみ表示する。
     users = [u for u in users if "new" in (u.allowed_systems or [])]
+    # No の小さい順（数値）でソート。user_no 未設定は末尾。
+    users = sorted(users, key=lambda u: int(u.user_no) if u.user_no and str(u.user_no).isdigit() else 999999)
 
     role_counts = {"all": len(users)}
     for key in ROLE_TAB_KEYS:
         role_counts[key] = sum(1 for u in users if key in _user_roles(u))
     active_admin_master_count = sum(
         1 for u in users if u.is_active and "admin_master" in _user_roles(u)
+    )
+    active_admin_chief_count = sum(
+        1 for u in users if u.is_active and "admin_chief" in _user_roles(u)
     )
 
     if role_filter:
@@ -100,6 +118,7 @@ def list_users(
         total_pages=total_pages,
         role_counts=role_counts,
         active_admin_master_count=active_admin_master_count,
+        active_admin_chief_count=active_admin_chief_count,
     )
 
 
@@ -108,12 +127,14 @@ def patch_user(
     user_id: UUID,
     payload: UserPatch,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
     data = payload.model_dump(exclude_unset=True)
+    if "skip_parent_approval" in data and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="学校承認スキップの設定は管理責任者のみ可能です")
     if data.get("is_active") is False:
-        _ensure_not_last_admin_master(db, user)
+        _ensure_not_last_admin(db, user)
     for key, value in data.items():
         setattr(user, key, value)
     db.commit()
@@ -126,7 +147,7 @@ def update_user_roles(
     user_id: UUID,
     payload: UserRolesPatch,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
     current = set(_user_roles(user))
@@ -148,10 +169,12 @@ def update_user_roles(
 def disable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
-    _ensure_not_last_admin_master(db, user)
+    if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の無効化は管理責任者のみ可能です")
+    _ensure_not_last_admin(db, user)
     user.is_active = False
     db.commit()
     db.refresh(user)
@@ -162,7 +185,7 @@ def disable_user(
 def enable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
     user.is_active = True
@@ -175,10 +198,12 @@ def enable_user(
 def delete_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
-    _ensure_not_last_admin_master(db, user)
+    if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の削除は管理責任者のみ可能です")
+    _ensure_not_last_admin(db, user)
     # 共有テーブルのため物理削除はせずソフトデリートする
     user.is_active = False
     user.deleted_at = datetime.now(timezone.utc)
@@ -190,7 +215,7 @@ def delete_user(
 def reset_user_password(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     user = _get_user_or_404(db, user_id)
     password = secrets.token_urlsafe(10)

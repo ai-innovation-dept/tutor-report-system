@@ -82,7 +82,7 @@ def _get_assignment_out(db: Session, assignment_id) -> dict:
 def create_assignment(
     payload: AssignmentCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     tutor = db.get(User, payload.tutor_id)
     if not tutor or "tutor" not in (list(tutor.roles or []) or [tutor.role]):
@@ -158,7 +158,7 @@ def patch_assignment(
     if not a or a.system_type != "new":
         raise HTTPException(status_code=404, detail="assignment not found")
     roles = list(user.roles or []) or ([user.role] if user.role else [])
-    is_master = "admin_master" in roles
+    is_master = "admin_master" in roles or "admin_chief" in roles
     is_tutor = "tutor" in roles
     if not is_master and not is_tutor:
         raise HTTPException(status_code=403, detail="forbidden")
@@ -178,7 +178,7 @@ def patch_assignment(
 def delete_assignment(
     assignment_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master")),
+    _: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     a = db.get(Assignment, assignment_id)
     if not a or a.system_type != "new":

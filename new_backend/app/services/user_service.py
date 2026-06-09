@@ -4,8 +4,8 @@ from sqlalchemy.orm import Session
 
 from app.models.shared import Invitation, User
 
-NEW_SYSTEM_ROLES = {"tutor", "school", "sales", "office", "admin_master"}
-ALLOWED_INVITATION_ROLES = {"tutor", "school", "sales", "office", "admin_master"}
+NEW_SYSTEM_ROLES = {"tutor", "school", "sales", "office", "admin_master", "admin_chief"}
+ALLOWED_INVITATION_ROLES = {"tutor", "school", "sales", "office", "admin_master", "admin_chief"}
 
 ROLE_LABELS = {
     "tutor":        "講師",
@@ -13,16 +13,19 @@ ROLE_LABELS = {
     "sales":        "営業担当",
     "office":       "事務担当",
     "admin_master": "管理者",
+    "admin_chief":  "管理責任者",
 }
 
 # (最小番号, プレフィックス) — ユーザーID採番ポリシー（数値5桁）
 #   講師=1nnnn（両システム共通の通し番号） / 学校=4nnnn / 事務・営業・経理(admin_master)=5nnnn
+#   管理責任者=9nnnn
 _NO_RANGE: dict[str, tuple[int, str]] = {
     "tutor":        (10001, ""),
     "school":       (40001, ""),
     "sales":        (50001, ""),
     "office":       (50001, ""),
     "admin_master": (50001, ""),
+    "admin_chief":  (90001, ""),
 }
 
 
@@ -89,7 +92,7 @@ def has_new_system_role(user: User) -> bool:
 
 
 def allowed_systems_for_role(role: str) -> list[str]:
-    if role == "admin_master":
+    if role in {"admin_master", "admin_chief"}:
         return ["legacy", "new"]
     return ["new"]
 

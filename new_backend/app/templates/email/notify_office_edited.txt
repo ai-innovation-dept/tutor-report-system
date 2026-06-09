@@ -1,0 +1,10 @@
+{name} 様
+
+{actor_name}（事務担当）により、{target_month}分の業務連絡表が修正されました。
+
+対象：{student_name}
+修正者：{actor_name}
+コメント：{comment}
+
+内容をご確認ください。
+{base_url}
