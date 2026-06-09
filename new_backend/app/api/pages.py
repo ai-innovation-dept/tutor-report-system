@@ -210,7 +210,8 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
 
 @router.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
+    # 承認フロー変更に伴い、ユーザ管理は経理（管理者・管理責任者）に加えて営業も利用可
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
@@ -218,7 +219,8 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/contracts", response_class=HTMLResponse)
 def admin_contracts(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
+    # 承認フロー変更に伴い、契約管理は経理（管理者・管理責任者）に加えて営業も利用可
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/contracts.html", _ctx(request, user))

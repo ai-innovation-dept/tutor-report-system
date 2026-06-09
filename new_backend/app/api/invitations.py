@@ -74,7 +74,7 @@ async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin_master", "admin_chief")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     email = str(payload.email).lower()
     if payload.role not in ALLOWED_INVITATION_ROLES:
@@ -130,7 +130,7 @@ async def create_invitation(
 @router.get("", response_model=list[InvitationOut])
 def list_invitations(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     invs = db.scalars(
         select(Invitation)
@@ -144,7 +144,7 @@ def list_invitations(
 def delete_invitation(
     invitation_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     inv = db.get(Invitation, invitation_id)
     if not inv:

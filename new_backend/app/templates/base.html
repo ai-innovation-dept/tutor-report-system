@@ -233,6 +233,8 @@
       } else if (user.role === 'sales') {
         navHome.href = '/sales/queue';
         items.push(navLink('/sales/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/contracts', '契約管理'));
+        items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'office') {
         navHome.href = '/office/queue';
         items.push(navLink('/office/queue', 'ダッシュボード'));

@@ -127,7 +127,7 @@ def patch_user(
     user_id: UUID,
     payload: UserPatch,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin_master", "admin_chief")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     data = payload.model_dump(exclude_unset=True)
@@ -147,7 +147,7 @@ def update_user_roles(
     user_id: UUID,
     payload: UserRolesPatch,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     current = set(_user_roles(user))
@@ -169,7 +169,7 @@ def update_user_roles(
 def disable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin_master", "admin_chief")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
@@ -185,7 +185,7 @@ def disable_user(
 def enable_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     user.is_active = True
@@ -198,7 +198,7 @@ def enable_user(
 def delete_user(
     user_id: UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin_master", "admin_chief")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
@@ -215,7 +215,7 @@ def delete_user(
 def reset_user_password(
     user_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     user = _get_user_or_404(db, user_id)
     password = secrets.token_urlsafe(10)

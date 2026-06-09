@@ -333,3 +333,27 @@ class TestContractImport:
             headers=_auth(client, "t100@x.example.com"),
         )
         assert res.status_code == 403
+
+
+class TestSalesContractAccess:
+    """承認フロー変更に伴い、営業ロールも契約管理を利用できる。"""
+
+    def test_sales_can_create_and_list_contracts(self, client, db, setup):
+        _add_user(db, "sales@x.example.com", "sales")
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup),
+            headers=_auth(client, "sales@x.example.com"),
+        )
+        assert created.status_code == 201, created.text
+        listed = client.get("/api/w/contracts", headers=_auth(client, "sales@x.example.com"))
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
+
+    def test_office_still_forbidden_from_contracts(self, client, db, setup):
+        # 事務は契約管理の対象外（営業・経理のみ）
+        _add_user(db, "office@x.example.com", "office")
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup),
+            headers=_auth(client, "office@x.example.com"),
+        )
+        assert res.status_code == 403
