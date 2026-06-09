@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
+from app.models.work import WorkAssignmentProfile
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -28,6 +29,8 @@ def users(db):
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, student_name="第2弾生徒", system_type="new")
     db.add(assignment)
+    db.flush()
+    db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
     db.commit()
     return {"tutor": tutor, "school": school, "sales": sales, "office": office, "master": master, "assignment": assignment}
 

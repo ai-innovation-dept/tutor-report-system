@@ -12,6 +12,7 @@ from app.core.database import get_db
 from app.dependencies.auth import get_active_role, get_current_user, has_role, is_admin, require_role
 from app.models.shared import Assignment, User
 from app.models.work import (
+    WorkAssignmentProfile,
     WorkChatMessage,
     WorkChatRead,
     WorkNotification,
@@ -199,6 +200,18 @@ def create(
     assignment = _get_assignment(db, payload.assignment_id)
     if assignment.tutor_id != user.id:
         raise HTTPException(status_code=403, detail="not your assignment")
+    # 契約（契約管理で登録した内容）が無い場合は業務連絡表を作成できない
+    profile = db.scalar(
+        select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.assignment_id == assignment.id,
+            WorkAssignmentProfile.is_active.is_(True),
+        )
+    )
+    if not profile:
+        raise HTTPException(
+            status_code=409,
+            detail="契約が未登録のため業務連絡表を作成できません。先に契約管理で登録してください。",
+        )
     try:
         report = create_report(db, assignment, user, payload.target_month, payload.form_type, payload.form_data)
         db.commit()
@@ -427,6 +440,35 @@ def get_report(
     return get_report_or_404(db, report_id)
 
 
+# 契約管理で登録した内容（契約由来）のメタ項目。講師は変更不可。
+_CONTRACT_LOCKED_META_KEYS = (
+    "customer_id",
+    "our_staff",
+    "contract_period",
+    "monthly_minutes_fixed",
+    "weekly_lessons",
+    "work_content",
+    "note_schedule",
+)
+
+
+def _preserve_locked_meta(report: WorkReport, form_data: dict) -> None:
+    """講師による編集時、契約由来のメタ項目を保存済みの値に固定する。
+
+    画面（UI）だけでなくサーバー側でも上書きを防ぎ、生JSON編集や細工した
+    リクエストからも契約内容を講師が変更できないようにする。
+    """
+    if not isinstance(form_data, dict):
+        return
+    old_meta = (report.form_data or {}).get("meta") or {}
+    new_meta = form_data.get("meta")
+    if not isinstance(new_meta, dict):
+        return
+    for key in _CONTRACT_LOCKED_META_KEYS:
+        if key in old_meta:
+            new_meta[key] = old_meta[key]
+
+
 @router.patch("/{report_id}", response_model=ReportOut)
 def patch_report(
     report_id: uuid.UUID,
@@ -437,6 +479,8 @@ def patch_report(
     """講師本人による報告書編集（下書き・差戻し中のみ）。"""
     report = get_report_or_404(db, report_id)
     assert_tutor_owns(report, user)
+    # 契約管理で登録した内容は講師側で変更させない（保存済みの値を保持）
+    _preserve_locked_meta(report, payload.form_data)
     update_report_data(db, report, payload.form_data)
     db.commit()
     db.refresh(report)

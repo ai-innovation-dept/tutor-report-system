@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
+from app.models.work import WorkAssignmentProfile
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -94,6 +95,12 @@ def users(db):
     assignment = Assignment(tutor_id=tutor.id, student_name="テスト生徒", system_type="new")
     assignment2 = Assignment(tutor_id=tutor2.id, student_name="テスト生徒B", system_type="new")
     db.add_all([assignment, assignment2])
+    db.flush()
+    # 業務連絡表の作成には契約（WorkAssignmentProfile）が必須
+    db.add_all([
+        WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"),
+        WorkAssignmentProfile(assignment_id=assignment2.id, tutor_id=tutor2.id, school_id=school.id, form_type="monthly_dispatch"),
+    ])
     db.commit()
     return {
         "tutor": tutor, "school": school, "sales": sales, "office": office,
@@ -571,3 +578,57 @@ class TestDutySeparation:
         r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
         res = self._act(client, "dual@work.example.com", r1, "return", "office", comment="要修正")
         assert res.status_code == 200, res.text
+
+
+# ---------------------------------------------------------------------------
+# 契約必須＋契約由来項目の講師ロック（②）
+# ---------------------------------------------------------------------------
+
+class TestContractRequiredAndLocked:
+    def test_create_blocked_without_contract(self, client, users, db):
+        # 契約（WorkAssignmentProfile）が無い紐付けでは業務連絡表を作成できない
+        a = Assignment(tutor_id=users["tutor"].id, student_name="契約なし生徒", system_type="new")
+        db.add(a)
+        db.commit()
+        res = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(a.id), "target_month": "2026-06",
+                  "form_type": "monthly_dispatch", "form_data": {"lines": []}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert res.status_code == 409, res.text
+        assert "契約" in res.json()["detail"]
+
+    def test_create_allowed_with_contract(self, client, users):
+        # 契約のある紐付けなら作成できる
+        res = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(users["assignment"].id), "target_month": "2026-06",
+                  "form_type": "monthly_dispatch", "form_data": {"lines": []}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert res.status_code == 201, res.text
+
+    def test_tutor_cannot_change_contract_meta_on_patch(self, client, users):
+        # 講師は契約由来のメタ項目をPATCHで変更できない（保存済みの値を保持）
+        create = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(users["assignment"].id), "target_month": "2026-06",
+                  "form_type": "monthly_dispatch",
+                  "form_data": {"lines": [], "meta": {"customer_id": "C-001", "our_staff": "担当A", "requests": "初回"}}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert create.status_code == 201, create.text
+        report_id = create.json()["id"]
+        # 契約由来(customer_id, our_staff)を改変、自由項目(requests)は変更しようとする
+        patch = client.patch(
+            f"/api/w/reports/{report_id}",
+            json={"form_data": {"lines": [], "meta": {"customer_id": "HACKED", "our_staff": "別人", "requests": "修正後"}}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert patch.status_code == 200, patch.text
+        meta = patch.json()["form_data"]["meta"]
+        # 契約由来は元の値のまま、自由項目は変更が反映される
+        assert meta["customer_id"] == "C-001"
+        assert meta["our_staff"] == "担当A"
+        assert meta["requests"] == "修正後"

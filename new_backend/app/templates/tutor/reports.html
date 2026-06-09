@@ -811,12 +811,25 @@ function renderFormAvailability() {
   }
   if (report && report.status === 'returned_to_tutor') {
     setReportInputsDisabled(false);
+    applyContractLocks();
     const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
     showFormMessage(`学校から差戻しされています。修正のうえ承認管理画面から再依頼してください。${reason}`, true);
     return;
   }
   setReportInputsDisabled(false);
+  applyContractLocks();
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
+}
+// 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする
+const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'contract_period', 'monthly_minutes_fixed', 'weekly_lessons', 'work_content', 'note_schedule'];
+function applyContractLocks() {
+  LOCKED_META_KEYS.forEach(key => {
+    document.querySelectorAll(`.meta-input[data-meta="${key}"]`).forEach(el => {
+      el.readOnly = true;
+      el.classList.add('bg-slate-100', 'cursor-not-allowed', 'text-slate-600');
+      el.title = '契約管理で設定された内容のため、講師側では変更できません';
+    });
+  });
 }
 function editReport(id) {
   const report = allReports.find(item => item.id === id);

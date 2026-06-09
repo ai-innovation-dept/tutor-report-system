@@ -1,4 +1,5 @@
 """講師画面改修（下書き報告の削除・差戻し理由の公開）のテスト。"""
+import uuid
 from urllib.parse import unquote
 
 import pytest
@@ -7,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
-from app.models.work import WorkReport
+from app.models.work import WorkAssignmentProfile, WorkReport
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -57,6 +58,8 @@ def setup(db):
         system_type="new",
     )
     db.add(assignment)
+    db.flush()
+    db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
     db.commit()
     return {"tutor": tutor, "school": school, "assignment": assignment}
 
@@ -199,8 +202,12 @@ class TestReportNames:
     def test_school_name_falls_back_to_meta(self, client, db):
         # parent 未設定の紐付けでは meta.dispatch_place_name を学校名に使う
         tutor = _add_user(db, "t9@x.example.com", "tutor")
+        school = _add_user(db, "sc9@x.example.com", "school")
         assignment = Assignment(tutor_id=tutor.id, student_name="生徒Z", system_type="new")
         db.add(assignment)
+        db.flush()
+        # 契約は必須（assignment.parent は未設定のまま＝学校名はmetaにフォールバック）
+        db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
         db.commit()
         headers = _auth(client, "t9@x.example.com")
         res = client.post(
@@ -226,6 +233,8 @@ class TestReportNames:
             system_type="new",
         )
         db.add(assignment)
+        db.flush()
+        db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
         db.commit()
         headers = _auth(client, "pdf-tutor@x.example.com")
         res = client.post(
@@ -243,10 +252,9 @@ class TestReportNames:
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-school@x.example.com"))
         _add_user(db, "pdf-office@x.example.com", "office")
         _add_user(db, "pdf-sales@x.example.com", "sales")
-        _add_user(db, "pdf-master@x.example.com", "admin_master")
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-office@x.example.com"))
+        # 営業承認で完了（経理ステップ廃止）
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-sales@x.example.com"))
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "pdf-master@x.example.com"))
 
         export = client.get(
             f"/api/w/reports/export?target_month=2026-06&assignment_id={assignment.id}",
@@ -282,21 +290,26 @@ class TestAssignmentForSchool:
         res = client.post("/api/w/assignments/for-school", json={"school_id": str(other.id)}, headers=headers)
         assert res.status_code == 422
 
-    def test_report_creatable_after_for_school(self, client, db):
-        _add_user(db, "t1@x.example.com", "tutor")
+    def test_report_creatable_only_with_contract_after_for_school(self, client, db):
+        tutor = _add_user(db, "t1@x.example.com", "tutor")
         school = _add_user(db, "sc@x.example.com", "school")
         headers = _auth(client, "t1@x.example.com")
         assignment = client.post("/api/w/assignments/for-school", json={"school_id": str(school.id)}, headers=headers).json()
-        res = client.post(
-            "/api/w/reports",
-            json={
-                "assignment_id": assignment["id"],
-                "target_month": "2026-06",
-                "form_type": "monthly_dispatch",
-                "form_data": {"lines": []},
-            },
-            headers=headers,
-        )
+        payload = {
+            "assignment_id": assignment["id"],
+            "target_month": "2026-06",
+            "form_type": "monthly_dispatch",
+            "form_data": {"lines": []},
+        }
+        # 契約が無いと作成できない
+        blocked = client.post("/api/w/reports", json=payload, headers=headers)
+        assert blocked.status_code == 409, blocked.text
+        # 契約管理で登録すると作成できる
+        db.add(WorkAssignmentProfile(
+            assignment_id=uuid.UUID(assignment["id"]), tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch",
+        ))
+        db.commit()
+        res = client.post("/api/w/reports", json=payload, headers=headers)
         assert res.status_code == 201, res.text
 
 

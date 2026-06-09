@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
+from app.models.work import WorkAssignmentProfile
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -32,6 +33,8 @@ def scenario():
     assignment = Assignment(tutor_id=tutor.id, student_name="シナリオ生徒")
     db.add(assignment)
     db.flush()
+    # 業務連絡表の作成には契約（WorkAssignmentProfile）が必須
+    db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
     # セッションクローズ前に値を確定させる
     assignment_id = str(assignment.id)
     db.commit()

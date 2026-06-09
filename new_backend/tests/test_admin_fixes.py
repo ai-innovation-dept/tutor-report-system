@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
-from app.models.work import WorkNotification, WorkReport
+from app.models.work import WorkAssignmentProfile, WorkNotification, WorkReport
 from app.services.reminder_service import enqueue_school_approval_reminders
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
@@ -172,6 +172,8 @@ class TestSkipSchoolOnSubmit:
             system_type="new",
         )
         db.add(assignment)
+        db.flush()
+        db.add(WorkAssignmentProfile(assignment_id=assignment.id, tutor_id=tutor.id, school_id=school.id, form_type="monthly_dispatch"))
         db.commit()
         return tutor, assignment
 
