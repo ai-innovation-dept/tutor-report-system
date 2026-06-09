@@ -177,21 +177,21 @@ class TestReportNames:
         assert body["school_approved_at"] is not None
         assert body["submitted_to_school_at"] is not None
 
-    def test_approved_at_set_after_finance_approve(self, client, db, setup):
+    def test_approved_at_set_after_sales_approve(self, client, db, setup):
+        # 営業承認で完了（経理ステップ廃止）。approved_at は営業の最終承認で設定される
         tutor_headers = _auth(client, "tutor@x.example.com")
         _add_user(db, "office-approved@x.example.com", "office")
         _add_user(db, "sales-approved@x.example.com", "sales")
-        _add_user(db, "master-approved@x.example.com", "admin_master")
         report_id = _create_report(client, setup["assignment"], tutor_headers)
 
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office-approved@x.example.com"))
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales-approved@x.example.com"))
-        before_finance = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
-        assert before_finance["approved_at"] is None
+        before_sales = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
+        assert before_sales["status"] == WorkStatus.AWAITING_SALES
+        assert before_sales["approved_at"] is None
 
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master-approved@x.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales-approved@x.example.com"))
         body = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
         assert body["status"] == WorkStatus.APPROVED
         assert body["approved_at"] is not None
@@ -301,45 +301,39 @@ class TestAssignmentForSchool:
 
 
 class TestApprovedReturn:
-    def test_admin_master_returns_approved_report(self, client, db, setup):
-        tutor_headers = _auth(client, "tutor@x.example.com")
-        master = _add_user(db, "master@x.example.com", "admin_master")
+    def _advance_to_approved(self, client, db, setup, tutor_headers):
+        _add_user(db, "office@x.example.com", "office")
+        _add_user(db, "sales@x.example.com", "sales")
         report_id = _create_report(client, setup["assignment"], tutor_headers)
-        # tutor -> school -> office -> sales -> finance -> approved
+        # tutor -> school -> office -> sales（営業承認で完了）
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
-        office = _add_user(db, "office@x.example.com", "office")
-        sales = _add_user(db, "sales@x.example.com", "sales")
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office@x.example.com"))
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales@x.example.com"))
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master@x.example.com"))
         assert client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()["status"] == WorkStatus.APPROVED
+        return report_id
 
-        # 完了からの差戻し（経理）
+    def test_sales_returns_approved_report(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = self._advance_to_approved(client, db, setup, tutor_headers)
+
+        # 完了からの差戻し（営業が最終承認者）
         res = client.post(
             f"/api/w/reports/{report_id}/action",
             json={"action": "return", "comment": "金額の修正をお願いします"},
-            headers=_auth(client, "master@x.example.com"),
+            headers=_auth(client, "sales@x.example.com"),
         )
         assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.RETURNED_TO_OFFICE
 
     def test_return_approved_requires_comment(self, client, db, setup):
         tutor_headers = _auth(client, "tutor@x.example.com")
-        master = _add_user(db, "master@x.example.com", "admin_master")
-        report_id = _create_report(client, setup["assignment"], tutor_headers)
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "school@x.example.com"))
-        _add_user(db, "office@x.example.com", "office")
-        _add_user(db, "sales@x.example.com", "sales")
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "office@x.example.com"))
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "sales@x.example.com"))
-        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=_auth(client, "master@x.example.com"))
+        report_id = self._advance_to_approved(client, db, setup, tutor_headers)
 
         res = client.post(
             f"/api/w/reports/{report_id}/action",
             json={"action": "return", "comment": "   "},
-            headers=_auth(client, "master@x.example.com"),
+            headers=_auth(client, "sales@x.example.com"),
         )
         assert res.status_code == 422
 

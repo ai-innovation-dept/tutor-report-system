@@ -113,8 +113,7 @@ const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
   {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office', 'returned_to_office']},
-  {key: 'awaiting_sales', label: '営業確認待ち', statuses: ['awaiting_sales']},
-  {key: 'awaiting_finance', label: '最終確認待ち', statuses: ['awaiting_finance']},
+  {key: 'awaiting_sales', label: '営業確認待ち（最終）', statuses: ['awaiting_sales']},
   {key: 'approved', label: '完了', statuses: ['approved']},
   {key: 'closed', label: '強制クローズ', statuses: ['closed']}
 ];
@@ -606,8 +605,9 @@ function showDetails(key) {
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>
-    ${currentRole === 'admin_master' && activeStatus === 'approved' ? `
+    ${currentRole === 'sales' && activeStatus === 'approved' ? `
     <div class="mt-4 border-t border-slate-200 pt-4">
+      <p class="mb-2 text-xs text-slate-500">完了後に修正が必要な場合は、事務へ差戻しできます。</p>
       <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
     </div>` : ''}
   </div>`;
@@ -649,7 +649,6 @@ async function submitReturn() {
   const group = currentGroups().find(item => item.key === returnTargetKey);
   if (!group) return;
   const config = taskConfig();
-  if (!config && !(currentRole === 'admin_master')) return;
   const comment = returnComment.value.trim();
   if (!comment) {
     returnError.textContent = '差戻し理由を入力してください';
@@ -658,9 +657,11 @@ async function submitReturn() {
   }
   const groupStatus = currentGroupStatus(group.reports);
   let ids;
-  if (currentRole === 'admin_master' && groupStatus === 'approved') {
+  if (currentRole === 'sales' && groupStatus === 'approved') {
+    // 営業による完了後の差戻し
     ids = group.reports.filter(r => r.status === 'approved').map(r => r.id);
   } else {
+    if (!config) return;
     ids = reportIdsForStatus(group, taskStatuses(config));
   }
   if (!ids.length) return;

@@ -29,12 +29,11 @@ _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("approve", "awaiting_school"): (("tutor",), "approved_by_school", _APPROVED_BY_SCHOOL_SUBJECT),
     ("approve", "awaiting_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "returned_to_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
-    ("approve", "awaiting_sales"): (("admin_master",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
-    ("approve", "awaiting_finance"): (("tutor", "school"), "final_approved", _FINAL_APPROVED_SUBJECT),
+    # 営業承認で最終承認（完了）。講師・学校へ完了通知
+    ("approve", "awaiting_sales"): (("tutor", "school"), "final_approved", _FINAL_APPROVED_SUBJECT),
     ("return", "awaiting_school"): (("tutor",), "returned", _RETURNED_SUBJECT),
     ("return", "awaiting_office"): (("tutor",), "returned", _RETURNED_SUBJECT),
     ("return", "awaiting_sales"): (("office",), "returned", _RETURNED_SUBJECT),
-    ("return", "awaiting_finance"): (("office",), "returned", _RETURNED_SUBJECT),
     ("return", "approved"): (("office",), "returned", _RETURNED_SUBJECT),
     ("return", "returned_to_office"): (("tutor",), "returned", _RETURNED_SUBJECT),
 }
@@ -366,18 +365,6 @@ async def _send_group_notification(
             await _send_email_to_users(
                 db,
                 _staff_users(db, "sales"),
-                _APPROVAL_REQUEST_SUBJECT,
-                "notify_submitted_to_admin.txt",
-                context | {
-                    "tutor_name": _tutor(report).display_name if _tutor(report) else "講師",
-                },
-            )
-            return
-        if report.status == WorkStatus.AWAITING_FINANCE:
-            finance_users = _staff_users(db, "admin_master") + _staff_users(db, "admin_chief")
-            await _send_email_to_users(
-                db,
-                finance_users,
                 _APPROVAL_REQUEST_SUBJECT,
                 "notify_submitted_to_admin.txt",
                 context | {

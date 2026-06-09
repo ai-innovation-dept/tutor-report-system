@@ -79,7 +79,8 @@ def _assert_duty_separation(
                 "この講師はあなたが営業承認を担当済みのため、事務での承認・差戻しはできません"
                 "（事務と営業は同一講師で兼務できません）。"
             )
-    elif actor_role == "sales" and report.status == WorkStatus.AWAITING_SALES:
+    elif actor_role == "sales" and report.status in (WorkStatus.AWAITING_SALES, WorkStatus.APPROVED):
+        # APPROVED は営業による完了後の差戻し。営業工程の判断のため分掌対象に含める。
         if report.tutor_id in _tutor_ids_acted_office(db, actor.id):
             raise PermissionDenied(
                 "この講師はあなたが事務承認を担当済みのため、営業での承認・差戻しはできません"

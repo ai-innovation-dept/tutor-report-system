@@ -65,12 +65,13 @@ def test_execute_transition_adds_event_once_and_enqueues_school_notification():
 
 
 def test_final_approval_enqueues_tutor_and_school_notifications():
+    # 営業承認で最終承認（経理ステップ廃止）。講師・学校へ完了通知
     db = TestSession()
     try:
         tutor = _user("tutor", "tutor.final@example.com")
         school = _user("school", "school.final@example.com")
-        master = _user("admin_master", "master.final@example.com")
-        db.add_all([tutor, school, master])
+        sales = _user("sales", "sales.final@example.com")
+        db.add_all([tutor, school, sales])
         db.flush()
 
         assignment = Assignment(tutor_id=tutor.id, parent_id=school.id, student_name="生徒B")
@@ -84,13 +85,13 @@ def test_final_approval_enqueues_tutor_and_school_notifications():
             target_month="2026-06",
             form_type="monthly_dispatch",
             form_data={},
-            status=WorkStatus.AWAITING_FINANCE,
-            current_approver_role="admin_master",
+            status=WorkStatus.AWAITING_SALES,
+            current_approver_role="sales",
         )
         db.add(report)
         db.flush()
 
-        execute_transition(db, report, master, "admin_master", WorkAction.APPROVE, None)
+        execute_transition(db, report, sales, "sales", WorkAction.APPROVE, None)
 
         notifications = list(db.scalars(select(WorkNotification).where(WorkNotification.report_id == report.id)))
 

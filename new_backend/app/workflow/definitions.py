@@ -66,17 +66,11 @@ TRANSITIONS: list[Transition] = [
         to_status=WorkStatus.AWAITING_SALES,
         next_approver_role="sales",
     ),
+    # 営業が最終承認（経理ステップを廃止し、営業承認で完了とする）
     Transition(
         from_status=WorkStatus.AWAITING_SALES,
         action=WorkAction.APPROVE,
         allowed_roles=frozenset({"sales"}),
-        to_status=WorkStatus.AWAITING_FINANCE,
-        next_approver_role="admin_master",
-    ),
-    Transition(
-        from_status=WorkStatus.AWAITING_FINANCE,
-        action=WorkAction.APPROVE,
-        allowed_roles=frozenset({"admin_master", "admin_chief"}),
         to_status=WorkStatus.APPROVED,
         next_approver_role=None,
     ),
@@ -113,19 +107,11 @@ TRANSITIONS: list[Transition] = [
         comment_required=True,
         next_approver_role="office",
     ),
-    Transition(
-        from_status=WorkStatus.AWAITING_FINANCE,
-        action=WorkAction.RETURN,
-        allowed_roles=frozenset({"admin_master", "admin_chief"}),
-        to_status=WorkStatus.RETURNED_TO_OFFICE,
-        comment_required=True,
-        next_approver_role="office",
-    ),
-    # 最終承認済み（完了）からの差戻し（経理が完了後に修正を依頼する）
+    # 最終承認済み（完了）からの差戻し（営業が完了後に修正を依頼する）
     Transition(
         from_status=WorkStatus.APPROVED,
         action=WorkAction.RETURN,
-        allowed_roles=frozenset({"admin_master", "admin_chief"}),
+        allowed_roles=frozenset({"sales"}),
         to_status=WorkStatus.RETURNED_TO_OFFICE,
         comment_required=True,
         next_approver_role="office",

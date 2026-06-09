@@ -103,7 +103,7 @@ class TestFindTransition:
             (WorkStatus.AWAITING_SCHOOL, "school"),
             (WorkStatus.AWAITING_OFFICE, "office"),
             (WorkStatus.AWAITING_SALES, "sales"),
-            (WorkStatus.AWAITING_FINANCE, "admin_master"),
+            (WorkStatus.APPROVED, "sales"),
         ]:
             t = find_transition(from_status, WorkAction.RETURN, role)
             assert t is not None
@@ -118,15 +118,27 @@ class TestFindTransition:
         assert t is not None
         assert t.to_status == WorkStatus.AWAITING_SALES
 
-    def test_admin_master_can_return_approved(self):
-        t = find_transition(WorkStatus.APPROVED, WorkAction.RETURN, "admin_master")
+    def test_sales_can_return_approved(self):
+        # 営業が最終承認者。完了後の差戻しも営業が行う
+        t = find_transition(WorkStatus.APPROVED, WorkAction.RETURN, "sales")
         assert t is not None
         assert t.to_status == WorkStatus.RETURNED_TO_OFFICE
         assert t.comment_required is True
 
-    def test_non_master_cannot_return_approved(self):
-        for role in ("school", "sales", "office", "tutor"):
+    def test_non_sales_cannot_return_approved(self):
+        for role in ("school", "office", "tutor", "admin_master", "admin_chief"):
             assert find_transition(WorkStatus.APPROVED, WorkAction.RETURN, role) is None
+
+    def test_sales_approve_is_final(self):
+        # 営業承認で完了（経理ステップ廃止）
+        t = find_transition(WorkStatus.AWAITING_SALES, WorkAction.APPROVE, "sales")
+        assert t is not None
+        assert t.to_status == WorkStatus.APPROVED
+
+    def test_no_finance_approval_step(self):
+        # 経理(admin_master/admin_chief)の承認遷移は存在しない
+        for role in ("admin_master", "admin_chief"):
+            assert find_transition(WorkStatus.AWAITING_FINANCE, WorkAction.APPROVE, role) is None
 
     def test_office_approves_returned_to_office_forward(self):
         # 営業/経理から事務へ差し戻された報告を事務が承認＝営業確認待ちへ前進
@@ -156,8 +168,7 @@ class TestApplyTransition:
             (WorkStatus.DRAFT, WorkAction.SUBMIT, "tutor", WorkStatus.AWAITING_SCHOOL),
             (WorkStatus.AWAITING_SCHOOL, WorkAction.APPROVE, "school", WorkStatus.AWAITING_OFFICE),
             (WorkStatus.AWAITING_OFFICE, WorkAction.APPROVE, "office", WorkStatus.AWAITING_SALES),
-            (WorkStatus.AWAITING_SALES, WorkAction.APPROVE, "sales", WorkStatus.AWAITING_FINANCE),
-            (WorkStatus.AWAITING_FINANCE, WorkAction.APPROVE, "admin_master", WorkStatus.APPROVED),
+            (WorkStatus.AWAITING_SALES, WorkAction.APPROVE, "sales", WorkStatus.APPROVED),
         ]
         for from_s, action, role, expected in steps:
             assert _apply(from_s, action, role) == expected

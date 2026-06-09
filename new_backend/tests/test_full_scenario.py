@@ -76,8 +76,8 @@ class TestScenario:
             ("tutor@scenario.example.com", "submit", None, WorkStatus.AWAITING_SCHOOL),
             ("school@scenario.example.com", "approve", None, WorkStatus.AWAITING_OFFICE),
             ("office@scenario.example.com", "approve", None, WorkStatus.AWAITING_SALES),
-            ("sales@scenario.example.com", "approve", None, WorkStatus.AWAITING_FINANCE),
-            ("master@scenario.example.com", "approve", None, WorkStatus.APPROVED),
+            # 営業承認で完了（経理ステップ廃止）
+            ("sales@scenario.example.com", "approve", None, WorkStatus.APPROVED),
         ]
         for email, action, comment, expected in steps:
             h = _tok(client, email)
@@ -106,11 +106,10 @@ class TestScenario:
         assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
 
-        # 残りを承認
+        # 残りを承認（事務→営業の営業承認で完了）
         for email, action in [
             ("office@scenario.example.com", "approve"),
             ("sales@scenario.example.com", "approve"),
-            ("master@scenario.example.com", "approve"),
         ]:
             r = client.post(f"/api/w/reports/{report_id}/action",
                             json={"action": action}, headers=_tok(client, email))

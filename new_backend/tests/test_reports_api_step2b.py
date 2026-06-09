@@ -131,7 +131,8 @@ def test_bulk_action_processes_valid_reports_and_skips_invalid(client, users):
     assert data["skipped"] == 1
     assert data["skip_ids"] == [invalid_id]
 
-    assert client.get(f"/api/w/reports/{valid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.AWAITING_FINANCE
+    # 営業承認で完了（経理ステップ廃止）
+    assert client.get(f"/api/w/reports/{valid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.APPROVED
     assert client.get(f"/api/w/reports/{invalid_id}", headers=_auth(client, "b-sales@example.com")).json()["status"] == WorkStatus.DRAFT
 
 

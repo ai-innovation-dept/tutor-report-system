@@ -226,18 +226,17 @@ class TestWorkflow:
 
     def test_full_approval_chain(self, client, users):
         report_id = self._create_report(client, users)
+        # 営業承認で完了（経理ステップ廃止）
         steps = [
             ("tutor@work.example.com", "submit"),
             ("school@work.example.com", "approve"),
             ("office@work.example.com", "approve"),
             ("sales@work.example.com", "approve"),
-            ("master@work.example.com", "approve"),
         ]
         expected_statuses = [
             WorkStatus.AWAITING_SCHOOL,
             WorkStatus.AWAITING_OFFICE,
             WorkStatus.AWAITING_SALES,
-            WorkStatus.AWAITING_FINANCE,
             WorkStatus.APPROVED,
         ]
         for (email, action), expected in zip(steps, expected_statuses):
@@ -359,12 +358,14 @@ class TestOfficeEdit:
         )
         assert res.status_code == 403
 
-    def test_office_edit_blocked_on_awaiting_finance(self, client, users):
-        # 最終確認待ち（経理）まで進めると事務は修正できない
+    def test_office_edit_blocked_on_approved(self, client, users):
+        # 営業承認で完了（approved）まで進めると事務は修正できない
         report_id = self._advance_to_awaiting_office(client, users)
         for email in ("office@work.example.com", "sales@work.example.com"):
             client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"},
                         headers=_auth(client, email))
+        # 営業承認で完了している
+        assert client.get(f"/api/w/reports/{report_id}", headers=_auth(client, "office@work.example.com")).json()["status"] == WorkStatus.APPROVED
         res = client.patch(
             f"/api/w/reports/{report_id}/office-edit",
             json={"form_data": {"lines": []}},
