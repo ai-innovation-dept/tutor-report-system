@@ -134,7 +134,7 @@ setBreadcrumb('運営ポータル', 'ユーザー管理');
 let invitations = [];
 let tutors = [];
 let users = [];
-let paginationState = {page: 1, per_page: 50, total: 0, total_pages: 1, role_counts: {}, active_admin_master_count: 0};
+let paginationState = {page: 1, per_page: 50, total: 0, total_pages: 1, role_counts: {}, active_admin_master_count: 0, active_admin_chief_count: 0};
 let activeRole = '';
 let searchTimer = null;
 let changedRoles = {};
@@ -148,16 +148,18 @@ const ROLE_LABELS = {
   parent: '保護者',
   admin_receiver: '受付',
   admin_reviewer: '再鑑',
-  admin_master: '管理者'
+  admin_master: '管理者',
+  admin_chief: '管理責任者'
 };
-const ROLE_ORDER = ['tutor', 'parent', 'admin_receiver', 'admin_reviewer', 'admin_master'];
+const ROLE_ORDER = ['admin_chief', 'tutor', 'parent', 'admin_receiver', 'admin_reviewer', 'admin_master'];
 const TABS = [
   {key: '', label: '全て', countKey: 'all'},
   {key: 'tutor', label: '講師', countKey: 'tutor'},
   {key: 'parent', label: '保護者', countKey: 'parent'},
   {key: 'admin_receiver', label: '受付', countKey: 'admin_receiver'},
   {key: 'admin_reviewer', label: '再鑑', countKey: 'admin_reviewer'},
-  {key: 'admin_master', label: '管理者', countKey: 'admin_master'}
+  {key: 'admin_master', label: '管理者', countKey: 'admin_master'},
+  {key: 'admin_chief', label: '管理責任者', countKey: 'admin_chief'}
 ];
 
 function escapeHtml(value) {
@@ -167,7 +169,8 @@ function roleLabel(role) { return ROLE_LABELS[role] || role; }
 // 役割（表示区分）: 講師=講師 / 保護者=保護者 / 受付・再鑑・管理者=運営スタッフ
 const ROLE_CATEGORY = {
   tutor: '講師', parent: '保護者',
-  admin_receiver: '運営スタッフ', admin_reviewer: '運営スタッフ', admin_master: '運営スタッフ'
+  admin_receiver: '運営スタッフ', admin_reviewer: '運営スタッフ', admin_master: '運営スタッフ',
+  admin_chief: '管理責任者'
 };
 function categoryOf(role) { return ROLE_CATEGORY[role] || '-'; }
 function userCategory(user) { return categoryOf(primaryRole(user)); }
@@ -181,6 +184,10 @@ function userHasRoleChanges(user) { return rolesKey(currentEditedRoles(user)) !=
 function isLastActiveAdmin(user) {
   return user.is_active && userRoles(user).includes('admin_master') && paginationState.active_admin_master_count <= 1;
 }
+function isLastActiveChief(user) {
+  return user.is_active && userRoles(user).includes('admin_chief') && paginationState.active_admin_chief_count <= 1;
+}
+function isAdminChief(user) { return userRoles(user).includes('admin_chief'); }
 function formatDate(value) {
   if (!value) return '-';
   const d = new Date(value);
@@ -345,7 +352,8 @@ async function loadUsersPage(page = paginationState.page) {
     total: userRowsData.total || 0,
     total_pages: userRowsData.total_pages || 1,
     role_counts: userRowsData.role_counts || {},
-    active_admin_master_count: userRowsData.active_admin_master_count || 0
+    active_admin_master_count: userRowsData.active_admin_master_count || 0,
+    active_admin_chief_count: userRowsData.active_admin_chief_count || 0
   };
   changedRoles = {};
   renderTutorOptions();
@@ -412,8 +420,12 @@ function renderDetailDrawer(id) {
   const user = selectedUser && selectedUser.id === id ? selectedUser : users.find(item => item.id === id);
   if (!user) return;
   const lastAdmin = isLastActiveAdmin(user);
+  const lastChief = isLastActiveChief(user);
+  const canOperateChief = !isAdminChief(user) || CURRENT_USER_ROLE === 'admin_chief';
+  const disableTitle = lastChief ? '最後の管理責任者のため無効化できません' : lastAdmin ? '最後の管理者のため無効化できません' : !canOperateChief ? '管理責任者の無効化は管理責任者のみ可能です' : '';
+  const disableDisabled = lastAdmin || lastChief || !canOperateChief;
   const statusButton = user.is_active
-    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため無効化できません"' : ''}>無効化する</button>`
+    ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${disableDisabled ? `disabled title="${disableTitle}"` : ''}>無効化する</button>`
     : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;
   detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
     <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
@@ -452,7 +464,7 @@ function renderDetailDrawer(id) {
     <section class="rounded-lg border p-4" style="background:#FEF2F2;border-color:#FCA5A5;">
       <h3 class="font-semibold text-red-700">危険な操作</h3>
       <p class="mt-2 text-sm text-red-700">ユーザーを削除すると元に戻せません</p>
-      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastAdmin ? 'disabled title="最後の管理者のため削除できません"' : ''}>このユーザーを削除する</button>
+      <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${lastChief ? 'disabled title="最後の管理責任者のため削除できません"' : lastAdmin ? 'disabled title="最後の管理者のため削除できません"' : !canOperateChief ? 'disabled title="管理責任者の削除は管理責任者のみ可能です"' : ''}>このユーザーを削除する</button>
     </section>
   </div>`;
 }

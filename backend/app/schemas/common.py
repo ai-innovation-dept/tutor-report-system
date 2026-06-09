@@ -38,6 +38,7 @@ class UserListOut(BaseModel):
     per_page: int
     role_counts: dict[str, int] = Field(default_factory=dict)
     active_admin_master_count: int = 0
+    active_admin_chief_count: int = 0
 
 
 class UserCreate(BaseModel):

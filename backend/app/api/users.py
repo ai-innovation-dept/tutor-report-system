@@ -75,9 +75,11 @@ def list_users(
     if search and search.strip():
         keyword = f"%{search.strip().lower()}%"
         stmt = stmt.where(or_(func.lower(User.display_name).like(keyword), func.lower(User.email).like(keyword)))
-    users = db.scalars(stmt.order_by(User.created_at.desc())).all()
+    users = db.scalars(stmt).all()
     # 所属の唯一の基準は allowed_systems。既存システム(legacy)に登録のあるユーザーのみ表示する。
     users = [user for user in users if "legacy" in (user.allowed_systems or [])]
+    # No の小さい順（数値）でソート。user_no 未設定は末尾。
+    users = sorted(users, key=lambda u: int(u.user_no) if u.user_no and str(u.user_no).isdigit() else 999999)
     role_counts = {key: 0 for key in ["all", "tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master", "admin_chief"]}
     role_counts["all"] = len(users)
     for user in users:
@@ -100,6 +102,7 @@ def list_users(
         per_page=per_page,
         role_counts=role_counts,
         active_admin_master_count=_active_admin_master_count(db),
+        active_admin_chief_count=_active_admin_chief_count(db),
     )
 
 
@@ -140,10 +143,12 @@ def patch_user_roles(user_id: UUID, payload: UserRolesPatch, db: Session = Depen
 
 
 @router.patch("/users/{user_id}/disable")
-def disable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
+def disable_user(user_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
+    if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の無効化は管理責任者のみ可能です")
     _ensure_not_last_admin_master(user, db)
     user.is_active = False
     db.commit()
@@ -161,10 +166,12 @@ def enable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(
 
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
+def delete_user(user_id: UUID, db: Session = Depends(get_db), current_user: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
+    if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の削除は管理責任者のみ可能です")
     _ensure_not_last_admin_master(user, db)
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
