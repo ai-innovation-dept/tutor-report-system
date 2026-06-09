@@ -26,6 +26,7 @@ ROLE_LABELS = {
     "admin_receiver": "受付担当",
     "admin_reviewer": "再鑑者",
     "admin_master": "管理者",
+    "admin_chief": "管理責任者",
 }
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -211,7 +212,7 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         # 既存パスワードを引き継ぐため password は変更しない。
         systems = list(existing_user.allowed_systems or [])
         systems.append("legacy")
-        if invitation.role == "admin_master" and "new" not in systems:
+        if invitation.role in {"admin_master", "admin_chief"} and "new" not in systems:
             systems.append("new")
         existing_user.allowed_systems = systems
         roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
@@ -238,7 +239,7 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
         if not display_name:
             raise HTTPException(status_code=422, detail="display_name is required")
-    elif invitation.role in {"admin_receiver", "admin_reviewer", "admin_master"}:
+    elif invitation.role in {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}:
         display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
         if not display_name:
             raise HTTPException(status_code=422, detail="display_name is required")
@@ -250,8 +251,8 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         roles=[invitation.role],
         display_name=display_name,
         tutor_no=invitation.tutor_no if invitation.role == "tutor" else None,
-        # admin_master は常に両システム、それ以外は当(legacy)システムのみ。
-        allowed_systems=["legacy", "new"] if invitation.role == "admin_master" else ["legacy"],
+        # admin_master / admin_chief は常に両システム、それ以外は当(legacy)システムのみ。
+        allowed_systems=["legacy", "new"] if invitation.role in {"admin_master", "admin_chief"} else ["legacy"],
         password_hash=hash_password(payload.password),
         is_active=True,
     )

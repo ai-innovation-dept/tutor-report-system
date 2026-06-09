@@ -4,6 +4,7 @@
   講師 (tutor)                          : 1nnnn  (10001〜)  ※新旧システム共通の通し番号
   保護者 (parent)                       : 2nnnn  (20001〜)
   受付・再鑑・管理者 (admin_*)           : 3nnnn  (30001〜)
+  管理責任者 (admin_chief)              : 9nnnn  (90001〜)
   （新システムの 学校=4nnnn / 事務・営業・経理=5nnnn は new_backend 側で採番）
 
 講師は user_no と tutor_no を同値（数値）に揃える。リレーションは全て UUID(id) で結合するため、
@@ -21,15 +22,17 @@ ROLE_CATEGORY = {
     "admin_receiver": "運営スタッフ",
     "admin_reviewer": "運営スタッフ",
     "admin_master": "運営スタッフ",
+    "admin_chief": "管理責任者",
 }
 
-# ロール → 番号帯の先頭（10000=講師 / 20000=保護者 / 30000=運営スタッフ）
+# ロール → 番号帯の先頭（10000=講師 / 20000=保護者 / 30000=運営スタッフ / 90000=管理責任者）
 _BAND = {
     "tutor": 10000,
     "parent": 20000,
     "admin_receiver": 30000,
     "admin_reviewer": 30000,
     "admin_master": 30000,
+    "admin_chief": 90000,
 }
 
 

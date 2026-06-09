@@ -19,6 +19,7 @@ class UserRole(str, enum.Enum):
     admin_receiver = "admin_receiver"
     admin_reviewer = "admin_reviewer"
     admin_master = "admin_master"
+    admin_chief = "admin_chief"
 
 
 class ReportStatus(str, enum.Enum):

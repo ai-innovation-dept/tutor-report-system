@@ -19,6 +19,7 @@ def _require_stale_staff(user: User) -> None:
         has_role(user, "admin_receiver")
         or has_role(user, "admin_reviewer")
         or has_role(user, "admin_master")
+        or has_role(user, "admin_chief")
     ):
         raise HTTPException(status_code=403, detail="not allowed")
 

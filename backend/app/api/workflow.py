@@ -138,7 +138,7 @@ async def admin_return_bulk(payload: AdminBulkReturnIn, db: Session = Depends(ge
 
 @router.post("/admin-receive-bulk")
 async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not (has_role(user, "admin_receiver") or has_role(user, "admin_master")):
+    if not (has_role(user, "admin_receiver") or has_role(user, "admin_master") or has_role(user, "admin_chief")):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value)
@@ -154,7 +154,7 @@ async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db
 
 @router.post("/admin-review-bulk")
 async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not (has_role(user, "admin_reviewer") or has_role(user, "admin_master")):
+    if not (has_role(user, "admin_reviewer") or has_role(user, "admin_master") or has_role(user, "admin_chief")):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.received.value)
@@ -170,7 +170,7 @@ async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db)
 
 @router.post("/admin-approve-bulk")
 async def admin_approve_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not has_role(user, "admin_master"):
+    if not (has_role(user, "admin_master") or has_role(user, "admin_chief")):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.re_reviewed.value)

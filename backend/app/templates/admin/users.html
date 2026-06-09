@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
+<script>const CURRENT_USER_ROLE = "{{ current_user.role }}";</script>
 <style>
 @media (max-width: 767px) {
   .mobile-cards thead { display: none; }
@@ -45,6 +46,9 @@
           <option value="admin_receiver">受付担当</option>
           <option value="admin_reviewer">再鑑者</option>
           <option value="admin_master">管理者</option>
+          {% if current_user.role == 'admin_chief' %}
+          <option value="admin_chief">管理責任者</option>
+          {% endif %}
         </select>
       </label>
       <label id="displayNameField" class="block text-sm">
@@ -431,7 +435,7 @@ function renderDetailDrawer(id) {
       <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
       <button class="mt-3 rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
     </section>
-    ${isParent(user) ? `
+    ${isParent(user) && CURRENT_USER_ROLE === 'admin_chief' ? `
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">保護者承認設定</h3>
       <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">

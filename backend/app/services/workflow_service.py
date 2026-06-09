@@ -45,7 +45,7 @@ RETURN_ACTIONS = {
 # 職務分掌：受付承認(receive)と再鑑承認(re_review)は、同一講師に対して同一スタッフが
 # 兼務できない。一度どちらかを承認すると、その講師に対するもう一方の承認は全期間にわたり
 # 不可（例：講師Bを受付承認した人は講師Bを再鑑承認できない）。
-# admin_master（最終承認者・フルアクセス）はこの制約の対象外。
+# admin_master / admin_chief（最終承認者・フルアクセス）はこの制約の対象外。
 SEPARATION_CONFLICT = {
     ReportAction.receive.value: ReportAction.re_review.value,
     ReportAction.re_review.value: ReportAction.receive.value,
@@ -57,7 +57,9 @@ _SEPARATION_MESSAGE = {
 
 
 def _role_allowed(required: str, actor: User) -> bool:
-    return has_role(actor, required) or (has_role(actor, "admin_master") and required.startswith("admin_"))
+    return has_role(actor, required) or (
+        (has_role(actor, "admin_master") or has_role(actor, "admin_chief")) and required.startswith("admin_")
+    )
 
 
 def _tutor_ids_acted_by(db: Session, actor_id, action: str) -> set:
@@ -73,15 +75,15 @@ def _tutor_ids_acted_by(db: Session, actor_id, action: str) -> set:
 
 def _assert_separation_of_duties(db: Session, report: LessonReport, actor: User, action: str) -> None:
     conflicting = SEPARATION_CONFLICT.get(action)
-    if not conflicting or has_role(actor, "admin_master"):
+    if not conflicting or has_role(actor, "admin_master") or has_role(actor, "admin_chief"):
         return
     if report.tutor_id in _tutor_ids_acted_by(db, actor.id, conflicting):
         raise HTTPException(status_code=409, detail=_SEPARATION_MESSAGE[action])
 
 
 def separation_locks(db: Session, actor: User) -> dict[str, list[str]]:
-    """UI用：現在のユーザーが受付/再鑑を担当済みの講師ID一覧。admin_master は対象外のため空。"""
-    if has_role(actor, "admin_master"):
+    """UI用：現在のユーザーが受付/再鑑を担当済みの講師ID一覧。admin_master / admin_chief は対象外のため空。"""
+    if has_role(actor, "admin_master") or has_role(actor, "admin_chief"):
         return {"received_tutor_ids": [], "reviewed_tutor_ids": []}
     return {
         "received_tutor_ids": [str(tid) for tid in _tutor_ids_acted_by(db, actor.id, ReportAction.receive.value)],

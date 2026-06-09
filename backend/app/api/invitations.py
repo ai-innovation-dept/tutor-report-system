@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
-from app.core.rbac import require_role
+from app.core.rbac import has_role, require_role
 from app.database import get_db
 from app.models import Assignment, Invitation, User
 from app.schemas import InvitationCreate, InvitationOut
@@ -21,13 +21,14 @@ router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 INVITATION_SUBJECT = "【指導実績報告システム】保護者アカウントのご案内"
 TUTOR_INVITATION_SUBJECT = "【指導実績報告システム】講師アカウントのご案内"
 STAFF_INVITATION_SUBJECT = "【指導実績報告システム】スタッフアカウントのご案内"
-ALLOWED_INVITATION_ROLES = {"parent", "tutor", "admin_receiver", "admin_reviewer", "admin_master"}
+ALLOWED_INVITATION_ROLES = {"parent", "tutor", "admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}
 ROLE_LABELS = {
     "parent": "保護者",
     "tutor": "講師",
     "admin_receiver": "受付担当",
     "admin_reviewer": "再鑑者",
     "admin_master": "管理者",
+    "admin_chief": "管理責任者",
 }
 
 
@@ -190,10 +191,12 @@ async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin_master")),
+    user: User = Depends(require_role("admin_master", "admin_chief")),
 ):
     email = str(payload.email).lower()
     _validate_invitation_payload(payload)
+    if payload.role == "admin_chief" and not has_role(user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者の招待は管理責任者のみ可能です")
 
     now = datetime.now(timezone.utc)
     existing_user = db.scalar(select(User).where(User.email == email))
@@ -287,7 +290,7 @@ async def create_invitation(
 
 
 @router.get("", response_model=list[InvitationOut])
-def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     invitations = db.scalars(
         select(Invitation)
         .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))
@@ -297,7 +300,7 @@ def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_ro
 
 
 @router.delete("/{invitation_id}")
-def delete_invitation(invitation_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def delete_invitation(invitation_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     invitation = db.get(Invitation, invitation_id)
     if not invitation:
         raise HTTPException(status_code=404, detail="invitation not found")

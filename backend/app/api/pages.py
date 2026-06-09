@@ -377,7 +377,7 @@ def parent_report_view_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/admin/report-view", response_class=HTMLResponse)
 def admin_report_view_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
-    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master"}:
+    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}:
         return _login_redirect()
     return templates.TemplateResponse(request, "report_view.html", context=_base_context(request, user))
 
@@ -385,7 +385,7 @@ def admin_report_view_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports_page(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
-    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master"}:
+    if not user or user.role not in {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}:
         return _login_redirect()
     return templates.TemplateResponse(request, "admin/stale_reports.html", context=_base_context(request, user))
 
@@ -405,6 +405,13 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
         "admin_receiver": {"/admin/dashboard", "/admin/queue/receive"},
         "admin_reviewer": {"/admin/dashboard", "/admin/queue/review"},
         "admin_master": {
+            "/admin/dashboard",
+            "/admin/queue/receive",
+            "/admin/queue/review",
+            "/admin/queue/approve",
+            "/admin/users",
+        },
+        "admin_chief": {
             "/admin/dashboard",
             "/admin/queue/receive",
             "/admin/queue/review",

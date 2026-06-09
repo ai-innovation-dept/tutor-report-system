@@ -10,9 +10,9 @@ PASSWORD = "Passw0rd!"
 
 
 def upsert_user(db, email, role, name, tutor_no=None, allowed_systems=None):
-    # admin_master は常に両システム、それ以外は当(legacy)システムのみ。
+    # admin_master / admin_chief は常に両システム、それ以外は当(legacy)システムのみ。
     if allowed_systems is None:
-        allowed_systems = ["legacy", "new"] if role == "admin_master" else ["legacy"]
+        allowed_systems = ["legacy", "new"] if role in {"admin_master", "admin_chief"} else ["legacy"]
     user = db.scalar(select(User).where(User.email == email))
     if user:
         user.role = role
@@ -63,6 +63,7 @@ def upsert_assignment(db, tutor, parent, student_name):
 
 
 def create_initial_users(db):
+    upsert_user(db, "supervisor@example.com", "admin_chief", "管理責任者1")
     upsert_user(db, "master1@example.com", "admin_master", "管理者")
     upsert_user(db, "receiver1@example.com", "admin_receiver", "受付担当")
     upsert_user(db, "reviewer1@example.com", "admin_reviewer", "再鑑者")

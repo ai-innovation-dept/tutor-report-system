@@ -19,7 +19,7 @@ router = APIRouter(prefix="/api", tags=["users"])
 
 
 @router.post("/users")
-def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     if db.scalar(select(User).where(User.email == payload.email)):
         raise HTTPException(status_code=409, detail="email already exists")
     password = payload.password or secrets.token_urlsafe(10)
@@ -44,9 +44,19 @@ def _active_admin_master_count(db: Session) -> int:
     )
 
 
+def _active_admin_chief_count(db: Session) -> int:
+    return sum(
+        1
+        for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
+        if has_role(user, "admin_chief")
+    )
+
+
 def _ensure_not_last_admin_master(user: User, db: Session) -> None:
     if has_role(user, "admin_master") and user.is_active and _active_admin_master_count(db) <= 1:
         raise HTTPException(status_code=409, detail="最後の管理者のため操作できません")
+    if has_role(user, "admin_chief") and user.is_active and _active_admin_chief_count(db) <= 1:
+        raise HTTPException(status_code=409, detail="最後の管理責任者のため操作できません")
 
 
 @router.get("/users", response_model=UserListOut)
@@ -68,7 +78,7 @@ def list_users(
     users = db.scalars(stmt.order_by(User.created_at.desc())).all()
     # 所属の唯一の基準は allowed_systems。既存システム(legacy)に登録のあるユーザーのみ表示する。
     users = [user for user in users if "legacy" in (user.allowed_systems or [])]
-    role_counts = {key: 0 for key in ["all", "tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master"]}
+    role_counts = {key: 0 for key in ["all", "tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master", "admin_chief"]}
     role_counts["all"] = len(users)
     for user in users:
         for user_role in user.roles or [user.role]:
@@ -102,11 +112,13 @@ def get_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(req
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
-def patch_user(user_id: UUID, payload: UserPatch, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def patch_user(user_id: UUID, payload: UserPatch, db: Session = Depends(get_db), current_user: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
     data = payload.model_dump(exclude_unset=True)
+    if "skip_parent_approval" in data and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="保護者承認スキップの設定は管理責任者のみ可能です")
     if "role" in data and data["role"]:
         sync_user_roles(user, [data.pop("role")])
     for key, value in data.items():
@@ -117,7 +129,7 @@ def patch_user(user_id: UUID, payload: UserPatch, db: Session = Depends(get_db),
 
 
 @router.patch("/users/{user_id}/roles", response_model=UserOut)
-def patch_user_roles(user_id: UUID, payload: UserRolesPatch, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def patch_user_roles(user_id: UUID, payload: UserRolesPatch, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
@@ -128,7 +140,7 @@ def patch_user_roles(user_id: UUID, payload: UserRolesPatch, db: Session = Depen
 
 
 @router.patch("/users/{user_id}/disable")
-def disable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def disable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
@@ -139,7 +151,7 @@ def disable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends
 
 
 @router.patch("/users/{user_id}/enable")
-def enable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def enable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
@@ -149,7 +161,7 @@ def enable_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(
 
 
 @router.delete("/users/{user_id}")
-def delete_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def delete_user(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
@@ -170,7 +182,7 @@ def change_password(payload: PasswordChange, db: Session = Depends(get_db), user
 
 
 @router.post("/users/{user_id}/reset-password")
-def reset_password(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master"))):
+def reset_password(user_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
     user = db.get(User, user_id)
     if not user or user.deleted_at:
         raise HTTPException(status_code=404, detail="user not found")
@@ -188,7 +200,7 @@ async def create_assignment(payload: AssignmentCreate, request: Request, db: Ses
         if payload.tutor_id != user.id:
             raise HTTPException(status_code=403, detail="cannot create assignments for another tutor")
         data["parent_id"] = None
-    elif user.role != "admin_master":
+    elif not has_role(user, "admin_master") and not has_role(user, "admin_chief"):
         raise HTTPException(status_code=403, detail="not allowed")
     else:
         tutor = db.get(User, payload.tutor_id)
@@ -232,10 +244,12 @@ async def create_assignment(payload: AssignmentCreate, request: Request, db: Ses
 
 
 # リマインダー設定（保護者承認待ちの自動リマインド）は運営が管理する。
-# admin_master は案件の全項目を編集可、受付/再鑑はリマインダー設定のみ編集可。
+# admin_chief は案件の全項目を編集可、admin_master は skip_parent_approval 以外の全項目を編集可、
+# 受付/再鑑はリマインダー設定のみ編集可。
 # reminder_count は「エンドレス送信」化により既存システムでは未使用だが、
 # assignments テーブルを共有する新システムが利用するため列・編集経路は残す。
 _REMINDER_PATCH_ALLOWED = {"reminder_enabled", "reminder_days_after", "reminder_count"}
+_SKIP_PARENT_FIELD = "skip_parent_approval"
 
 
 @router.patch("/assignments/{assignment_id}", response_model=AssignmentOut)
@@ -243,8 +257,12 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
     assignment = db.get(Assignment, assignment_id)
     if not assignment:
         raise HTTPException(status_code=404, detail="assignment not found")
-    if has_role(current_user, "admin_master"):
+    if has_role(current_user, "admin_chief"):
         data = payload.model_dump(exclude_unset=True)
+    elif has_role(current_user, "admin_master"):
+        data = payload.model_dump(exclude_unset=True)
+        if _SKIP_PARENT_FIELD in data:
+            raise HTTPException(status_code=403, detail="保護者承認スキップの設定は管理責任者のみ可能です")
     elif is_admin(current_user):
         data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k in _REMINDER_PATCH_ALLOWED}
     else:

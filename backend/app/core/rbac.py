@@ -5,8 +5,8 @@ from app.deps import get_current_user
 from app.models import User
 
 
-ADMIN_ROLES = {"admin_receiver", "admin_reviewer", "admin_master"}
-ALL_ROLES = {"tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master"}
+ADMIN_ROLES = {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}
+ALL_ROLES = {"tutor", "parent", "admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}
 MULTI_ROLE_ALLOWED = {"admin_receiver", "admin_reviewer"}
 
 
@@ -38,6 +38,8 @@ def normalize_roles(roles: list[str]) -> list[str]:
             cleaned.append(role)
     if not cleaned:
         raise HTTPException(status_code=422, detail="roles is required")
+    if "admin_chief" in cleaned and cleaned != ["admin_chief"]:
+        raise HTTPException(status_code=422, detail="admin_chief cannot be combined with other roles")
     if "admin_master" in cleaned and cleaned != ["admin_master"]:
         raise HTTPException(status_code=422, detail="admin_master cannot be combined with other roles")
     if "tutor" in cleaned and cleaned != ["tutor"]:
@@ -50,7 +52,7 @@ def normalize_roles(roles: list[str]) -> list[str]:
 
 
 def primary_role(roles: list[str]) -> str:
-    order = ["admin_master", "tutor", "parent", "admin_receiver", "admin_reviewer"]
+    order = ["admin_chief", "admin_master", "tutor", "parent", "admin_receiver", "admin_reviewer"]
     role_set = set(roles)
     return next(role for role in order if role in role_set)
 
