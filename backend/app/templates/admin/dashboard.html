@@ -320,10 +320,10 @@ function taskConfig() {
 // 職務分掌で、この講師に対する現ロールの承認がブロックされる場合に理由文を返す（なければ空文字）。
 function separationLockReason(tutorId) {
   if (currentRole === 'admin_receiver' && separationLocks.reviewed_tutor_ids.includes(tutorId)) {
-    return 'この講師は再鑑を担当済みのため受付承認できません';
+    return 'この講師は再鑑を担当済みのため受付承認・差戻しはできません';
   }
   if (currentRole === 'admin_reviewer' && separationLocks.received_tutor_ids.includes(tutorId)) {
-    return 'この講師は受付を担当済みのため再鑑承認できません';
+    return 'この講師は受付を担当済みのため再鑑承認・差戻しはできません';
   }
   return '';
 }
@@ -414,6 +414,9 @@ function renderTasks(groups) {
     const approveButton = lockReason
       ? `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto cursor-not-allowed opacity-60" style="background:#9CA3AF;" disabled title="${escapeHtml(lockReason)}">${escapeHtml(config.label)}</button>`
       : `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>`;
+    const returnButton = lockReason
+      ? `<button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto cursor-not-allowed opacity-60" style="border-color:#E5E7EB;color:#9CA3AF;background:#fff;" disabled title="${escapeHtml(lockReason)}">差戻し</button>`
+      : `<button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>`;
     return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
@@ -422,7 +425,7 @@ function renderTasks(groups) {
       </div>
       <div class="flex flex-col gap-2 sm:flex-row">
         ${approveButton}
-        <button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
+        ${returnButton}
       </div>
     </div>`;
   }).join('') : '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
@@ -663,6 +666,12 @@ async function approveGroup(key) {
   await loadAdmin();
 }
 function openReturnModal(key) {
+  const group = currentGroups().find(item => item.key === key);
+  // admin_master/admin_chief は分掌対象外（reasonは空）。兼務スタッフのみロックされる。
+  if (group && currentRole !== 'admin_master' && currentRole !== 'admin_chief') {
+    const reason = separationLockReason(group.tutor_id);
+    if (reason) { showToast(reason, 'error'); return; }
+  }
   returnTargetKey = key;
   returnComment.value = '';
   returnError.classList.add('hidden');

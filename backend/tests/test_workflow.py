@@ -1417,4 +1417,57 @@ def test_separation_locks_endpoint_reports_acted_tutors(client, db):
     data = res.json()
     assert str(assignment.tutor_id) in data["received_tutor_ids"]
     assert data["reviewed_tutor_ids"] == []
+
+
+def test_dual_admin_cannot_return_from_reviewer_tutor_they_received(client, db):
+    """受付承認済みの講師は、再鑑の「差戻し」も承認と同様に禁止。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    # 講師Bを受付承認
+    received = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
+    assert client.post(f"/api/reports/{received.id}/receive", headers={"Authorization": f"Bearer {dual_token}"}, json={}).status_code == 200
+    # 同じ講師の別報告を再鑑差戻ししようとするとブロック
+    to_review = _make_report(db, assignment, ReportStatus.received.value, content="to review")
+    blocked = client.post(
+        f"/api/reports/{to_review.id}/return-from-reviewer",
+        headers={"Authorization": f"Bearer {dual_token}"},
+        json={"comment": "要修正"},
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert "再鑑差戻しはできません" in blocked.json()["detail"]
+
+
+def test_dual_admin_cannot_return_from_receiver_tutor_they_re_reviewed(client, db):
+    """再鑑承認済みの講師は、受付の「差戻し」も禁止。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    # 講師Bを再鑑承認
+    reviewed = _make_report(db, assignment, ReportStatus.received.value)
+    assert client.post(f"/api/reports/{reviewed.id}/re-review", headers={"Authorization": f"Bearer {dual_token}"}, json={}).status_code == 200
+    # 同じ講師の別報告を受付差戻ししようとするとブロック
+    to_receive = _make_report(db, assignment, ReportStatus.submitted_to_admin.value, content="to receive")
+    blocked = client.post(
+        f"/api/reports/{to_receive.id}/return-from-receiver",
+        headers={"Authorization": f"Bearer {dual_token}"},
+        json={"comment": "要修正"},
+    )
+    assert blocked.status_code == 409, blocked.text
+    assert "受付差戻しはできません" in blocked.json()["detail"]
+
+
+def test_dual_admin_first_return_from_reviewer_allowed(client, db):
+    """まだ何も対応していない講師なら、再鑑差戻しは可能（最初の対応は許可）。"""
+    _make_dual_admin(db)
+    dual_token = token(client, "dual-admin@example.com")
+    assignment = db.query(Assignment).first()
+    report = _make_report(db, assignment, ReportStatus.received.value)
+    res = client.post(
+        f"/api/reports/{report.id}/return-from-reviewer",
+        headers={"Authorization": f"Bearer {dual_token}"},
+        json={"comment": "要修正"},
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["status"] == ReportStatus.returned_to_receiver.value
 # === Phase 5 END ===

@@ -42,17 +42,24 @@ RETURN_ACTIONS = {
     ReportAction.return_from_master.value,
 }
 
-# 職務分掌：受付承認(receive)と再鑑承認(re_review)は、同一講師に対して同一スタッフが
-# 兼務できない。一度どちらかを承認すると、その講師に対するもう一方の承認は全期間にわたり
-# 不可（例：講師Bを受付承認した人は講師Bを再鑑承認できない）。
+# 職務分掌：受付工程(receive)と再鑑工程(re_review)は、同一講師に対して同一スタッフが
+# 兼務できない。一度どちらかを承認すると、その講師に対するもう一方の工程の判断
+# （承認・差戻しのいずれも）は全期間にわたり不可
+# （例：講師Bを受付承認した人は講師Bを再鑑承認も再鑑差戻しもできない）。
 # admin_master / admin_chief（最終承認者・フルアクセス）はこの制約の対象外。
+# キー=これから行う操作、値=その操作を不可にする「担当済み」の承認アクション。
 SEPARATION_CONFLICT = {
     ReportAction.receive.value: ReportAction.re_review.value,
     ReportAction.re_review.value: ReportAction.receive.value,
+    # 差戻しも工程上の判断のため、承認と同様に兼務不可とする
+    ReportAction.return_from_receiver.value: ReportAction.re_review.value,
+    ReportAction.return_from_reviewer.value: ReportAction.receive.value,
 }
 _SEPARATION_MESSAGE = {
     ReportAction.receive.value: "この講師はあなたが再鑑承認を担当済みのため、受付承認はできません（受付と再鑑は同一講師で兼務できません）。",
     ReportAction.re_review.value: "この講師はあなたが受付承認を担当済みのため、再鑑承認はできません（受付と再鑑は同一講師で兼務できません）。",
+    ReportAction.return_from_receiver.value: "この講師はあなたが再鑑承認を担当済みのため、受付差戻しはできません（受付と再鑑は同一講師で兼務できません）。",
+    ReportAction.return_from_reviewer.value: "この講師はあなたが受付承認を担当済みのため、再鑑差戻しはできません（受付と再鑑は同一講師で兼務できません）。",
 }
 
 
