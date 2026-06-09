@@ -50,7 +50,7 @@ _ACTION_ALLOWED_ROLES: dict[str, set[str]] = {
     WorkAction.SUBMIT: {"tutor"},
     WorkAction.APPROVE: {"school", "sales", "office", "admin_master", "admin_chief"},
     WorkAction.RETURN: {"school", "sales", "office", "admin_master", "admin_chief"},
-    WorkAction.SKIP_SCHOOL: {"sales", "office", "admin_master", "admin_chief"},
+    WorkAction.SKIP_SCHOOL: {"admin_chief"},
 }
 _CLOSE_ROLES = {"sales", "office", "admin_master", "admin_chief"}
 _TERMINAL_STATUSES = {WorkStatus.APPROVED, WorkStatus.CLOSED}

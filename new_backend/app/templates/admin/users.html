@@ -419,16 +419,6 @@ async function renderDetailDrawer(id) {
   // 学校ユーザーのリマインド設定取得
   let reminderSection = '';
   if (isSchool(user)) {
-    let skipSection = '';
-    if (canModifyChief || CURRENT_USER_ROLE === 'admin_chief') {
-      skipSection = `<label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" ${user.skip_parent_approval ? 'checked' : ''} onchange="toggleSchoolSkip('${user.id}', this.checked)" class="h-4 w-4 rounded border-slate-300">
-        <span>学校確認をスキップする</span>
-      </label>
-      <p class="mt-2 text-xs text-slate-500">ONにすると、この学校宛の業務連絡表は学校確認を省略して直接事務確認へ進みます。</p>`;
-    } else {
-      skipSection = `<p class="mt-2 text-sm text-slate-500">学校確認スキップ：${user.skip_parent_approval ? 'ON' : 'OFF'}（変更は管理責任者のみ可能）</p>`;
-    }
     // リマインド設定
     let assignmentsHtml = '';
     try {
@@ -464,14 +454,20 @@ async function renderDetailDrawer(id) {
       assignmentsHtml = '<p class="mt-2 text-xs text-slate-500">読み込みエラー</p>';
     }
     reminderSection = `<section class="border-t border-slate-200 pt-5">
-      <h3 class="font-semibold text-slate-800">学校承認設定</h3>
-      ${skipSection}
-      <div class="mt-4">
-        <h4 class="text-sm font-medium text-slate-700">リマインド通知設定</h4>
-        ${assignmentsHtml}
-      </div>
+      <h3 class="font-semibold text-slate-800">リマインド通知設定</h3>
+      ${assignmentsHtml}
     </section>`;
   }
+  // 学校確認スキップ設定（管理責任者のみ表示・編集可）
+  const skipSection = isSchool(user) && CURRENT_USER_ROLE === 'admin_chief' ? `
+    <section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">学校確認設定</h3>
+      <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" ${user.skip_parent_approval ? 'checked' : ''} onchange="toggleSchoolSkip('${user.id}', this.checked)" class="h-4 w-4 rounded border-slate-300">
+        <span>学校確認をスキップする</span>
+      </label>
+      <p class="mt-2 text-xs text-slate-500">ONにすると、この学校宛の業務連絡表は学校確認を省略して直接事務確認へ進みます。</p>
+    </section>` : '';
 
   detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
     <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
@@ -493,6 +489,7 @@ async function renderDetailDrawer(id) {
       <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
       <button class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
     </section>
+    ${skipSection}
     ${reminderSection}
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">状態管理</h3>
