@@ -546,3 +546,27 @@ class TestDutySeparation:
         r1 = self._to_awaiting_sales(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
         res = self._act(client, "sales@work.example.com", r1, "approve", "sales")
         assert res.status_code == 200, res.text
+
+    def test_dual_cannot_sales_return_after_office_approve(self, client, users):
+        # 事務承認済みの講師は、営業での「差戻し」も承認と同様に禁止
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r1, "approve", "office").status_code == 200
+        r2 = self._to_awaiting_sales(client, users, users["assignment"], "tutor@work.example.com", "2026-07")
+        res = self._act(client, "dual@work.example.com", r2, "return", "sales", comment="要修正")
+        assert res.status_code == 403, res.text
+        assert "事務" in res.json()["detail"]
+
+    def test_dual_cannot_office_return_after_sales_approve(self, client, users):
+        # 営業承認済みの講師は、事務での「差戻し」も禁止
+        r1 = self._to_awaiting_sales(client, users, users["assignment2"], "tutor2@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r1, "approve", "sales").status_code == 200
+        r2 = self._to_awaiting_office(client, users, users["assignment2"], "tutor2@work.example.com", "2026-07")
+        res = self._act(client, "dual@work.example.com", r2, "return", "office", comment="要修正")
+        assert res.status_code == 403, res.text
+        assert "営業" in res.json()["detail"]
+
+    def test_dual_first_office_return_allowed(self, client, users):
+        # まだ何も対応していない講師なら、事務での差戻しは可能（最初の対応は許可）
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        res = self._act(client, "dual@work.example.com", r1, "return", "office", comment="要修正")
+        assert res.status_code == 200, res.text

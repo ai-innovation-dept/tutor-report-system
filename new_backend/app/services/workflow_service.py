@@ -62,12 +62,13 @@ def _assert_duty_separation(
     action: str,
 ) -> None:
     """事務（office）と営業（sales）を兼務するスタッフは、同一講師に対して
-    事務承認と営業承認の両方を行うことはできない（どちらか一方のみ）。
+    事務工程と営業工程の両方の判断（承認・差戻し）を行うことはできない（どちらか一方のみ）。
 
+    承認だけでなく差戻しも工程上の判断のため対象とする。
     判定は講師単位・全期間で永続する（既存システムの受付/再鑑の職務分掌と同じ）。
     管理者・管理責任者は対象外。
     """
-    if action != WorkAction.APPROVE:
+    if action not in (WorkAction.APPROVE, WorkAction.RETURN):
         return
     if _is_separation_exempt(actor) or not _is_office_sales_dual(actor):
         return
@@ -75,13 +76,13 @@ def _assert_duty_separation(
     if actor_role == "office" and report.status in _OFFICE_FROM_STATUSES:
         if report.tutor_id in _tutor_ids_acted_sales(db, actor.id):
             raise PermissionDenied(
-                "この講師はあなたが営業承認を担当済みのため、事務承認はできません"
+                "この講師はあなたが営業承認を担当済みのため、事務での承認・差戻しはできません"
                 "（事務と営業は同一講師で兼務できません）。"
             )
     elif actor_role == "sales" and report.status == WorkStatus.AWAITING_SALES:
         if report.tutor_id in _tutor_ids_acted_office(db, actor.id):
             raise PermissionDenied(
-                "この講師はあなたが事務承認を担当済みのため、営業承認はできません"
+                "この講師はあなたが事務承認を担当済みのため、営業での承認・差戻しはできません"
                 "（事務と営業は同一講師で兼務できません）。"
             )
 
