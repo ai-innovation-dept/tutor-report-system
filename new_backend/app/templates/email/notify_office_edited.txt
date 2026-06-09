@@ -1,10 +1,14 @@
 {name} 様
 
-{actor_name}（事務担当）により、{target_month}分の業務連絡表が修正されました。
+下記の業務連絡表が事務担当（{actor_name}）により修正されました。
 
-対象：{student_name}
-修正者：{actor_name}
-コメント：{comment}
+生徒名：{student_name}
+対象月：{target_month}
 
-内容をご確認ください。
+【修正内容】
+{changes}
+
+{comment_block}内容をご確認ください。
 {base_url}
+
+※本メールは業務連絡表システムから自動送信されています。

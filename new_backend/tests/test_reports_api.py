@@ -372,6 +372,47 @@ class TestOfficeEdit:
         )
         assert res.status_code == 409
 
+    def test_office_edit_no_change_no_comment_skips_event(self, client, users):
+        # 既存システムと同様、差分もコメントも無い場合は監査イベントを記録しない（通知もしない）
+        report_id = self._advance_to_awaiting_office(client, users)
+        same = {"lines": [{"date": "2026-06-01", "teach_minutes": 60, "note": "数学"}]}
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": same},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert not any(e["action"] == "office_edit" for e in res.json()["events"])
+
+
+# ---------------------------------------------------------------------------
+# 事務修正の差分算出（修正前→修正後）
+# ---------------------------------------------------------------------------
+
+class TestDiffReportLines:
+    def test_detects_changed_cell(self):
+        from app.services.report_service import diff_report_lines
+        old = {"lines": [{"date": "2026-06-01", "teach_minutes": 60, "note": "数学"}]}
+        new = {"lines": [{"date": "2026-06-01", "teach_minutes": 90, "note": "数学"}]}
+        changes = diff_report_lines("monthly_dispatch", old, new)
+        assert ("1行目 数学科指導（分）", "60", "90") in changes
+        # 変わっていない項目は差分に含まれない
+        assert all("内容" not in label for label, _, _ in changes)
+
+    def test_detects_added_and_removed_rows(self):
+        from app.services.report_service import diff_report_lines
+        old = {"lines": [{"date": "2026-06-01", "note": "数学"}]}
+        new = {"lines": [{"date": "2026-06-01", "note": "数学"}, {"date": "2026-06-02", "note": "英語"}]}
+        added = diff_report_lines("monthly_dispatch", old, new)
+        assert any(label == "2行目" and new_v == "（追加）" for label, _, new_v in added)
+        removed = diff_report_lines("monthly_dispatch", new, old)
+        assert any(label == "2行目" and old_v == "（削除）" for label, old_v, _ in removed)
+
+    def test_no_changes_returns_empty(self):
+        from app.services.report_service import diff_report_lines
+        same = {"lines": [{"date": "2026-06-01", "teach_minutes": 60}]}
+        assert diff_report_lines("monthly_dispatch", same, same) == []
+
 
 # ---------------------------------------------------------------------------
 # リマインド設定（運営スタッフ全ロール）

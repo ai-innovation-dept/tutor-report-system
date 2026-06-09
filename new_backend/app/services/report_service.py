@@ -83,6 +83,54 @@ def office_update_report_data(db: Session, report: WorkReport, form_data: dict) 
     return report
 
 
+def _format_cell(value) -> str:
+    """差分表示用に明細セルの値を文字列化する。"""
+    if value is None or value == "":
+        return "（なし）"
+    return str(value)
+
+
+def diff_report_lines(
+    form_type: str, old_data: dict | None, new_data: dict | None
+) -> list[tuple[str, str, str]]:
+    """報告書(form_data)の明細(lines)の修正前→修正後の差分を算出する。
+
+    戻り値は (項目名, 修正前, 修正後) のタプルのリスト。
+    項目名はフォーム定義のカラム名を用いて「N行目 〇〇」の形式とする。
+    既存システム(_collect_changes)に相当するが、新システムは月次の明細行構造のため
+    行単位での比較となる（ここが両システムの構造上の差分箇所）。
+    """
+    try:
+        columns = get_form(form_type).columns
+    except KeyError:
+        columns = ()
+    labels = {c.key: c.label for c in columns}
+    keys_order = [c.key for c in columns]
+
+    old_lines = list((old_data or {}).get("lines", []) or [])
+    new_lines = list((new_data or {}).get("lines", []) or [])
+    changes: list[tuple[str, str, str]] = []
+
+    for index in range(max(len(old_lines), len(new_lines))):
+        rownum = index + 1
+        old_line = old_lines[index] if index < len(old_lines) else None
+        new_line = new_lines[index] if index < len(new_lines) else None
+        if old_line is None:
+            changes.append((f"{rownum}行目", "（なし）", "（追加）"))
+            continue
+        if new_line is None:
+            changes.append((f"{rownum}行目", "（削除）", "（なし）"))
+            continue
+        keys = keys_order or sorted(set(old_line) | set(new_line))
+        for key in keys:
+            old_cell = _format_cell(old_line.get(key))
+            new_cell = _format_cell(new_line.get(key))
+            if old_cell == new_cell:
+                continue
+            changes.append((f"{rownum}行目 {labels.get(key, key)}", old_cell, new_cell))
+    return changes
+
+
 def list_reports_for_tutor(db: Session, tutor_id, target_month: str | None = None) -> list[WorkReport]:
     stmt = select(WorkReport).where(WorkReport.tutor_id == tutor_id)
     if target_month:

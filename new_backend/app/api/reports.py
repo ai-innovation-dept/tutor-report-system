@@ -1,3 +1,4 @@
+import copy
 import uuid
 from datetime import datetime, timezone
 from urllib.parse import quote
@@ -31,6 +32,7 @@ from app.schemas.reports import (
 from app.services.report_service import (
     assert_tutor_owns,
     create_report,
+    diff_report_lines,
     get_report_or_404,
     list_reports_for_role,
     list_reports_for_school,
@@ -456,20 +458,27 @@ async def office_edit_report(
     """
     report = get_report_or_404(db, report_id)
     from_status = report.status
+    # 修正前の内容を退避し、適用後に差分（修正前→修正後）を算出する
+    old_form_data = copy.deepcopy(report.form_data or {})
     office_update_report_data(db, report, payload.form_data)
-    db.add(
-        WorkReportEvent(
-            report_id=report.id,
-            actor_id=user.id,
-            action="office_edit",
-            from_status=from_status,
-            to_status=report.status,
-            comment=payload.comment,
+    changes = diff_report_lines(report.form_type, old_form_data, payload.form_data)
+    has_comment = bool(payload.comment and payload.comment.strip())
+    # 既存システムと同様、変更（差分）も連絡事項（コメント）も無い場合は記録も通知も行わない
+    if changes or has_comment:
+        db.add(
+            WorkReportEvent(
+                report_id=report.id,
+                actor_id=user.id,
+                action="office_edit",
+                from_status=from_status,
+                to_status=report.status,
+                comment=payload.comment,
+            )
         )
-    )
     db.commit()
     db.refresh(report)
-    await send_office_edit_notification(db, report, user, payload.comment)
+    if changes or has_comment:
+        await send_office_edit_notification(db, report, user, payload.comment, changes)
     return report
 
 

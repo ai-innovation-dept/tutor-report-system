@@ -423,22 +423,42 @@ async def send_notification(
 _OFFICE_EDITED_SUBJECT = "【業務連絡表】報告書が修正されました"
 
 
+def _format_office_changes(changes: list[tuple[str, str, str]] | None) -> str:
+    """(項目名, 修正前, 修正後) のリストをメール本文用の差分テキストに整形する。"""
+    if not changes:
+        return "（明細の変更はありません）"
+    lines: list[str] = []
+    for label, old, new in changes:
+        if "\n" in str(old) or "\n" in str(new) or len(str(old)) > 30 or len(str(new)) > 30:
+            lines.append(f"・{label}：\n　（修正前）{old}\n　（修正後）{new}")
+        else:
+            lines.append(f"・{label}：{old} → {new}")
+    return "\n".join(lines)
+
+
 async def send_office_edit_notification(
     db: Session,
     report: WorkReport,
     actor: User,
     comment: str | None = None,
+    changes: list[tuple[str, str, str]] | None = None,
 ) -> None:
-    """事務担当が報告書を修正した際に講師・学校へ通知する。"""
+    """事務担当が報告書を修正した際に、修正前との差分を講師・学校へ通知する。
+
+    学校（assignment.parent）は未設定または学校確認スキップ設定なら送らない
+    （既存システムの保護者通知条件と同じ）。
+    """
+    comment_text = (comment or "").strip()
+    comment_block = f"事務担当からの連絡：{comment_text}\n\n" if comment_text else ""
     context = {
         "base_url": _base_url(),
         "target_month": report.target_month,
         "student_name": _student_name(report),
         "actor_name": actor.display_name,
-        "comment": comment or "",
+        "changes": _format_office_changes(changes),
+        "comment_block": comment_block,
     }
     tutor = _tutor(report)
-    school = _school(db, report)
     if tutor:
         await _send_email(
             db,
@@ -447,7 +467,8 @@ async def send_office_edit_notification(
             "notify_office_edited.txt",
             context | {"name": tutor.display_name},
         )
-    if school:
+    school = _school(db, report)
+    if school and not school.skip_parent_approval:
         await _send_email(
             db,
             school,
