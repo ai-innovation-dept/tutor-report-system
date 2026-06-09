@@ -159,15 +159,24 @@ def patch_assignment(
         raise HTTPException(status_code=404, detail="assignment not found")
     roles = list(user.roles or []) or ([user.role] if user.role else [])
     is_master = "admin_master" in roles or "admin_chief" in roles
+    is_ops = "sales" in roles or "office" in roles  # 運営スタッフ（営業・事務）はリマインドのみ
     is_tutor = "tutor" in roles
-    if not is_master and not is_tutor:
+    if not is_master and not is_ops and not is_tutor:
         raise HTTPException(status_code=403, detail="forbidden")
-    if is_tutor and not is_master:
-        if a.tutor_id != user.id:
-            raise HTTPException(status_code=403, detail="not your assignment")
-        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k == "parent_id"}
-    else:
+    if is_master:
+        # 経理・管理責任者は全フィールド更新可
         data = payload.model_dump(exclude_unset=True)
+    else:
+        # 運営スタッフはリマインド項目、講師は紐付け学校(parent_id)のみ更新可
+        _REMINDER_FIELDS = {"reminder_enabled", "reminder_days_after", "reminder_count"}
+        allowed: set[str] = set()
+        if is_ops:
+            allowed |= _REMINDER_FIELDS
+        if is_tutor:
+            if a.tutor_id != user.id:
+                raise HTTPException(status_code=403, detail="not your assignment")
+            allowed.add("parent_id")
+        data = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if k in allowed}
     for key, value in data.items():
         setattr(a, key, value)
     db.commit()

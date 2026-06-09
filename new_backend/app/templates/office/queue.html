@@ -79,6 +79,32 @@
     </div>
   </div>
 </div>
+
+<div id="officeEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeOfficeEditModal()">
+  <div class="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">報告書の修正（事務）</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
+    </div>
+    <div class="max-h-[70vh] overflow-auto p-5">
+      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。</p>
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-sm">
+          <thead><tr id="officeEditHead"></tr></thead>
+          <tbody id="officeEditBody"></tbody>
+        </table>
+      </div>
+      <label class="mt-4 block text-sm text-slate-700">修正内容のコメント（任意・通知に含まれます）
+        <textarea id="officeEditComment" class="mt-1 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="例：交通費を実費に修正しました"></textarea>
+      </label>
+      <div id="officeEditError" class="mt-2 hidden text-sm text-red-700"></div>
+    </div>
+    <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+      <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeOfficeEditModal()">キャンセル</button>
+      <button type="button" id="officeEditSubmit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="submitOfficeEdit()">保存して通知</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -104,10 +130,25 @@ const ROLE_LABELS = {
 const ACTION_LABELS = {
   submit: '提出',
   approve: '承認',
-  return: '差戻し'
+  return: '差戻し',
+  office_edit: '事務修正'
 };
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
+// 事務担当が報告書を修正できるステータス（受付の編集可能3ステータスに対応）
+const OFFICE_EDIT_STATUSES = new Set(['awaiting_office', 'awaiting_sales', 'returned_to_office']);
+// monthly_dispatch フォームの行カラム定義（forms/definitions.py と一致）
+const OFFICE_EDIT_COLUMNS = [
+  {key: 'date', label: '日付', type: 'date'},
+  {key: 'start', label: '開始', type: 'time'},
+  {key: 'end', label: '終了', type: 'time'},
+  {key: 'subject_period', label: '担当時限', type: 'number'},
+  {key: 'teach_minutes', label: '指導(分)', type: 'number'},
+  {key: 'break_minutes', label: '休憩(分)', type: 'number'},
+  {key: 'commute_fee', label: '交通費(円)', type: 'number'},
+  {key: 'note', label: '内容', type: 'text'}
+];
+let officeEditReportId = '';
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
@@ -474,6 +515,115 @@ function currentTimelineRow(status) {
     </div>
   </div>`;
 }
+function assignmentById(id) {
+  return allAssignments.find(assignment => assignment.id === id);
+}
+function reminderPanel(group, activeStatus) {
+  // 講師が承認依頼し学校確認待ちの案件にのみ、学校へのリマインドメール設定を表示する
+  if (activeStatus !== 'awaiting_school') return '';
+  const assignment = assignmentById(group.assignment_id);
+  if (assignment && assignment.skip_school_approval) return '';
+  const enabled = Boolean(assignment?.reminder_enabled);
+  const days = assignment?.reminder_days_after || 3;
+  return `<div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4">
+    <div class="text-sm font-semibold text-amber-800">🔔 学校へのリマインドメール</div>
+    <p class="mt-1 text-xs text-amber-700">学校が承認するまで、設定した日数ごとに自動でリマインドメールを送信します。承認されると自動的に停止します。</p>
+    <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+      <input id="reminderEnabled" type="checkbox" class="h-4 w-4 rounded border-slate-300" ${enabled ? 'checked' : ''} onchange="toggleReminderInputs()">
+      <span>リマインドメールを送る</span>
+    </label>
+    <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-700">
+      <span>承認されない場合、</span>
+      <input id="reminderDays" type="number" min="1" max="60" value="${days}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm disabled:bg-slate-100 disabled:text-slate-400" ${enabled ? '' : 'disabled'}>
+      <span>日ごとに送信</span>
+      <button id="reminderSave" class="ml-auto rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700" onclick="saveReminder('${group.assignment_id}')">保存</button>
+    </div>
+  </div>`;
+}
+function toggleReminderInputs() {
+  const enabled = document.getElementById('reminderEnabled')?.checked;
+  const daysInput = document.getElementById('reminderDays');
+  if (daysInput) daysInput.disabled = !enabled;
+}
+async function saveReminder(assignmentId) {
+  const enabled = document.getElementById('reminderEnabled')?.checked || false;
+  const days = Math.min(60, Math.max(1, Number(document.getElementById('reminderDays')?.value || 3)));
+  const btn = document.getElementById('reminderSave');
+  if (btn) btn.disabled = true;
+  try {
+    await api(`/api/w/assignments/${assignmentId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({reminder_enabled: enabled, reminder_days_after: days})
+    });
+    showToast(enabled ? `リマインドメールを有効にしました（${days}日ごと）` : 'リマインドメールを無効にしました', 'success');
+    await loadAdmin();
+  } catch (error) {
+    showToast(error.message || '保存に失敗しました', 'error');
+    if (btn) btn.disabled = false;
+  }
+}
+function reportById(reportId) {
+  return allReports.find(report => report.id === reportId);
+}
+function openOfficeEditModal(reportId) {
+  const report = reportById(reportId);
+  if (!report) return;
+  officeEditReportId = reportId;
+  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
+  document.getElementById('officeEditHead').innerHTML =
+    OFFICE_EDIT_COLUMNS.map(col => `<th class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">${escapeHtml(col.label)}</th>`).join('');
+  document.getElementById('officeEditBody').innerHTML = lines.length
+    ? lines.map((line, i) => `<tr>${OFFICE_EDIT_COLUMNS.map(col => `
+        <td class="border border-slate-200 px-1 py-1">
+          <input id="oe_${i}_${col.key}" type="${col.type}" value="${escapeHtml(line[col.key] ?? '')}" class="w-full rounded border border-slate-200 px-1 py-1 text-xs focus:border-emerald-500 focus:outline-none">
+        </td>`).join('')}</tr>`).join('')
+    : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + OFFICE_EDIT_COLUMNS.length + '">編集可能な明細行がありません。</td></tr>';
+  document.getElementById('officeEditComment').value = '';
+  document.getElementById('officeEditError').classList.add('hidden');
+  const modal = document.getElementById('officeEditModal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+function closeOfficeEditModal() {
+  officeEditReportId = '';
+  const modal = document.getElementById('officeEditModal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+async function submitOfficeEdit() {
+  const report = reportById(officeEditReportId);
+  if (!report) return;
+  const err = document.getElementById('officeEditError');
+  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
+  const newLines = lines.map((line, i) => {
+    const updated = {...line};
+    OFFICE_EDIT_COLUMNS.forEach(col => {
+      const el = document.getElementById(`oe_${i}_${col.key}`);
+      if (!el) return;
+      const raw = el.value;
+      updated[col.key] = col.type === 'number' ? (raw === '' ? 0 : Number(raw)) : raw;
+    });
+    return updated;
+  });
+  const formData = {...(report.form_data || {}), lines: newLines};
+  const comment = document.getElementById('officeEditComment').value.trim();
+  const btn = document.getElementById('officeEditSubmit');
+  btn.disabled = true;
+  try {
+    await api(`/api/w/reports/${officeEditReportId}/office-edit`, {
+      method: 'PATCH',
+      body: JSON.stringify({form_data: formData, comment: comment || null})
+    });
+    showToast('報告書を修正し、講師・学校へ通知しました', 'success');
+    closeOfficeEditModal();
+    await loadAdmin();
+  } catch (error) {
+    err.textContent = error.message || '修正できませんでした';
+    err.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+  }
+}
 function closeDetails() {
   openCardKey = null;
   detailDrawer.classList.add('hidden');
@@ -504,7 +654,10 @@ function reportCard(report) {
         <span class="text-sm font-medium text-slate-800">${escapeHtml(monthShortLabel(report.target_month))}分</span>
         ${statusBadge(report.status)}
       </div>
-      <button class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50" onclick="openReportWindow('${report.id}')">報告書を確認</button>
+      <div class="flex flex-wrap items-center gap-2">
+        ${OFFICE_EDIT_STATUSES.has(report.status) ? `<button class="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100" onclick="openOfficeEditModal('${report.id}')">編集</button>` : ''}
+        <button class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50" onclick="openReportWindow('${report.id}')">報告書を確認</button>
+      </div>
     </div>
     ${closedSection}
     <div class="mt-3 ml-2 border-l-2 pl-0" style="border-color:var(--color-border-tertiary);">
@@ -534,6 +687,7 @@ function showDetails(key) {
     <div class="mb-4 flex flex-wrap gap-2">
       <a class="inline-flex items-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" href="${groupPdfUrl(group)}">PDFダウンロード</a>
     </div>` : ''}
+    ${reminderPanel(group, activeStatus)}
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>

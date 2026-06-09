@@ -60,6 +60,29 @@ def update_report_data(db: Session, report: WorkReport, form_data: dict) -> Work
     return report
 
 
+# 事務担当が報告書を修正できるステータス。
+# 既存システムの受付(admin_receiver)の編集可能3ステータス
+# （受付待ち/再鑑待ち/受付差戻し中）に対応する。
+OFFICE_EDIT_STATUSES = (
+    WorkStatus.AWAITING_OFFICE,
+    WorkStatus.AWAITING_SALES,
+    WorkStatus.RETURNED_TO_OFFICE,
+)
+
+
+def office_update_report_data(db: Session, report: WorkReport, form_data: dict) -> WorkReport:
+    """事務担当による報告書修正。講師の編集フローとは別系統で、再承認は不要・通知のみ。"""
+    if report.status not in OFFICE_EDIT_STATUSES:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=409,
+            detail="事務が修正できるのは、事務確認待ち・営業確認待ち・事務差戻し中の報告書のみです",
+        )
+    report.form_data = form_data
+    report.updated_at = datetime.now(timezone.utc)
+    return report
+
+
 def list_reports_for_tutor(db: Session, tutor_id, target_month: str | None = None) -> list[WorkReport]:
     stmt = select(WorkReport).where(WorkReport.tutor_id == tutor_id)
     if target_month:

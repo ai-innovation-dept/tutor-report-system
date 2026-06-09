@@ -35,6 +35,7 @@ from app.services.report_service import (
     list_reports_for_role,
     list_reports_for_school,
     list_reports_for_tutor,
+    office_update_report_data,
     update_report_data,
 )
 from app.services.notification_service import send_office_edit_notification, send_transition_notifications
@@ -413,23 +414,50 @@ def get_report(
 
 
 @router.patch("/{report_id}", response_model=ReportOut)
-async def patch_report(
+def patch_report(
     report_id: uuid.UUID,
     payload: ReportPatch,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("tutor", "sales", "office")),
+    user: User = Depends(require_role("tutor")),
 ):
+    """講師本人による報告書編集（下書き・差戻し中のみ）。"""
     report = get_report_or_404(db, report_id)
-    user_roles = list(user.roles or []) or [user.role]
-    is_office_only = "office" in user_roles and "tutor" not in user_roles
-    if "tutor" in user_roles and not is_office_only:
-        assert_tutor_owns(report, user)
+    assert_tutor_owns(report, user)
     update_report_data(db, report, payload.form_data)
     db.commit()
     db.refresh(report)
-    # 事務担当が修正した場合、講師・学校へ通知する
-    if is_office_only:
-        await send_office_edit_notification(db, report, user, payload.comment)
+    return report
+
+
+@router.patch("/{report_id}/office-edit", response_model=ReportOut)
+async def office_edit_report(
+    report_id: uuid.UUID,
+    payload: ReportPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("office")),
+):
+    """事務担当による報告書修正。
+
+    既存システムの受付(admin_receiver)による報告書修正と同等の機能。
+    事務確認待ち・営業確認待ち・事務差戻し中の報告書を修正でき、再承認は不要。
+    修正内容を監査イベントに記録し、講師・学校へ通知する。
+    """
+    report = get_report_or_404(db, report_id)
+    from_status = report.status
+    office_update_report_data(db, report, payload.form_data)
+    db.add(
+        WorkReportEvent(
+            report_id=report.id,
+            actor_id=user.id,
+            action="office_edit",
+            from_status=from_status,
+            to_status=report.status,
+            comment=payload.comment,
+        )
+    )
+    db.commit()
+    db.refresh(report)
+    await send_office_edit_notification(db, report, user, payload.comment)
     return report
 
 

@@ -74,7 +74,7 @@ def users(db):
     )
     db.add_all([tutor, school, sales, office, master, chief])
     db.flush()
-    assignment = Assignment(tutor_id=tutor.id, student_name="テスト生徒")
+    assignment = Assignment(tutor_id=tutor.id, student_name="テスト生徒", system_type="new")
     db.add(assignment)
     db.commit()
     return {"tutor": tutor, "school": school, "sales": sales, "office": office, "master": master, "chief": chief, "assignment": assignment}
@@ -279,3 +279,129 @@ class TestWorkflow:
                           headers=_auth(client, "office@work.example.com"))
         assert res.status_code == 200
         assert res.json()["status"] == WorkStatus.AWAITING_SALES
+
+
+# ---------------------------------------------------------------------------
+# 事務担当による報告書修正（office-edit）
+# ---------------------------------------------------------------------------
+
+class TestOfficeEdit:
+    def _advance_to_awaiting_office(self, client, users, target_month="2026-06"):
+        headers = _auth(client, "tutor@work.example.com")
+        payload = {
+            "assignment_id": str(users["assignment"].id),
+            "target_month": target_month,
+            "form_type": "monthly_dispatch",
+            "form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 60, "note": "数学"}]},
+        }
+        report_id = client.post("/api/w/reports", json=payload, headers=headers).json()["id"]
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"},
+                    headers=_auth(client, "tutor@work.example.com"))
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"},
+                    headers=_auth(client, "school@work.example.com"))
+        return report_id
+
+    def test_office_can_edit_at_awaiting_office(self, client, users):
+        report_id = self._advance_to_awaiting_office(client, users)
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 90, "note": "数学(修正)"}]},
+                  "comment": "指導時間を修正"},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["form_data"]["lines"][0]["teach_minutes"] == 90
+        # ステータスは変わらない（再承認不要）
+        assert data["status"] == WorkStatus.AWAITING_OFFICE
+        # 監査イベントが記録される
+        assert any(e["action"] == "office_edit" for e in data["events"])
+
+    def test_office_edit_records_comment_event(self, client, users):
+        report_id = self._advance_to_awaiting_office(client, users)
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": []}, "comment": "全削除"},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200
+        edit_events = [e for e in res.json()["events"] if e["action"] == "office_edit"]
+        assert edit_events and edit_events[-1]["comment"] == "全削除"
+
+    def test_tutor_cannot_office_edit(self, client, users):
+        report_id = self._advance_to_awaiting_office(client, users)
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": []}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert res.status_code == 403
+
+    def test_office_edit_blocked_on_awaiting_finance(self, client, users):
+        # 最終確認待ち（経理）まで進めると事務は修正できない
+        report_id = self._advance_to_awaiting_office(client, users)
+        for email in ("office@work.example.com", "sales@work.example.com"):
+            client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"},
+                        headers=_auth(client, email))
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": []}},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# リマインド設定（運営スタッフ全ロール）
+# ---------------------------------------------------------------------------
+
+class TestReminderPermissions:
+    def _assignment_id(self, users):
+        return str(users["assignment"].id)
+
+    def test_sales_can_set_reminder(self, client, users):
+        res = client.patch(
+            f"/api/w/assignments/{self._assignment_id(users)}",
+            json={"reminder_enabled": True, "reminder_days_after": 5},
+            headers=_auth(client, "sales@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["reminder_enabled"] is True
+        assert res.json()["reminder_days_after"] == 5
+
+    def test_office_can_set_reminder(self, client, users):
+        res = client.patch(
+            f"/api/w/assignments/{self._assignment_id(users)}",
+            json={"reminder_enabled": True, "reminder_days_after": 7},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["reminder_days_after"] == 7
+
+    def test_master_can_set_reminder(self, client, users):
+        res = client.patch(
+            f"/api/w/assignments/{self._assignment_id(users)}",
+            json={"reminder_enabled": True, "reminder_days_after": 3},
+            headers=_auth(client, "master@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+
+    def test_ops_cannot_change_student_name(self, client, users):
+        # 運営スタッフはリマインド項目のみ。student_name 等は無視される（変更されない）
+        original = users["assignment"].student_name
+        res = client.patch(
+            f"/api/w/assignments/{self._assignment_id(users)}",
+            json={"student_name": "改ざん", "reminder_enabled": True},
+            headers=_auth(client, "sales@work.example.com"),
+        )
+        assert res.status_code == 200
+        assert res.json()["student_name"] == original
+        assert res.json()["reminder_enabled"] is True
+
+    def test_school_cannot_set_reminder(self, client, users):
+        res = client.patch(
+            f"/api/w/assignments/{self._assignment_id(users)}",
+            json={"reminder_enabled": True},
+            headers=_auth(client, "school@work.example.com"),
+        )
+        assert res.status_code == 403
