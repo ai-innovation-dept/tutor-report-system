@@ -159,9 +159,6 @@ function buildGroup(assignment, reports) {
     school_id: assignment?.parent_id || sorted[0]?.parent_id || null,
     school_display_name: resolveSchoolName(assignment, sorted),
     skip_school_approval: Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval)),
-    reminder_enabled: Boolean(assignment?.reminder_enabled),
-    reminder_days_after: assignment?.reminder_days_after || 1,
-    reminder_count: assignment?.reminder_count || 1,
     target_month: sorted[0]?.target_month || selectedApprovalMonth || currentMonth(),
     reports: sorted,
     phase: monthlyPhase(sorted),
@@ -288,7 +285,6 @@ function actionArea(group) {
   if (group.can_submit) {
     const label = group.skip_school_approval ? '管理へ提出' : '学校へまとめて承認依頼';
     return `<div class="mt-5 grid gap-3">
-      ${reminderSettings(group)}
       <div class="flex flex-wrap items-center gap-3">
         <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
         ${deleteButton(group)}
@@ -340,22 +336,6 @@ async function deleteDraftReports(assignmentId) {
     showToast(error.message || '報告を削除できませんでした', 'error');
   }
   await loadApproval();
-}
-function reminderSettings(group) {
-  if (group.skip_school_approval) return '';
-  const checked = group.reminder_enabled ? 'checked' : '';
-  return `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-    <label class="flex flex-wrap items-center gap-2">
-      <input id="reminder-enabled-${group.assignment_id}" type="checkbox" class="h-4 w-4 rounded border-slate-300" ${checked}>
-      <span>リマインドメールを送る</span>
-    </label>
-    <div class="mt-2 flex flex-wrap items-center gap-2">
-      <input id="reminder-days-${group.assignment_id}" type="number" min="1" value="${group.reminder_days_after || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
-      <span>日後に</span>
-      <input id="reminder-count-${group.assignment_id}" type="number" min="1" value="${group.reminder_count || 1}" class="w-20 rounded-lg border border-slate-300 px-2 py-1 text-sm">
-      <span>回送付</span>
-    </div>
-  </div>`;
 }
 function summaryGrid(group) {
   return `<div class="mt-5 grid gap-3 sm:grid-cols-3">
@@ -417,16 +397,7 @@ function toggleDetails(assignmentId) {
 }
 async function submitToParentGroup(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
-  if (!group.skip_school_approval) {
-    await api(`/api/w/assignments/${assignmentId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        reminder_enabled: document.getElementById(`reminder-enabled-${assignmentId}`)?.checked || false,
-        reminder_days_after: Number(document.getElementById(`reminder-days-${assignmentId}`)?.value || 1),
-        reminder_count: Number(document.getElementById(`reminder-count-${assignmentId}`)?.value || 1)
-      })
-    });
-  }
+  // リマインド設定は講師では行わない（運営の進捗パイプラインで設定する）
   for (const id of reportIdsForParentSubmit(group)) {
     await api(`/api/w/reports/${id}/action`, {
       method: 'POST',
