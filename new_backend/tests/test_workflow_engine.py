@@ -86,14 +86,17 @@ class TestFindTransition:
     def test_invalid_action_returns_none(self):
         assert find_transition(WorkStatus.DRAFT, "nonexistent", "tutor") is None
 
-    def test_skip_school_allowed_for_sales_office_master(self):
-        for role in ("sales", "office", "admin_master"):
-            t = find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, role)
-            assert t is not None, f"skip_school should be allowed for {role}"
-            assert t.to_status == WorkStatus.AWAITING_OFFICE
+    def test_skip_school_allowed_only_for_admin_chief(self):
+        # 学校承認スキップは管理責任者(admin_chief)のみ実行可能
+        t = find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, "admin_chief")
+        assert t is not None, "skip_school should be allowed for admin_chief"
+        assert t.to_status == WorkStatus.AWAITING_OFFICE
 
-    def test_skip_school_not_allowed_for_tutor(self):
-        assert find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, "tutor") is None
+    def test_skip_school_not_allowed_for_other_roles(self):
+        # 経理(admin_master)・営業・事務・講師はスキップ不可
+        for role in ("sales", "office", "admin_master", "tutor", "school"):
+            assert find_transition(WorkStatus.DRAFT, WorkAction.SKIP_SCHOOL, role) is None, \
+                f"skip_school should NOT be allowed for {role}"
 
     def test_return_requires_comment(self):
         for from_status, role in [

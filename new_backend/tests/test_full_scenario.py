@@ -25,7 +25,9 @@ def scenario():
                   display_name="事務担当", allowed_systems=["new"], password_hash=hash_password("Passw0rd!"))
     master = User(email="master@scenario.example.com", role="admin_master", roles=["admin_master"],
                   display_name="管理者", allowed_systems=["legacy", "new"], password_hash=hash_password("Passw0rd!"))
-    db.add_all([tutor, school, sales, office, master])
+    chief = User(email="chief@scenario.example.com", role="admin_chief", roles=["admin_chief"],
+                 display_name="管理責任者", allowed_systems=["legacy", "new"], password_hash=hash_password("Passw0rd!"))
+    db.add_all([tutor, school, sales, office, master, chief])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, student_name="シナリオ生徒")
     db.add(assignment)
@@ -85,9 +87,9 @@ class TestScenario:
             assert res.json()["status"] == expected
 
     def test_skip_school_then_full_approval(self, client, scenario):
-        """skip_school → awaiting_office から続けて完全承認"""
+        """skip_school（管理責任者のみ） → awaiting_office から続けて完全承認"""
         tutor_h = _tok(client, "tutor@scenario.example.com")
-        sales_h = _tok(client, "sales@scenario.example.com")
+        chief_h = _tok(client, "chief@scenario.example.com")
 
         res = client.post("/api/w/reports", json={
             "assignment_id": scenario["assignment_id"],
@@ -98,10 +100,10 @@ class TestScenario:
         assert res.status_code == 201, res.text
         report_id = res.json()["id"]
 
-        # sales がスキップ
+        # 管理責任者がスキップ
         res = client.post(f"/api/w/reports/{report_id}/action",
-                          json={"action": "skip_school"}, headers=sales_h)
-        assert res.status_code == 200
+                          json={"action": "skip_school"}, headers=chief_h)
+        assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
 
         # 残りを承認

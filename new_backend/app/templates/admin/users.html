@@ -128,7 +128,6 @@ let changedRoles = {};
 let updatingUsers = new Set();
 let selectedUser = null;
 let deleteTarget = null;
-let schoolAssignments = {};
 
 const ROLE_LABELS = {
   all: '全て',
@@ -416,49 +415,8 @@ async function renderDetailDrawer(id) {
     ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${disableBlocked ? `disabled title="${disableTitle}"` : ''}>無効化する</button>`
     : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;
 
-  // 学校ユーザーのリマインド設定取得
-  let reminderSection = '';
-  if (isSchool(user)) {
-    // リマインド設定
-    let assignmentsHtml = '';
-    try {
-      const allAssignments = schoolAssignments[user.id] || await api('/api/w/assignments');
-      schoolAssignments[user.id] = allAssignments;
-      const myAssignments = allAssignments.filter(a => a.parent_id === user.id && a.is_active);
-      if (myAssignments.length) {
-        assignmentsHtml = `<div class="mt-3 space-y-3">` + myAssignments.map(a => `
-          <div class="rounded-lg border border-slate-200 p-3">
-            <div class="text-sm font-medium text-slate-700">講師：${escapeHtml(a.tutor?.display_name || '-')}</div>
-            <div class="mt-2 grid gap-2 sm:grid-cols-3">
-              <label class="flex items-center gap-2 text-xs text-slate-700 sm:col-span-3">
-                <input type="checkbox" id="rem_en_${a.id}" ${a.reminder_enabled ? 'checked' : ''} class="h-4 w-4 rounded border-slate-300">
-                <span>リマインド送信を有効にする</span>
-              </label>
-              <label class="block text-xs">
-                <span class="text-slate-600">送信間隔（日）</span>
-                <input type="number" id="rem_days_${a.id}" value="${a.reminder_days_after}" min="1" class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-              </label>
-              <label class="block text-xs">
-                <span class="text-slate-600">最大送信回数</span>
-                <input type="number" id="rem_count_${a.id}" value="${a.reminder_count}" min="1" class="mt-1 w-full rounded border border-slate-300 px-2 py-1 text-sm">
-              </label>
-              <div class="flex items-end">
-                <button class="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700" onclick="saveReminderSettings('${a.id}', '${user.id}')">保存</button>
-              </div>
-            </div>
-          </div>`).join('') + `</div>`;
-      } else {
-        assignmentsHtml = '<p class="mt-2 text-xs text-slate-500">紐付き契約なし</p>';
-      }
-    } catch (_) {
-      assignmentsHtml = '<p class="mt-2 text-xs text-slate-500">読み込みエラー</p>';
-    }
-    reminderSection = `<section class="border-t border-slate-200 pt-5">
-      <h3 class="font-semibold text-slate-800">リマインド通知設定</h3>
-      ${assignmentsHtml}
-    </section>`;
-  }
   // 学校確認スキップ設定（管理責任者のみ表示・編集可）
+  // ※リマインド通知設定は進捗パイプライン（経理ダッシュボード）側で行う
   const skipSection = isSchool(user) && CURRENT_USER_ROLE === 'admin_chief' ? `
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">学校確認設定</h3>
@@ -490,7 +448,6 @@ async function renderDetailDrawer(id) {
       <button class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
     </section>
     ${skipSection}
-    ${reminderSection}
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">状態管理</h3>
       <p class="mt-2 text-sm text-slate-700">現在の状態：${user.is_active ? '有効' : '無効'}</p>
@@ -502,22 +459,6 @@ async function renderDetailDrawer(id) {
       <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${deleteBlocked ? `disabled title="${disableTitle}"` : ''}>このユーザーを削除する</button>
     </section>
   </div>`;
-}
-async function saveReminderSettings(assignmentId, userId) {
-  const enabled = document.getElementById(`rem_en_${assignmentId}`)?.checked;
-  const days = parseInt(document.getElementById(`rem_days_${assignmentId}`)?.value || '1', 10);
-  const count = parseInt(document.getElementById(`rem_count_${assignmentId}`)?.value || '1', 10);
-  try {
-    await api(`/api/w/assignments/${assignmentId}`, {method: 'PATCH', body: JSON.stringify({
-      reminder_enabled: enabled,
-      reminder_days_after: days,
-      reminder_count: count,
-    })});
-    delete schoolAssignments[userId];
-    showToast('リマインド設定を保存しました', 'success');
-  } catch (error) {
-    showToast(error.message || '保存できませんでした', 'error');
-  }
 }
 async function toggleSchoolSkip(id, value) {
   try {
@@ -534,7 +475,6 @@ async function disableUser(id) {
   try {
     await api(`/api/w/users/${id}/disable`, {method: 'PATCH'});
     showToast('ユーザーを無効化しました', 'success');
-    delete schoolAssignments[id];
     closeDetailDrawer();
     await loadUsersPage(paginationState.page);
   } catch (error) {
@@ -545,7 +485,6 @@ async function enableUser(id) {
   try {
     await api(`/api/w/users/${id}/enable`, {method: 'PATCH'});
     showToast('ユーザーを有効化しました', 'success');
-    delete schoolAssignments[id];
     closeDetailDrawer();
     await loadUsersPage(paginationState.page);
   } catch (error) {

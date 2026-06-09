@@ -64,12 +64,20 @@ def users(db):
         allowed_systems=["legacy", "new"],
         password_hash=hash_password("Passw0rd!"),
     )
-    db.add_all([tutor, school, sales, office, master])
+    chief = User(
+        email="chief@work.example.com",
+        role="admin_chief",
+        roles=["admin_chief"],
+        display_name="管理責任者",
+        allowed_systems=["legacy", "new"],
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add_all([tutor, school, sales, office, master, chief])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, student_name="テスト生徒")
     db.add(assignment)
     db.commit()
-    return {"tutor": tutor, "school": school, "sales": sales, "office": office, "master": master, "assignment": assignment}
+    return {"tutor": tutor, "school": school, "sales": sales, "office": office, "master": master, "chief": chief, "assignment": assignment}
 
 
 @pytest.fixture()
@@ -217,13 +225,28 @@ class TestWorkflow:
             assert res.status_code == 200, f"{email}/{action}: {res.text}"
             assert res.json()["status"] == expected
 
-    def test_skip_school_by_sales(self, client, users):
+    def test_skip_school_by_admin_chief(self, client, users):
+        # 学校承認スキップは管理責任者(admin_chief)のみ実行可能
         report_id = self._create_report(client, users)
         res = client.post(f"/api/w/reports/{report_id}/action",
                           json={"action": "skip_school"},
-                          headers=_auth(client, "sales@work.example.com"))
-        assert res.status_code == 200
+                          headers=_auth(client, "chief@work.example.com"))
+        assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.AWAITING_OFFICE
+
+    def test_skip_school_denied_for_non_chief(self, client, users):
+        # 経理(admin_master)・営業・事務はスキップ不可
+        cases = [
+            ("sales@work.example.com", "2026-01"),
+            ("office@work.example.com", "2026-02"),
+            ("master@work.example.com", "2026-03"),
+        ]
+        for email, month in cases:
+            report_id = self._create_report(client, users, target_month=month)
+            res = client.post(f"/api/w/reports/{report_id}/action",
+                              json={"action": "skip_school"},
+                              headers=_auth(client, email))
+            assert res.status_code == 403, f"{email}: {res.text}"
 
     def test_return_from_sales_goes_to_returned_to_office(self, client, users):
         report_id = self._create_report(client, users)
