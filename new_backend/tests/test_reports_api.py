@@ -72,12 +72,34 @@ def users(db):
         allowed_systems=["legacy", "new"],
         password_hash=hash_password("Passw0rd!"),
     )
-    db.add_all([tutor, school, sales, office, master, chief])
+    # 事務・営業を兼務するスタッフ（職務分掌の対象）
+    dual = User(
+        email="dual@work.example.com",
+        role="office",
+        roles=["office", "sales"],
+        display_name="事務営業兼務",
+        allowed_systems=["new"],
+        password_hash=hash_password("Passw0rd!"),
+    )
+    tutor2 = User(
+        email="tutor2@work.example.com",
+        role="tutor",
+        roles=["tutor"],
+        display_name="講師B",
+        allowed_systems=["new"],
+        password_hash=hash_password("Passw0rd!"),
+    )
+    db.add_all([tutor, school, sales, office, master, chief, dual, tutor2])
     db.flush()
     assignment = Assignment(tutor_id=tutor.id, student_name="テスト生徒", system_type="new")
-    db.add(assignment)
+    assignment2 = Assignment(tutor_id=tutor2.id, student_name="テスト生徒B", system_type="new")
+    db.add_all([assignment, assignment2])
     db.commit()
-    return {"tutor": tutor, "school": school, "sales": sales, "office": office, "master": master, "chief": chief, "assignment": assignment}
+    return {
+        "tutor": tutor, "school": school, "sales": sales, "office": office,
+        "master": master, "chief": chief, "dual": dual, "tutor2": tutor2,
+        "assignment": assignment, "assignment2": assignment2,
+    }
 
 
 @pytest.fixture()
@@ -405,3 +427,81 @@ class TestReminderPermissions:
             headers=_auth(client, "school@work.example.com"),
         )
         assert res.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# 職務分掌（事務・営業兼務スタッフは同一講師で兼務不可）
+# ---------------------------------------------------------------------------
+
+class TestDutySeparation:
+    def _act(self, client, email, report_id, action, actor_role=None, comment=None):
+        body = {"action": action}
+        if actor_role:
+            body["actor_role"] = actor_role
+        if comment:
+            body["comment"] = comment
+        return client.post(f"/api/w/reports/{report_id}/action", json=body, headers=_auth(client, email))
+
+    def _to_awaiting_office(self, client, users, assignment, tutor_email, month):
+        rid = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(assignment.id), "target_month": month,
+                  "form_type": "monthly_dispatch", "form_data": {"lines": []}},
+            headers=_auth(client, tutor_email),
+        ).json()["id"]
+        self._act(client, tutor_email, rid, "submit")
+        self._act(client, "school@work.example.com", rid, "approve", "school")
+        return rid
+
+    def _to_awaiting_sales(self, client, users, assignment, tutor_email, month, office_email="office@work.example.com"):
+        rid = self._to_awaiting_office(client, users, assignment, tutor_email, month)
+        self._act(client, office_email, rid, "approve", "office")
+        return rid
+
+    def test_dual_cannot_sales_after_office_same_tutor(self, client, users):
+        # 兼務スタッフが講師Aを事務承認 → 同じ講師Aの別報告を営業承認しようとすると拒否（講師単位）
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r1, "approve", "office").status_code == 200
+        r2 = self._to_awaiting_sales(client, users, users["assignment"], "tutor@work.example.com", "2026-07")
+        res = self._act(client, "dual@work.example.com", r2, "approve", "sales")
+        assert res.status_code == 403, res.text
+        assert "事務" in res.json()["detail"]
+
+    def test_dual_cannot_office_after_sales_same_tutor(self, client, users):
+        # 兼務スタッフが講師Bを営業承認 → 同じ講師Bの別報告を事務承認しようとすると拒否
+        r1 = self._to_awaiting_sales(client, users, users["assignment2"], "tutor2@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r1, "approve", "sales").status_code == 200
+        r2 = self._to_awaiting_office(client, users, users["assignment2"], "tutor2@work.example.com", "2026-07")
+        res = self._act(client, "dual@work.example.com", r2, "approve", "office")
+        assert res.status_code == 403, res.text
+        assert "営業" in res.json()["detail"]
+
+    def test_dual_can_act_different_tutors(self, client, users):
+        # 講師が異なれば事務承認・営業承認の両方を行える
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r1, "approve", "office").status_code == 200
+        r2 = self._to_awaiting_sales(client, users, users["assignment2"], "tutor2@work.example.com", "2026-06")
+        assert self._act(client, "dual@work.example.com", r2, "approve", "sales").status_code == 200
+
+    def test_separation_locks_endpoint(self, client, users):
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        self._act(client, "dual@work.example.com", r1, "approve", "office")
+        res = client.get("/api/w/reports/admin-separation-locks", headers=_auth(client, "dual@work.example.com"))
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert str(users["tutor"].id) in data["office_tutor_ids"]
+        assert data["sales_tutor_ids"] == []
+
+    def test_single_role_office_locks_empty(self, client, users):
+        # 兼務でない単一ロールのスタッフは職務分掌の対象外（ロックは常に空）
+        r1 = self._to_awaiting_office(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        self._act(client, "office@work.example.com", r1, "approve", "office")
+        res = client.get("/api/w/reports/admin-separation-locks", headers=_auth(client, "office@work.example.com"))
+        assert res.status_code == 200
+        assert res.json() == {"office_tutor_ids": [], "sales_tutor_ids": []}
+
+    def test_single_sales_not_blocked_after_other_office(self, client, users):
+        # 別人(事務)が事務承認した講師でも、単一ロールの営業は営業承認できる
+        r1 = self._to_awaiting_sales(client, users, users["assignment"], "tutor@work.example.com", "2026-06")
+        res = self._act(client, "sales@work.example.com", r1, "approve", "sales")
+        assert res.status_code == 200, res.text

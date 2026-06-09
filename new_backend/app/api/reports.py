@@ -40,7 +40,7 @@ from app.services.report_service import (
 )
 from app.services.notification_service import send_office_edit_notification, send_transition_notifications
 from app.services.export_service import build_report_pdf, build_reports_pdf
-from app.services.workflow_service import execute_transition
+from app.services.workflow_service import execute_transition, separation_locks
 from app.workflow.definitions import WorkAction, WorkStatus
 from app.workflow.exceptions import CommentRequired, InvalidTransition, PermissionDenied
 
@@ -265,6 +265,18 @@ def monthly_summary(
         total_break_minutes=total_break,
         total_commute_fee=total_fee,
     )
+
+
+@router.get("/admin-separation-locks")
+def admin_separation_locks(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("office", "sales", "admin_master", "admin_chief")),
+):
+    """職務分掌のUI制御用：兼務スタッフが事務承認/営業承認を担当済みの講師ID一覧を返す。
+
+    事務承認した講師は営業承認ボタンを、営業承認した講師は事務承認ボタンを無効化するために使う。
+    """
+    return separation_locks(db, user)
 
 
 @router.post("/bulk-action", response_model=BulkReportActionOut)

@@ -126,6 +126,8 @@ let selectedMonth = new URLSearchParams(location.search).get('month') || current
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
 let openCardKey = null;
 let returnTargetKey = '';
+// 職務分掌：兼務スタッフが事務/営業承認を担当済みの講師ID（UI制御用）
+let separationLocks = {office_tutor_ids: [], sales_tutor_ids: []};
 
 function currentMonthValue() {
   const d = new Date();
@@ -355,6 +357,16 @@ function renderBulkExportLinks() {
   bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
   bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
 }
+function separationLockReason(tutorId) {
+  // 事務と営業を兼務するスタッフは、同一講師で事務承認と営業承認を兼務できない
+  if (currentRole === 'office' && separationLocks.sales_tutor_ids.includes(tutorId)) {
+    return 'この講師は営業承認を担当済みのため事務承認できません';
+  }
+  if (currentRole === 'sales' && separationLocks.office_tutor_ids.includes(tutorId)) {
+    return 'この講師は事務承認を担当済みのため営業承認できません';
+  }
+  return '';
+}
 function renderTasks(groups) {
   const config = taskConfig();
   const statuses = taskStatuses(config);
@@ -363,14 +375,19 @@ function renderTasks(groups) {
   taskList.innerHTML = tasks.length ? tasks.map(group => {
     const groupStatus = currentGroupStatus(group.reports);
     const meta = getTaskMeta(group, groupStatus);
+    const lockReason = separationLockReason(group.tutor_id);
+    const approveButton = lockReason
+      ? `<button class="w-full cursor-not-allowed rounded-lg px-3 py-2 text-sm font-medium text-white opacity-60 sm:w-auto" style="background:#9CA3AF;" disabled title="${escapeHtml(lockReason)}">${escapeHtml(config.label)}</button>`
+      : `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#059669;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>`;
     return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
       <div>
         <div class="font-medium text-slate-800">${escapeHtml(group.school_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
         <div class="mt-1 text-xs text-slate-500">講師：${escapeHtml(group.tutor_name)}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
+        ${lockReason ? `<div class="mt-1 text-xs font-medium text-amber-600">⚠ ${escapeHtml(lockReason)}</div>` : ''}
       </div>
       <div class="flex flex-col gap-2 sm:flex-row">
         <button class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 sm:w-auto" onclick="openGroupReports('${group.key}')">報告書を確認</button>
-        <button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#059669;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>
+        ${approveButton}
         <button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>
       </div>
     </div>`;
@@ -598,6 +615,8 @@ async function approveGroup(key) {
   if (!group) return;
   const config = taskConfig();
   if (!config) return;
+  const lockReason = separationLockReason(group.tutor_id);
+  if (lockReason) { showToast(lockReason, 'error'); return; }
   const ids = reportIdsForStatus(group, taskStatuses(config));
   if (!ids.length) return;
   if (!confirm(`${group.school_name}の${monthShortLabel(group.target_month)}分を${config.label}します。よろしいですか？`)) return;
@@ -663,14 +682,16 @@ function renderDashboard() {
   }
 }
 async function loadAdmin() {
-  const [reports, assignments, tutors] = await Promise.all([
+  const [reports, assignments, tutors, locks] = await Promise.all([
     api('/api/w/reports'),
     api('/api/w/assignments'),
-    api('/api/w/users?role=tutor&per_page=100')
+    api('/api/w/users?role=tutor&per_page=100'),
+    api('/api/w/reports/admin-separation-locks')
   ]);
   allReports = reports;
   allAssignments = assignments;
   allTutors = tutors.items || tutors;
+  separationLocks = locks || {office_tutor_ids: [], sales_tutor_ids: []};
   renderFilters();
   renderDashboard();
 }
