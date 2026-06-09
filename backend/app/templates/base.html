@@ -11,7 +11,7 @@
   <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
     先月以前の差戻し中未処理および未承認の報告があります。管理者へ連絡ください。
     （<span id="stale-count"></span>件）
-    {% if current_user.role in ['admin_receiver', 'admin_reviewer', 'admin_master'] %}
+    {% if current_user.role in ['admin_receiver', 'admin_reviewer', 'admin_master', 'admin_chief'] %}
     <a href="/admin/stale-reports" class="ml-2 underline">未処理一覧を確認する</a>
     {% endif %}
   </div>
@@ -57,7 +57,7 @@
           <span id="breadcrumb"></span>
         </div>
         <div class="flex flex-col items-end">
-          {% set role_labels = {'tutor': '講師', 'parent': '保護者', 'admin_receiver': '受付担当', 'admin_reviewer': '再鑑者', 'admin_master': '管理者'} %}
+          {% set role_labels = {'tutor': '講師', 'parent': '保護者', 'admin_receiver': '受付担当', 'admin_reviewer': '再鑑者', 'admin_master': '管理者', 'admin_chief': '管理責任者'} %}
           <span class="text-sm font-medium text-white">{{ current_user.display_name }}</span>
           <span class="text-xs text-slate-400">{{ role_labels.get(current_user.role, current_user.role) }}{% if current_user.tutor_no %}・{{ current_user.tutor_no }}{% endif %}</span>
         </div>
@@ -127,6 +127,7 @@
       if (role === 'admin_receiver') return '受付担当';
       if (role === 'admin_reviewer') return '再鑑者';
       if (role === 'admin_master') return '管理者';
+      if (role === 'admin_chief') return '管理責任者';
       return role;
     }
 
@@ -218,6 +219,10 @@
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
       } else if (user.role === 'admin_master') {
+        navHome.href = '/admin/dashboard';
+        items.push(navLink('/admin/dashboard', 'ダッシュボード'));
+        items.push(navLink('/admin/users', 'ユーザー管理'));
+      } else if (user.role === 'admin_chief') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));

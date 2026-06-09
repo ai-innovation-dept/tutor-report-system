@@ -133,7 +133,8 @@ const ROLE_LABELS = {
   parent: '保護者',
   admin_receiver: '受付',
   admin_reviewer: '再鑑',
-  admin_master: '管理者'
+  admin_master: '管理者',
+  admin_chief: '管理責任者'
 };
 const ACTION_LABELS = {
   submit_to_parent: '承認依頼',
@@ -287,7 +288,7 @@ function taskStatuses(config) {
   return config.statuses || [config.status];
 }
 function taskConfig() {
-  if (currentRole === 'admin_master') {
+  if (currentRole === 'admin_master' || currentRole === 'admin_chief') {
     return {
       status: 're_reviewed',
       subtext: '最終承認が必要',
@@ -641,7 +642,7 @@ function showDetails(key) {
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>
-    ${currentRole === 'admin_master' && activeStatus === 'admin_approved' ? `
+    ${(currentRole === 'admin_master' || currentRole === 'admin_chief') && activeStatus === 'admin_approved' ? `
     <div class="mt-4 border-t border-slate-200 pt-4">
       <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
     </div>` : ''}
@@ -732,7 +733,7 @@ async function submitReturn() {
   const group = currentGroups().find(item => item.key === returnTargetKey);
   if (!group) return;
   const config = taskConfig();
-  if (!config && !(currentRole === 'admin_master')) return;
+  if (!config && !(currentRole === 'admin_master' || currentRole === 'admin_chief')) return;
   const comment = returnComment.value.trim();
   if (!comment) {
     returnError.textContent = '差戻し理由を入力してください';
@@ -741,7 +742,7 @@ async function submitReturn() {
   }
   const groupStatus = currentGroupStatus(group.reports);
   let ids;
-  if (currentRole === 'admin_master' && groupStatus === 'admin_approved') {
+  if ((currentRole === 'admin_master' || currentRole === 'admin_chief') && groupStatus === 'admin_approved') {
     ids = group.reports.filter(r => r.status === 'admin_approved').map(r => r.id);
   } else {
     ids = reportIdsForStatus(group, taskStatuses(config));
