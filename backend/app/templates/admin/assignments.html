@@ -59,9 +59,12 @@
         <input id="fActive" type="checkbox" class="h-4 w-4 rounded border-slate-300"> 有効
       </label>
       <p id="editMsg" class="hidden text-sm"></p>
-      <div class="flex justify-end gap-2">
-        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeEdit()">キャンセル</button>
-        <button id="saveBtn" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="saveEdit()">保存</button>
+      <div class="flex items-center justify-between gap-2">
+        <button id="deleteBtn" type="button" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteAssignment()">削除</button>
+        <div class="flex gap-2">
+          <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeEdit()">キャンセル</button>
+          <button id="saveBtn" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="saveEdit()">保存</button>
+        </div>
       </div>
     </div>
   </div>
@@ -131,6 +134,7 @@ function openAdd() {
   document.getElementById('fTutor').innerHTML = '<option value="">選択してください</option>' + tutorOptions('');
   document.getElementById('fParent').innerHTML = parentOptions('');
   document.getElementById('activeField').classList.add('hidden');
+  document.getElementById('deleteBtn').classList.add('hidden');
   showEditMsg('');
   openOverlay();
 }
@@ -144,8 +148,25 @@ function openEdit(id) {
   document.getElementById('fParent').innerHTML = parentOptions(a.parent_id || '');
   document.getElementById('activeField').classList.remove('hidden');
   document.getElementById('fActive').checked = !!a.is_active;
+  document.getElementById('deleteBtn').classList.remove('hidden');
   showEditMsg('');
   openOverlay();
+}
+async function deleteAssignment() {
+  if (!editingId) return;
+  const a = assignments.find(x => x.id === editingId);
+  const name = a ? a.student_name : '';
+  if (!confirm(`「${name}」の担当を完全に削除します。元に戻せません。よろしいですか？`)) return;
+  try {
+    await api(`/api/assignments/${editingId}`, {method: 'DELETE'});
+    showToast('担当を削除しました', 'success');
+    closeEdit();
+    await load();
+  } catch (error) {
+    let msg = error.message;
+    try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
+    showEditMsg(msg || '削除できませんでした', true);
+  }
 }
 async function saveEdit() {
   const student = document.getElementById('fStudent').value.trim();

@@ -238,3 +238,44 @@ def test_parent_cannot_patch_assignment(client, db):
         json={"reminder_enabled": True},
     )
     assert res.status_code == 403
+
+
+def test_admin_can_delete_assignment_without_reports(client, db):
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    assignment = Assignment(tutor_id=tutor.id, student_name="削除対象 生徒")
+    db.add(assignment)
+    db.commit()
+    aid = assignment.id
+    res = client.delete(f"/api/assignments/{aid}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200, res.text
+    db.expire_all()
+    assert db.get(Assignment, aid) is None
+
+
+def test_cannot_delete_assignment_with_reports(client, db):
+    import datetime as dt
+    from app.models import LessonReport
+
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    assignment = Assignment(tutor_id=tutor.id, student_name="報告書あり 生徒")
+    db.add(assignment)
+    db.commit()
+    db.add(LessonReport(
+        assignment_id=assignment.id, tutor_id=tutor.id, lesson_date=dt.date(2026, 6, 1),
+        start_time=dt.time(16, 0), end_time=dt.time(17, 0), break_minutes=0,
+        content="x", target_month="2026-06", status="draft",
+    ))
+    db.commit()
+    res = client.delete(f"/api/assignments/{assignment.id}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 409, res.text
+    db.expire_all()
+    assert db.get(Assignment, assignment.id) is not None
+
+
+def test_parent_cannot_delete_assignment(client, db):
+    parent_token = token(client, "parent@example.com")
+    assignment = db.query(Assignment).first()
+    res = client.delete(f"/api/assignments/{assignment.id}", headers={"Authorization": f"Bearer {parent_token}"})
+    assert res.status_code == 403

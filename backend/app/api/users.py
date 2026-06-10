@@ -295,6 +295,20 @@ def patch_assignment(assignment_id: UUID, payload: AssignmentPatch, db: Session 
     return assignment
 
 
+@router.delete("/assignments/{assignment_id}")
+def delete_assignment(assignment_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
+    """担当（assignment）を物理削除する。報告書が紐づく場合は履歴保持のため削除を拒否し、無効化を案内する。"""
+    assignment = db.get(Assignment, assignment_id)
+    if not assignment:
+        raise HTTPException(status_code=404, detail="assignment not found")
+    report_count = db.scalar(select(func.count()).select_from(LessonReport).where(LessonReport.assignment_id == assignment_id))
+    if report_count:
+        raise HTTPException(status_code=409, detail="この担当には報告書があるため削除できません。無効化をご利用ください。")
+    db.delete(assignment)
+    db.commit()
+    return {"status": "deleted"}
+
+
 @router.get("/assignments", response_model=list[AssignmentOut])
 def list_assignments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     stmt = select(Assignment).options(selectinload(Assignment.tutor), selectinload(Assignment.parent)).order_by(Assignment.created_at.desc())
