@@ -42,6 +42,21 @@ def _register_font() -> str:
     raise RuntimeError("Japanese PDF font not found")
 
 
+# 長文・複数値で横にはみ出し得る列は Paragraph で折り返す（内容・担当時限）。
+_PDF_WRAP_KEYS = ("note", "subject_period")
+
+
+def _pdf_cell(column_key: str, value, cell_style):
+    """セル値を返す。折り返し対象列は Paragraph（XMLエスケープ＋改行→<br/>）にして枠内に収める。"""
+    from xml.sax.saxutils import escape
+    from reportlab.platypus import Paragraph
+
+    text = str(value if value is not None else "")
+    if column_key in _PDF_WRAP_KEYS and text.strip():
+        return Paragraph(escape(text).replace("\n", "<br/>"), cell_style)
+    return text
+
+
 def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> bytes:
     """1報告書分のPDFバイト列を生成して返す。"""
     font_name = _register_font()
@@ -55,7 +70,7 @@ def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> 
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ModuleNotFoundError as exc:
@@ -66,13 +81,15 @@ def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> 
         style.fontName = font_name
     styles["Title"].fontSize = 14
     styles["Normal"].fontSize = 9
+    cell_style = ParagraphStyle("cell", fontName=font_name, fontSize=8, leading=10)
+    header_style = ParagraphStyle("cellhdr", fontName=font_name, fontSize=7, leading=8)
 
     col_widths = [22 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 22 * mm, None]
-    col_labels = [c.label for c in form.columns]
+    col_labels = [Paragraph(c.label, header_style) for c in form.columns]
 
     rows = [col_labels]
     for line in lines:
-        rows.append([str(line.get(c.key, "")) for c in form.columns])
+        rows.append([_pdf_cell(c.key, line.get(c.key, ""), cell_style) for c in form.columns])
 
     # 合計行
     totals = ["合計", "", "", "", "", "", ""]
@@ -98,7 +115,7 @@ def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> 
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
     ]))
 
@@ -128,7 +145,7 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
     try:
         from reportlab.lib import colors
         from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
         from reportlab.lib.units import mm
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ModuleNotFoundError as exc:
@@ -139,6 +156,8 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
         style.fontName = font_name
     styles["Title"].fontSize = 14
     styles["Normal"].fontSize = 9
+    cell_style = ParagraphStyle("cell", fontName=font_name, fontSize=8, leading=10)
+    header_style = ParagraphStyle("cellhdr", fontName=font_name, fontSize=7, leading=8)
 
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
@@ -160,11 +179,11 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
         lines: list[dict] = (report.form_data or {}).get("lines", [])
         header: dict = (report.form_data or {}).get("header", {})
         col_widths = [22 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 18 * mm, 22 * mm, None]
-        col_labels = [c.label for c in form.columns]
+        col_labels = [Paragraph(c.label, header_style) for c in form.columns]
 
         rows = [col_labels]
         for line in lines:
-            rows.append([str(line.get(c.key, "")) for c in form.columns])
+            rows.append([_pdf_cell(c.key, line.get(c.key, ""), cell_style) for c in form.columns])
 
         totals = ["合計", "", "", "", "", "", ""]
         for key in form.summable_keys:
@@ -187,7 +206,7 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
             ("FONTSIZE", (0, 0), (-1, -1), 8),
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
             ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
-            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
         ]))
 

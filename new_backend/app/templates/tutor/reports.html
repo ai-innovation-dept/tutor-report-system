@@ -179,6 +179,22 @@
     </div>
   </section>
 </div>
+
+<div id="noteOverlay" class="fixed inset-0 z-[1200] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeNoteModal()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">内容</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeNoteModal()">閉じる</button>
+    </div>
+    <div class="p-5">
+      <textarea id="noteModalText" rows="8" class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="内容を入力してください"></textarea>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeNoteModal()">キャンセル</button>
+        <button type="button" id="noteModalSave" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700" onclick="saveNoteModal()">確定</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -200,6 +216,8 @@ const STATUS_LABELS = {
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const LINE_COUNT = 26;
 const EDITABLE_STATUSES = new Set(['draft', 'returned_to_tutor', 'returned_to_sales']);
+let formEditable = true;       // 報告書フォームが編集可能か（内容モーダルの編集/閲覧切替に使用）
+let activeNoteCell = null;     // 内容モーダルで編集中の内容セル
 const DEFAULT_FORM_DEFINITION = {
   form_type: 'monthly_dispatch',
   label: '月次派遣報告',
@@ -565,7 +583,7 @@ function renderLineHeader(form) {
     } else if (column.key === 'subject_period') {
       headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'note') {
-      headers.push(`<th class="min-w-64 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-44 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'count_minutes') {
       headers.push(`<th class="w-44 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'number') {
@@ -624,6 +642,15 @@ function renderCell(column, line) {
       </div>
     </td>`;
   }
+  if (column.key === 'note') {
+    const val = line.note || '';
+    return `<td class="px-2 py-1">
+      <div data-note-cell>
+        <input type="hidden" data-field="note" value="${escapeHtml(val)}">
+        <button type="button" data-note-btn title="クリックして内容を表示・編集" class="h-9 w-full overflow-hidden rounded border border-slate-300 px-2 text-left text-sm hover:border-emerald-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 ${val ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${val ? escapeHtml(noteDigest(val)) : '＋入力'}</span></button>
+      </div>
+    </td>`;
+  }
   return `<td class="px-2 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
 }
 function buildLineRows(lines) {
@@ -647,6 +674,9 @@ function buildLineRows(lines) {
   });
   lineRows.querySelectorAll('[data-period-btn]').forEach(btn => {
     btn.addEventListener('click', () => openPeriodPopover(btn));
+  });
+  lineRows.querySelectorAll('[data-note-btn]').forEach(btn => {
+    btn.addEventListener('click', () => openNoteModal(btn));
   });
   updateLineSummary();
 }
@@ -738,6 +768,44 @@ function openPeriodPopover(btn) {
 document.addEventListener('click', event => {
   if (!event.target.closest('[data-period-cell]')) closePeriodPopovers();
 });
+// 内容：セルはダイジェスト表示。クリックでモーダルに全文を表示し、編集可能な状態のときは編集できる。
+function noteDigest(value) {
+  const text = String(value || '').replace(/\s+/g, ' ').trim();
+  return text.length > 10 ? text.slice(0, 10) + '…' : text;
+}
+function refreshNoteCell(cell) {
+  const hidden = cell.querySelector('[data-field="note"]');
+  const btn = cell.querySelector('[data-note-btn]');
+  const val = hidden.value || '';
+  btn.querySelector('span').textContent = val ? noteDigest(val) : '＋入力';
+  btn.classList.toggle('text-slate-400', !val);
+  btn.classList.toggle('text-slate-800', !!val);
+}
+function openNoteModal(btn) {
+  activeNoteCell = btn.closest('[data-note-cell]');
+  const hidden = activeNoteCell.querySelector('[data-field="note"]');
+  const textarea = document.getElementById('noteModalText');
+  textarea.value = hidden.value || '';
+  textarea.readOnly = !formEditable;
+  document.getElementById('noteModalSave').classList.toggle('hidden', !formEditable);
+  const overlay = document.getElementById('noteOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  if (formEditable) textarea.focus();
+}
+function saveNoteModal() {
+  if (!activeNoteCell || !formEditable) return;
+  activeNoteCell.querySelector('[data-field="note"]').value = document.getElementById('noteModalText').value;
+  refreshNoteCell(activeNoteCell);
+  updateLineSummary();
+  closeNoteModal();
+}
+function closeNoteModal() {
+  const overlay = document.getElementById('noteOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  activeNoteCell = null;
+}
 function collectLines() {
   const numericKeys = new Set();
   (selectedFormDefinition().columns || []).forEach(column => {
@@ -821,8 +889,10 @@ function renderTaskReference() {
     : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
 }
 function setReportInputsDisabled(disabled) {
+  formEditable = !disabled;
   reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
-    if (el.id !== 'monthFilter') el.disabled = disabled;
+    // 内容ボタンは読取専用時も「閲覧」のためクリックできるよう無効化しない
+    if (el.id !== 'monthFilter' && !el.hasAttribute('data-note-btn')) el.disabled = disabled;
   });
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
