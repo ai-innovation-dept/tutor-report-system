@@ -443,129 +443,235 @@ def _approval_stamps(db: Session, reports: list[LessonReport]) -> dict[str, tupl
     return stamps
 
 
-def _draw_approval_stamps_grid(canvas, doc, stamps: dict[str, tuple[str, str, object] | None] | None, font_name: str) -> None:
-    if stamps is None:
-        return  # parent ロール：承認印エリアを描画しない
+_COMPANY_FOOTER = "株式会社イスト　〒151-0053　東京都渋谷区代々木1-35-4　代々木クリスタルビル5階　tel.03-4446-2600（代）"
+
+
+def _hours_label(minutes: int) -> str:
+    """指導時間数を0.5時間単位で表示（120分→「2」、150分→「2.5」）。"""
+    hours = round(minutes / 30) / 2
+    return str(int(hours)) if hours == int(hours) else f"{hours:.1f}"
+
+
+def _room_period_label(report: LessonReport) -> str:
+    """在室した時間帯（休憩等の時間）。例：17:10～19:20（休憩10分）"""
+    period = f"{report.start_time.strftime('%H:%M')}～{report.end_time.strftime('%H:%M')}"
+    return f"{period}（休憩{report.break_minutes or 0}分）"
+
+
+def _confirmation_grid_cells(no: int, report: LessonReport | None) -> list[str]:
+    """明細1行分（回数・指導日・曜日・在室した時間帯・指導時間数）。報告が無ければ空欄。"""
+    if report is None:
+        return [str(no), "", "", "", ""]
+    weekday = _WD[(report.lesson_date.weekday() + 1) % 7]
+    return [
+        str(no),
+        f"{report.lesson_date.month}/{report.lesson_date.day}",
+        weekday,
+        _room_period_label(report),
+        f"{_hours_label(_teaching_minutes(report))} 時間",
+    ]
+
+
+def _confirmation_stamp(role_label: str, stamp, font_name: str):
+    """受付/再鑑/管理者の電子承認印（朱色の二重丸）をフロアブルで返す。未承認は空欄。"""
+    from reportlab.graphics.shapes import Circle, Drawing, String
+    from reportlab.lib import colors
+
+    size = 50
+    drawing = Drawing(size, size)
+    if not stamp:
+        return drawing
+    approver_name, _, approved_at = stamp
+    red = colors.HexColor("#c81e1e")
+    center = size / 2
+    drawing.add(Circle(center, center, 23, strokeColor=red, fillColor=None, strokeWidth=1.2))
+    drawing.add(Circle(center, center, 17, strokeColor=red, fillColor=None, strokeWidth=1.0))
+    if approved_at:
+        drawing.add(String(center, center + 8, f"{approved_at.month}/{approved_at.day}", fontName=font_name, fontSize=6, fillColor=red, textAnchor="middle"))
+    drawing.add(String(center, center - 2, role_label, fontName=font_name, fontSize=7, fillColor=red, textAnchor="middle"))
+    drawing.add(String(center, center - 12, approver_name[:4], fontName=font_name, fontSize=6, fillColor=red, textAnchor="middle"))
+    return drawing
+
+
+def _draw_confirmation_banner(canvas, doc, font_name: str) -> None:
+    """左端の縦帯（黒地・白縦書き「指導時間確認票」「報告用」＋提出期限の注記）を描画。"""
     from reportlab.lib import colors
     from reportlab.lib.units import mm
 
-    roles = ["受付", "再鑑", "管理者"]
-    role_stamp_labels = {"受付": "受付者", "再鑑": "再鑑者", "管理者": "管理者"}
-    box_width = 28 * mm
-    box_height = 25 * mm
-    box_gap = 0
-    x_right = doc.pagesize[0] - doc.rightMargin
-    y_top = doc.pagesize[1] - 8 * mm
-    y_bottom = y_top - box_height
+    _, page_h = doc.pagesize
+    band_w = 13 * mm
+    center_x = band_w / 2
     canvas.saveState()
-    for i, role_label in enumerate(reversed(roles)):
-        x = x_right - (i + 1) * box_width - i * box_gap
-        canvas.setStrokeColor(colors.black)
-        canvas.setLineWidth(0.5)
-        canvas.rect(x, y_bottom, box_width, box_height, stroke=1, fill=0)
-        canvas.setFillColor(colors.black)
-        canvas.setFont(font_name, 7)
-        canvas.drawCentredString(x + box_width / 2, y_top - 5 * mm, role_label)
-
-        stamp = stamps.get(role_label)
-        if not stamp:
-            continue
-
-        approver_name, _, approved_at = stamp
-        approved_label = f"{approved_at.year}年{approved_at.month}月{approved_at.day}日" if approved_at else ""
-        center_x = x + box_width / 2
-        center_y = y_bottom + 12 * mm
-        stamp_color = colors.HexColor("#c81e1e")
-        canvas.setStrokeColor(stamp_color)
-        canvas.setFillColor(stamp_color)
-        canvas.setLineWidth(1.2)
-        canvas.circle(center_x, center_y, 9 * mm, stroke=1, fill=0)
-        canvas.circle(center_x, center_y, 6.5 * mm, stroke=1, fill=0)
-        canvas.setFont(font_name, 6)
-        canvas.drawCentredString(center_x, center_y + 4 * mm, approved_label)
-        canvas.setFont(font_name, 8)
-        canvas.drawCentredString(center_x, center_y, role_stamp_labels[role_label])
-        canvas.setFont(font_name, 8)
-        canvas.drawCentredString(center_x, center_y - 5 * mm, approver_name[:5])
+    canvas.setFillColor(colors.black)
+    canvas.rect(0, 0, band_w, page_h, stroke=0, fill=1)
+    canvas.setFillColor(colors.white)
+    canvas.setStrokeColor(colors.white)
+    canvas.setFont(font_name, 13)
+    y = page_h - 22 * mm
+    for ch in "指導時間確認票":
+        canvas.drawCentredString(center_x, y, ch)
+        y -= 15
+    y -= 6 * mm
+    canvas.setLineWidth(0.8)
+    canvas.rect(2 * mm, y - 34, band_w - 4 * mm, 36, stroke=1, fill=0)
+    canvas.setFont(font_name, 9)
+    box_y = y - 4
+    for ch in "報告用":
+        canvas.drawCentredString(center_x, box_y, ch)
+        box_y -= 11
+    canvas.setFont(font_name, 6.5)
+    note = "※翌月1日までにご提出ください"
+    note_y = 8 * mm + (len(note) - 1) * 8
+    for ch in note:
+        canvas.drawCentredString(center_x, note_y, ch)
+        note_y -= 8
     canvas.restoreState()
 
 
 def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: str, stamps: dict[str, tuple[str, str, object] | None]) -> bytes:
+    """全ロール共通の「指導時間確認票」PDF（A4横）。assignment×月ごとに1ページ。"""
     font_name = _register_pdf_font()
     try:
         from reportlab.lib import colors
-        from reportlab.lib.pagesizes import A4
-        from reportlab.lib.styles import getSampleStyleSheet
+        from reportlab.lib.enums import TA_CENTER
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib.styles import ParagraphStyle
         from reportlab.lib.units import mm
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
     except ModuleNotFoundError as exc:
         raise HTTPException(status_code=500, detail="reportlab is not installed") from exc
 
-    styles = getSampleStyleSheet()
-    for style in styles.byName.values():
-        style.fontName = font_name
-    styles["Title"].fontSize = 15
-    styles["Heading2"].fontSize = 11
-    styles["Normal"].fontSize = 9
+    note_style = ParagraphStyle("note", fontName=font_name, fontSize=9, leading=12)
+    footer_style = ParagraphStyle("footer", fontName=font_name, fontSize=8, leading=11, alignment=TA_CENTER)
+    stamps_map = stamps or {}
 
     grouped: dict[UUID, list[LessonReport]] = defaultdict(list)
     for report in reports:
         grouped[report.assignment_id].append(report)
     group_items = sorted(grouped.values(), key=lambda items: (_student_name(items[0]), _tutor_name(items[0])))
 
+    page_size = landscape(A4)
+    left_margin, right_margin = 18 * mm, 8 * mm
+    content_w = page_size[0] - left_margin - right_margin
+    half_w = content_w / 2
+    wide_col = half_w - (30 + 56 + 26 + 52)
+    grid_widths = [30, 56, 26, wide_col, 52] * 2
+
+    year, month_str = target_month.split("-")
+    year_month = f"{year}年 {int(month_str)}月分"
+
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf,
-        pagesize=A4,
-        rightMargin=16 * mm,
-        leftMargin=16 * mm,
-        topMargin=40 * mm,
-        bottomMargin=22 * mm,
-        title="指導実績",
+        buf, pagesize=page_size,
+        leftMargin=left_margin, rightMargin=right_margin, topMargin=12 * mm, bottomMargin=8 * mm,
+        title="指導時間確認票",
     )
+
     story = []
-    headers = ["指導日", "在室時間", "休憩", "指導時間数", "科目"]
     for group_index, items in enumerate(group_items):
         if group_index:
             story.append(PageBreak())
+        items = sorted(items, key=lambda r: (r.lesson_date, r.start_time.strftime("%H:%M")))
         first = items[0]
-        story.append(Paragraph("指導実績", styles["Title"]))
-        story.append(Spacer(1, 4 * mm))
-        story.append(Paragraph(f"生徒名：{_student_name(first)}　講師名：{_tutor_label(first)}　対象月：{_month_label(target_month)}", styles["Normal"]))
-        story.append(Spacer(1, 5 * mm))
-        rows = [headers]
-        for report in items:
-            rows.append(
-                [
-                    _report_date_label(report),
-                    f"{report.start_time.strftime('%H:%M')} - {report.end_time.strftime('%H:%M')}",
-                    f"{report.break_minutes or 0}分",
-                    _duration_label(_teaching_minutes(report)),
-                    report.subject or "",
-                ]
-            )
-        rows.append(["合計", "", "", _duration_label(sum(_teaching_minutes(report) for report in items)), ""])
-        table = Table(rows, colWidths=[34 * mm, 35 * mm, 24 * mm, 32 * mm, 45 * mm], repeatRows=1)
-        table.setStyle(
-            TableStyle(
-                [
-                    ("FONTNAME", (0, 0), (-1, -1), font_name),
-                    ("FONTSIZE", (0, 0), (-1, -1), 9),
-                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
-                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor("#222222")),
-                    ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
-                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-                    ("ALIGN", (2, 1), (3, -1), "RIGHT"),
-                    ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
-                ]
-            )
+        tutor = first.tutor
+        parent = first.parent
+        tutor_no = tutor.user_no if tutor and tutor.user_no else ""
+        member_no = parent.user_no if parent and parent.user_no else ""
+        parent_name = parent.display_name if parent else ""
+        total_minutes = sum(_teaching_minutes(report) for report in items)
+
+        # ヘッダー：講師名 / 講師No. / 合計時間数
+        header = Table(
+            [["講師名", tutor.display_name if tutor else "", "講師No.", tutor_no, "合計時間数", f"{_hours_label(total_minutes)} 時間"]],
+            colWidths=[18 * mm, content_w - 114 * mm, 20 * mm, 24 * mm, 24 * mm, 28 * mm],
         )
-        story.append(table)
-    doc.build(
-        story,
-        onFirstPage=lambda canvas, doc: _draw_approval_stamps_grid(canvas, doc, stamps, font_name),
-        onLaterPages=lambda canvas, doc: _draw_approval_stamps_grid(canvas, doc, stamps, font_name),
-    )
+        header.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#e8e8e8")),
+            ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#e8e8e8")),
+            ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#e8e8e8")),
+            ("ALIGN", (2, 0), (5, 0), "CENTER"),
+            ("LEFTPADDING", (1, 0), (1, 0), 6),
+        ]))
+
+        # 明細グリッド（回数1-10／11-20）
+        grid_rows = [["回数", "指導日", "曜日", "在室した時間帯（休憩等の時間）", "指導時間数"] * 2]
+        for i in range(10):
+            left = _confirmation_grid_cells(i + 1, items[i] if i < len(items) else None)
+            right = _confirmation_grid_cells(i + 11, items[i + 10] if i + 10 < len(items) else None)
+            grid_rows.append(left + right)
+        grid = Table(grid_rows, colWidths=grid_widths, rowHeights=[7 * mm] + [7.4 * mm] * 10)
+        grid.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, 0), 7),
+            ("FONTSIZE", (0, 1), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
+        ]))
+
+        # 月計・会員番号・生徒名・保護者名
+        left_info = Table(
+            [
+                ["年月分", year_month],
+                ["月計", f"{len(items)} 回　{_hours_label(total_minutes)} 時間"],
+                [Paragraph("上記指導日時・時間数に相違ありません。", note_style), ""],
+                [f"会員番号　{member_no}", f"生徒名　{_student_name(first)}　保護者名　{parent_name}"],
+            ],
+            colWidths=[26 * mm, half_w * 1.24 - 26 * mm],
+        )
+        left_info.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("BACKGROUND", (0, 0), (0, 1), colors.HexColor("#e8e8e8")),
+            ("SPAN", (0, 2), (1, 2)),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ]))
+
+        stamp_w = (content_w - half_w * 1.24) / 3
+        stamps_table = Table(
+            [
+                ["受付", "再鑑", "管理者"],
+                [
+                    _confirmation_stamp("受付者", stamps_map.get("受付"), font_name),
+                    _confirmation_stamp("再鑑者", stamps_map.get("再鑑"), font_name),
+                    _confirmation_stamp("管理者", stamps_map.get("管理者"), font_name),
+                ],
+            ],
+            colWidths=[stamp_w, stamp_w, stamp_w], rowHeights=[6 * mm, 20 * mm],
+        )
+        stamps_table.setStyle(TableStyle([
+            ("FONTNAME", (0, 0), (-1, -1), font_name),
+            ("FONTSIZE", (0, 0), (-1, 0), 8),
+            ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
+        ]))
+
+        sign = Table([[left_info, stamps_table]], colWidths=[half_w * 1.24, content_w - half_w * 1.24])
+        sign.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+
+        story.extend([
+            header,
+            Spacer(1, 3 * mm),
+            grid,
+            Spacer(1, 3 * mm),
+            sign,
+            Spacer(1, 2 * mm),
+            Paragraph(_COMPANY_FOOTER, footer_style),
+        ])
+
+    banner = lambda canvas, doc: _draw_confirmation_banner(canvas, doc, font_name)
+    doc.build(story, onFirstPage=banner, onLaterPages=banner)
     return buf.getvalue()
 
 
