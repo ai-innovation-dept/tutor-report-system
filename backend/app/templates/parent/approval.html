@@ -18,6 +18,26 @@
 </section>
 
 <div id="approvalContent" class="grid gap-4"></div>
+
+<div id="approveModal" class="fixed inset-0 z-[1000] hidden items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-8" onclick="closeApproveModal()">
+  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">承認の確認</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeApproveModal()">閉じる</button>
+    </div>
+    <div class="grid gap-4 p-5">
+      <p id="approveModalMessage" class="text-sm text-slate-700"></p>
+      <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-emerald-300">
+        <input type="checkbox" id="approveSelfConfirm" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" onchange="updateApproveModalState()">
+        <span>承認は保護者本人が操作しています</span>
+      </label>
+      <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        <button type="button" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto" onclick="closeApproveModal()">キャンセル</button>
+        <button type="button" id="approveConfirmBtn" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto" disabled onclick="submitApprove()">承認する</button>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -259,11 +279,32 @@ async function confirmMonthReturn(month) {
   expandedReturnMonth = null;
   await loadApproval();
 }
-async function approvePending(month) {
+let approveTargetMonth = null;
+function approvePending(month) {
   const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_parent_approval');
   if (!pending.length) return;
-  if (!confirm(`${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`)) return;
+  approveTargetMonth = month;
+  document.getElementById('approveModalMessage').textContent = `${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`;
+  document.getElementById('approveSelfConfirm').checked = false;
+  updateApproveModalState();
+  approveModal.classList.remove('hidden');
+  approveModal.classList.add('flex');
+}
+function updateApproveModalState() {
+  document.getElementById('approveConfirmBtn').disabled = !document.getElementById('approveSelfConfirm').checked;
+}
+function closeApproveModal() {
+  approveModal.classList.add('hidden');
+  approveModal.classList.remove('flex');
+  approveTargetMonth = null;
+}
+async function submitApprove() {
+  const month = approveTargetMonth;
+  if (!month || !document.getElementById('approveSelfConfirm').checked) return;
+  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_parent_approval');
+  if (!pending.length) { closeApproveModal(); return; }
   await api('/api/reports/parent-approve-bulk', {method: 'POST', body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month})});
+  closeApproveModal();
   await loadApproval();
 }
 async function loadApproval() {
