@@ -251,6 +251,17 @@ class TestContractListGetUpdateDelete:
         listed = client.get("/api/w/contracts", headers=headers).json()
         assert created["id"] in [c["id"] for c in listed]
 
+    def test_delete_hard_removes_contract(self, client, db, setup):
+        # hard=true は物理削除：行が消え、一覧からも消える
+        created = self._create(client, setup)
+        headers = _auth(client, "master@x.example.com")
+        res = client.delete(f"/api/w/contracts/{created['id']}?hard=true", headers=headers)
+        assert res.status_code == 200
+        db.expire_all()
+        assert db.get(WorkAssignmentProfile, __import__("uuid").UUID(created["id"])) is None
+        listed = client.get("/api/w/contracts", headers=headers).json()
+        assert created["id"] not in [c["id"] for c in listed]
+
 
 def _csv_bytes(rows: list[dict]) -> bytes:
     buf = io.StringIO()

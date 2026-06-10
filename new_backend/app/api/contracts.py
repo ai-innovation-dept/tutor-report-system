@@ -334,10 +334,16 @@ def update_contract(
 @router.delete("/{contract_id}")
 def delete_contract(
     contract_id: uuid.UUID,
+    hard: bool = False,
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin_master", "sales")),
 ):
+    """hard=False（既定）は論理削除（無効化）。hard=True は物理削除（行を完全に削除）。
+    物理削除は契約レコードのみを対象とし、報告書（assignment 単位で保持）には影響しない。"""
     profile = _get_profile_loaded(db, contract_id)
-    profile.is_active = False
+    if hard:
+        db.delete(profile)
+    else:
+        profile.is_active = False
     db.commit()
     return {"status": "ok"}
