@@ -604,7 +604,7 @@ function renderCell(column, line) {
     return `<td class="px-2 py-1">
       <div class="flex items-center gap-1">
         <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.count_key)}" value="${escapeHtml(line[column.count_key] ?? '')}" class="${inputClasses('w-16')}">
-        <span class="whitespace-nowrap text-xs text-slate-500">回 /</span>
+        <span class="whitespace-nowrap text-xs text-slate-500">${escapeHtml(column.unit || '回')} /</span>
         <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.minutes_key)}" value="${escapeHtml(line[column.minutes_key] ?? '')}" class="${inputClasses('w-16')}">
         <span class="text-xs text-slate-500">分</span>
       </div>
@@ -749,7 +749,7 @@ function updateLineSummary() {
   const parts = [`<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`];
   columns.forEach(column => {
     if (column.type === 'count_minutes') {
-      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.count_key].toLocaleString()}</span>回 / <span class="font-semibold">${sums[column.minutes_key].toLocaleString()}</span>分</div>`);
+      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.count_key].toLocaleString()}</span>${escapeHtml(column.unit || '回')} / <span class="font-semibold">${sums[column.minutes_key].toLocaleString()}</span>分</div>`);
     } else {
       parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.key].toLocaleString()}</span></div>`);
     }

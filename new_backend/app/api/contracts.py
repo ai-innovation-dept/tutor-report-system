@@ -30,7 +30,7 @@ router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 _DETAIL_FIELDS = (
     "customer_id", "our_staff", "contract_start", "contract_end",
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
-    "scoring_enabled", "scoring_task_id", "scoring_contract_id",
+    "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
 )
 
 
@@ -76,6 +76,8 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         shift_note=profile.shift_note,
         work_content=profile.work_content,
         scoring_enabled=profile.scoring_enabled,
+        scoring_label=profile.scoring_label,
+        scoring_unit=profile.scoring_unit,
         scoring_task_id=profile.scoring_task_id,
         scoring_contract_id=profile.scoring_contract_id,
         tasks=_tasks_from_columns(profile),

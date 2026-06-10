@@ -28,6 +28,8 @@ WEEKLY_LESSONS = "週コマ"
 SHIFT_NOTE = "シフト指定欄"
 WORK_CONTENT = "従事業務内容"
 SCORING_ENABLED = "採点を追加する(有/無)"
+SCORING_LABEL = "採点 項目名"
+SCORING_UNIT = "採点 単位"
 SCORING_TASK_ID = "採点 委託業務ID"
 SCORING_CONTRACT_ID = "採点 個別契約ID"
 
@@ -52,7 +54,7 @@ def headers() -> list[str]:
             SHIFT_NOTE, WORK_CONTENT]
     for i in range(1, MAX_TASKS + 1):
         cols += [_task_name_h(i), _task_id_h(i), _contract_id_h(i)]
-    cols += [SCORING_ENABLED, SCORING_TASK_ID, SCORING_CONTRACT_ID]
+    cols += [SCORING_ENABLED, SCORING_LABEL, SCORING_UNIT, SCORING_TASK_ID, SCORING_CONTRACT_ID]
     return cols
 
 
@@ -221,6 +223,8 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         shift_note=row.get(SHIFT_NOTE) or None,
         work_content=row.get(WORK_CONTENT) or None,
         scoring_enabled=_parse_bool(row.get(SCORING_ENABLED, "")),
+        scoring_label=row.get(SCORING_LABEL) or None,
+        scoring_unit=row.get(SCORING_UNIT) or None,
         scoring_task_id=row.get(SCORING_TASK_ID) or None,
         scoring_contract_id=row.get(SCORING_CONTRACT_ID) or None,
         tasks=tasks,

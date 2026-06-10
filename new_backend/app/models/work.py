@@ -50,8 +50,11 @@ class WorkAssignmentProfile(Base):
     task_name_3: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_name_4: Mapped[str | None] = mapped_column(String(100), nullable=True)
     task_name_5: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    # 採点（専用欄）: 有効時のみ報告書に「採点（回）」列（1セル併記＝回数＋分数固定）を生成
+    # 採点（専用欄）: 有効時のみ報告書に「{項目名}（{単位}）」列（1セル併記＝回数＋分数固定）を生成。
+    # 項目名・単位は任意入力（既定: 採点／回）。分は常に固定。
     scoring_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    scoring_label: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scoring_unit: Mapped[str | None] = mapped_column(String(20), nullable=True)
     scoring_task_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     scoring_contract_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     task_id_1: Mapped[str | None] = mapped_column(String(50), nullable=True)

@@ -22,7 +22,8 @@ _TRAILING_COLUMNS = (
     {"key": "note", "label": "内容", "type": "text", "summable": False},
 )
 MAX_TASKS = 5
-SCORING_LABEL = "採点"
+SCORING_LABEL = "採点"  # 項目名の既定値
+SCORING_UNIT = "回"  # 単位の既定値（分は常に固定）
 
 
 def build_column_definition(profile: WorkAssignmentProfile) -> list[dict]:
@@ -39,12 +40,15 @@ def build_column_definition(profile: WorkAssignmentProfile) -> list[dict]:
             "contract_id": getattr(profile, f"contract_id_{index}"),
         })
     if profile.scoring_enabled:
-        # 採点列: 1列に「回」「分」を併記（1セル2入力）。データは scoring_count / scoring_minutes。
+        # 項目列: 1列に「{単位}」「分」を併記（1セル2入力）。データは scoring_count / scoring_minutes。
+        # 項目名・単位は任意入力。未設定の既存契約は既定値（採点／回）へフォールバックする。分は固定。
+        label = (getattr(profile, "scoring_label", None) or SCORING_LABEL).strip() or SCORING_LABEL
+        unit = (getattr(profile, "scoring_unit", None) or SCORING_UNIT).strip() or SCORING_UNIT
         columns.append({
-            "key": "scoring", "label": f"{SCORING_LABEL}（回）",
-            "type": "count_minutes", "summable": True,
+            "key": "scoring", "label": f"{label}（{unit}）",
+            "type": "count_minutes", "summable": True, "unit": unit,
             "count_key": "scoring_count", "minutes_key": "scoring_minutes",
-            "minutes_label": f"{SCORING_LABEL}（分）",
+            "minutes_label": f"{label}（分）",
             "task_id": profile.scoring_task_id, "contract_id": profile.scoring_contract_id,
         })
     columns += [dict(c) for c in _TRAILING_COLUMNS]

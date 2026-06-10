@@ -30,8 +30,11 @@ class ContractBase(BaseModel):
     weekly_lessons: int | None = None
     shift_note: str | None = None
     work_content: str | None = None
-    # 採点専用欄（回数＋分数固定）。enabled のときのみ報告書に採点列を生成する。
+    # 採点専用欄（回数＋分数固定）。enabled のときのみ報告書に「{項目名}（{単位}）」列を生成する。
+    # 項目名・単位は任意入力（既定: 採点／回）。分は固定。
     scoring_enabled: bool = False
+    scoring_label: str | None = None
+    scoring_unit: str | None = None
     scoring_task_id: str | None = None
     scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []
@@ -88,6 +91,8 @@ class ContractOut(BaseModel):
     shift_note: str | None = None
     work_content: str | None = None
     scoring_enabled: bool = False
+    scoring_label: str | None = None
+    scoring_unit: str | None = None
     scoring_task_id: str | None = None
     scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []

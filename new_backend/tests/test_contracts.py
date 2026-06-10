@@ -164,6 +164,33 @@ class TestContractForTutor:
         assert scoring["contract_id"] == "SC1"
         assert scoring["summable"] is True
 
+    def test_for_tutor_scoring_custom_label_unit(self, client, db, setup):
+        # 項目名・単位を任意指定 → 見出し・単位・分見出しに反映（分は固定）
+        self._create(
+            client, setup,
+            tasks=[{"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"}],
+            scoring_enabled=True,
+            scoring_label="進路相談",
+            scoring_unit="人",
+            scoring_task_id="S1",
+            scoring_contract_id="SC1",
+        )
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        scoring = next(c for c in entry["column_definition"] if c["key"] == "scoring")
+        assert scoring["label"] == "進路相談（人）"
+        assert scoring["minutes_label"] == "進路相談（分）"
+        assert scoring["unit"] == "人"
+        assert scoring["count_key"] == "scoring_count"
+        assert scoring["minutes_key"] == "scoring_minutes"
+
+    def test_for_tutor_scoring_defaults_when_unset(self, client, db, setup):
+        # 項目名・単位を未指定なら既定（採点／回）へフォールバック（後方互換）
+        self._create(client, setup, scoring_enabled=True)
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        scoring = next(c for c in entry["column_definition"] if c["key"] == "scoring")
+        assert scoring["label"] == "採点（回）"
+        assert scoring["unit"] == "回"
+
     def test_for_tutor_without_scoring_omits_scoring_column(self, client, db, setup):
         # 採点無効（デフォルト）なら採点列は生成されない
         self._create(client, setup)
@@ -295,6 +322,16 @@ class TestContractImport:
             WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
         assert profile.scoring_enabled is True
         assert profile.scoring_task_id == "S1"
+
+    def test_import_scoring_label_unit(self, client, db, import_setup):
+        res = self._upload(client, _csv_bytes([
+            _csv_row("T100", "渋谷高校", **{cis.SCORING_ENABLED: "有", cis.SCORING_LABEL: "進路相談", cis.SCORING_UNIT: "人"})]))
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.scoring_enabled is True
+        assert profile.scoring_label == "進路相談"
+        assert profile.scoring_unit == "人"
 
     def test_import_all_or_nothing(self, client, db, import_setup):
         # 1行目は有効、2行目は講師番号が不正 → 全件中止（何も登録しない）
