@@ -577,7 +577,7 @@ function renderLineHeader(form) {
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
-        headers.push('<th class="w-64 px-2 py-2 text-left">業務開始〜終了時間</th>');
+        headers.push('<th class="w-72 px-2 py-2 text-left">業務開始〜終了時間</th>');
         index += 1;
       } else {
         headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
@@ -624,9 +624,11 @@ function renderCell(column, line) {
   if (column.key === 'start') {
     return `<td class="relative px-2 py-1" data-time-range>
       <div class="flex items-center gap-1">
-        <input type="time" step="300" data-field="start" value="${escapeHtml(line.start || '')}" class="${inputClasses('w-[100px]')}">
+        <input type="hidden" data-field="start" value="${escapeHtml(line.start || '')}">
+        ${timeSelectHtml('start', line.start)}
         <span class="text-slate-500">〜</span>
-        <input type="time" step="300" data-field="end" value="${escapeHtml(line.end || '')}" class="${inputClasses('w-[100px]')}">
+        <input type="hidden" data-field="end" value="${escapeHtml(line.end || '')}">
+        ${timeSelectHtml('end', line.end)}
         <button type="button" data-end-offset-btn title="終了時刻を開始からの経過時間で設定" class="flex h-9 w-8 shrink-0 items-center justify-center rounded border border-slate-300 text-slate-500 hover:border-emerald-500 hover:text-emerald-600 focus:outline-none">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -679,9 +681,14 @@ function buildLineRows(lines) {
       }
       updateLineSummary();
     });
-    if (input.dataset.field === 'start' || input.dataset.field === 'end') {
-      input.addEventListener('change', () => enforceTimeOrder(input));
-    }
+  });
+  lineRows.querySelectorAll('.line-time-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const cell = sel.closest('[data-time-range]');
+      syncTimeField(cell, sel.dataset.timePart);
+      validateTimeRange(cell);
+      updateLineSummary();
+    });
   });
   lineRows.querySelectorAll('[data-period-btn]').forEach(btn => {
     btn.addEventListener('click', () => openPeriodPopover(btn));
@@ -711,15 +718,42 @@ function showTimePopup(cell, message) {
   cell.appendChild(popup);
   setTimeout(() => popup.remove(), 2500);
 }
-function enforceTimeOrder(input) {
-  const cell = input.closest('[data-time-range]');
+// 時刻は「時」「分(5分刻み)」のセレクトで入力（5分以外は選択不可。既存システムと同方式）。
+// 値は data-field=start/end の hidden（HH:MM）に同期して保存する。
+const TIME_MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
+function timeSelectHtml(field, value) {
+  const [rawH, rawM] = (value && String(value).includes(':')) ? String(value).split(':') : ['', ''];
+  const h = rawH;
+  const m = rawM === '' ? '' : (TIME_MINUTES.includes(rawM) ? rawM : String(Math.min(55, Math.round(Number(rawM) / 5) * 5)).padStart(2, '0'));
+  const hourOpts = ['<option value="">--</option>'].concat(
+    Array.from({length: 24}, (_, i) => { const hh = String(i).padStart(2, '0'); return `<option value="${hh}"${hh === h ? ' selected' : ''}>${hh}</option>`; })
+  ).join('');
+  const minOpts = ['<option value="">--</option>'].concat(
+    TIME_MINUTES.map(mm => `<option value="${mm}"${mm === m ? ' selected' : ''}>${mm}</option>`)
+  ).join('');
+  const cls = 'line-time-select h-9 w-[52px] rounded border border-slate-300 px-1 text-sm focus:border-emerald-500 focus:outline-none';
+  return `<select data-time-part="${field}" data-time-unit="hour" class="${cls}">${hourOpts}</select>`
+    + '<span class="text-slate-400">:</span>'
+    + `<select data-time-part="${field}" data-time-unit="min" class="${cls}">${minOpts}</select>`;
+}
+function syncTimeField(cell, field) {
+  const hour = cell.querySelector(`select[data-time-part="${field}"][data-time-unit="hour"]`).value;
+  const min = cell.querySelector(`select[data-time-part="${field}"][data-time-unit="min"]`).value;
+  cell.querySelector(`[data-field="${field}"]`).value = (hour !== '' && min !== '') ? `${hour}:${min}` : '';
+}
+function setTimeField(cell, field, hhmm) {
+  const [h, m] = (hhmm && hhmm.includes(':')) ? hhmm.split(':') : ['', ''];
+  cell.querySelector(`select[data-time-part="${field}"][data-time-unit="hour"]`).value = h;
+  cell.querySelector(`select[data-time-part="${field}"][data-time-unit="min"]`).value = m;
+  cell.querySelector(`[data-field="${field}"]`).value = (h !== '' && m !== '') ? `${h}:${m}` : '';
+}
+function validateTimeRange(cell) {
   if (!cell) return;
   const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
-  const endInput = cell.querySelector('[data-field="end"]');
-  const end = timeToMinutes(endInput.value);
+  const end = timeToMinutes(cell.querySelector('[data-field="end"]').value);
   if (start === null || end === null) return;
   if (end < start) {
-    endInput.value = '';
+    setTimeField(cell, 'end', '');
     showTimePopup(cell, '業務終了時間は業務開始時間より早く設定できません');
     updateLineSummary();
   }
@@ -800,7 +834,7 @@ function openEndOffsetPopover(btn) {
         showTimePopup(cell, '先に業務開始時間を入力してください');
         return;
       }
-      cell.querySelector('[data-field="end"]').value = minutesToTime(start + Number(b.dataset.offset));
+      setTimeField(cell, 'end', minutesToTime(start + Number(b.dataset.offset)));
       closeEndOffsetPopovers();
       updateLineSummary();
     });
