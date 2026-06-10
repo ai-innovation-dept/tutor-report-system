@@ -199,6 +199,28 @@ function tutorStudentsSection(user) {
       ${body}
     </section>`;
 }
+// 保護者に紐づく生徒（有効な担当）。担当講師名も併記する。
+function parentStudentLinks(user) {
+  return allAssignments
+    .filter(assignment => assignment.parent_id === user.id && assignment.is_active)
+    .map(assignment => {
+      const tutor = tutors.find(t => t.id === assignment.tutor_id);
+      return {student: assignment.student_name, tutor: tutor ? tutor.display_name : ''};
+    })
+    .filter(link => link.student)
+    .sort((a, b) => a.student.localeCompare(b.student, 'ja'));
+}
+function parentStudentsSection(user) {
+  const links = parentStudentLinks(user);
+  const body = links.length
+    ? `<ul class="mt-3 space-y-1.5">${links.map(link => `<li class="flex flex-wrap items-center gap-2 text-sm"><span class="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 font-medium text-blue-700">${escapeHtml(link.student)}</span>${link.tutor ? `<span class="text-xs text-slate-500">担当講師：${escapeHtml(link.tutor)}</span>` : ''}</li>`).join('')}</ul>`
+    : '<p class="mt-2 text-sm text-slate-500">紐づく生徒はありません。</p>';
+  return `<section class="border-t border-slate-200 pt-5">
+      <h3 class="font-semibold text-slate-800">紐づく生徒</h3>
+      <p class="mt-1 text-xs text-slate-500">この保護者に紐づく生徒（担当）です。</p>
+      ${body}
+    </section>`;
+}
 function canEditAdminRoles(user) { return userRoles(user).every(role => ['admin_receiver', 'admin_reviewer'].includes(role)); }
 function rolesKey(roles) { return [...roles].sort().join('|'); }
 function currentEditedRoles(user) { return changedRoles[user.id] || userRoles(user); }
@@ -467,6 +489,7 @@ function renderDetailDrawer(id) {
       </dl>
     </section>
     ${isTutor(user) ? tutorStudentsSection(user) : ''}
+    ${isParent(user) ? parentStudentsSection(user) : ''}
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">ロール設定</h3>
       <div class="mt-3">${roleCheckboxes(user, 'drawer')}</div>
