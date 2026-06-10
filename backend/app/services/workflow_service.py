@@ -42,12 +42,13 @@ RETURN_ACTIONS = {
     ReportAction.return_from_master.value,
 }
 
-# 職務分掌：受付工程(receive)と再鑑工程(re_review)は、同一講師に対して同一スタッフが
-# 兼務できない。一度どちらかを承認すると、その講師に対するもう一方の工程の判断
-# （承認・差戻しのいずれも）は全期間にわたり不可
-# （例：講師Bを受付承認した人は講師Bを再鑑承認も再鑑差戻しもできない）。
+# 職務分掌：受付工程(receive)と再鑑工程(re_review)は、同一「報告書」に対して同一スタッフが
+# 兼務できない。ある報告書でどちらかの工程を判断（承認・差戻しのいずれも）すると、
+# その「同じ報告書」のもう一方の工程は不可になる。
+# スコープは報告書単位であり、同一講師でも別の報告書（別生徒・別月）には影響しない
+# （例：報告書Xを受付承認した人は報告書Xの再鑑承認・再鑑差戻しはできないが、別報告書Yは可）。
 # admin_master / admin_chief（最終承認者・フルアクセス）はこの制約の対象外。
-# キー=これから行う操作、値=その操作を不可にする「担当済み」の承認アクション。
+# キー=これから行う操作、値=その操作を不可にする「同一報告書での担当済み」承認アクション。
 SEPARATION_CONFLICT = {
     ReportAction.receive.value: ReportAction.re_review.value,
     ReportAction.re_review.value: ReportAction.receive.value,
@@ -56,10 +57,10 @@ SEPARATION_CONFLICT = {
     ReportAction.return_from_reviewer.value: ReportAction.receive.value,
 }
 _SEPARATION_MESSAGE = {
-    ReportAction.receive.value: "この講師はあなたが再鑑承認を担当済みのため、受付承認はできません（受付と再鑑は同一講師で兼務できません）。",
-    ReportAction.re_review.value: "この講師はあなたが受付承認を担当済みのため、再鑑承認はできません（受付と再鑑は同一講師で兼務できません）。",
-    ReportAction.return_from_receiver.value: "この講師はあなたが再鑑承認を担当済みのため、受付差戻しはできません（受付と再鑑は同一講師で兼務できません）。",
-    ReportAction.return_from_reviewer.value: "この講師はあなたが受付承認を担当済みのため、再鑑差戻しはできません（受付と再鑑は同一講師で兼務できません）。",
+    ReportAction.receive.value: "この報告書はあなたが再鑑承認を担当済みのため、受付承認はできません（受付と再鑑は同一報告書で同一人物が兼務できません）。",
+    ReportAction.re_review.value: "この報告書はあなたが受付承認を担当済みのため、再鑑承認はできません（受付と再鑑は同一報告書で同一人物が兼務できません）。",
+    ReportAction.return_from_receiver.value: "この報告書はあなたが再鑑承認を担当済みのため、受付差戻しはできません（受付と再鑑は同一報告書で同一人物が兼務できません）。",
+    ReportAction.return_from_reviewer.value: "この報告書はあなたが受付承認を担当済みのため、再鑑差戻しはできません（受付と再鑑は同一報告書で同一人物が兼務できません）。",
 }
 
 
@@ -69,11 +70,10 @@ def _role_allowed(required: str, actor: User) -> bool:
     )
 
 
-def _tutor_ids_acted_by(db: Session, actor_id, action: str) -> set:
-    """actor が指定アクション(receive/re_review)を承認済みの講師IDの集合を返す。"""
+def _reports_acted_by(db: Session, actor_id, action: str) -> set:
+    """actor が指定アクション(receive/re_review)を実施した報告書IDの集合を返す。"""
     rows = db.scalars(
-        select(LessonReport.tutor_id)
-        .join(ReportEvent, ReportEvent.report_id == LessonReport.id)
+        select(ReportEvent.report_id)
         .where(ReportEvent.actor_id == actor_id, ReportEvent.action == action)
         .distinct()
     ).all()
@@ -84,17 +84,17 @@ def _assert_separation_of_duties(db: Session, report: LessonReport, actor: User,
     conflicting = SEPARATION_CONFLICT.get(action)
     if not conflicting or has_role(actor, "admin_master") or has_role(actor, "admin_chief"):
         return
-    if report.tutor_id in _tutor_ids_acted_by(db, actor.id, conflicting):
+    if report.id in _reports_acted_by(db, actor.id, conflicting):
         raise HTTPException(status_code=409, detail=_SEPARATION_MESSAGE[action])
 
 
 def separation_locks(db: Session, actor: User) -> dict[str, list[str]]:
-    """UI用：現在のユーザーが受付/再鑑を担当済みの講師ID一覧。admin_master / admin_chief は対象外のため空。"""
+    """UI用：現在のユーザーが受付/再鑑を担当済みの報告書ID一覧。admin_master / admin_chief は対象外のため空。"""
     if has_role(actor, "admin_master") or has_role(actor, "admin_chief"):
-        return {"received_tutor_ids": [], "reviewed_tutor_ids": []}
+        return {"received_report_ids": [], "reviewed_report_ids": []}
     return {
-        "received_tutor_ids": [str(tid) for tid in _tutor_ids_acted_by(db, actor.id, ReportAction.receive.value)],
-        "reviewed_tutor_ids": [str(tid) for tid in _tutor_ids_acted_by(db, actor.id, ReportAction.re_review.value)],
+        "received_report_ids": [str(rid) for rid in _reports_acted_by(db, actor.id, ReportAction.receive.value)],
+        "reviewed_report_ids": [str(rid) for rid in _reports_acted_by(db, actor.id, ReportAction.re_review.value)],
     }
 
 

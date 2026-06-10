@@ -571,8 +571,8 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
 
 @router.get("/admin-separation-locks")
 def admin_separation_locks(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    # 職務分掌のUI制御用：現在のスタッフが受付/再鑑を担当済みの講師IDを返す。
-    # 受付承認した講師は再鑑承認ボタンを、再鑑承認した講師は受付承認ボタンを無効化するために使う。
+    # 職務分掌のUI制御用：現在のスタッフが受付/再鑑を担当済みの報告書IDを返す。
+    # 同一報告書を受付した人はその報告書の再鑑ボタンを、再鑑した人は受付ボタンを無効化するために使う。
     if not user.role.startswith("admin_"):
         raise HTTPException(status_code=403, detail="not allowed")
     return separation_locks(db, user)

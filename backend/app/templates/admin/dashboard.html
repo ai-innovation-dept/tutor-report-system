@@ -164,8 +164,8 @@ let currentRole = '';
 let allReports = [];
 let allAssignments = [];
 let allTutors = [];
-// 職務分掌：自分が受付/再鑑を担当済みの講師ID。受付と再鑑は同一講師で兼務不可。
-let separationLocks = {received_tutor_ids: [], reviewed_tutor_ids: []};
+// 職務分掌：自分が受付/再鑑を担当済みの報告書ID。受付と再鑑は同一報告書で兼務不可。
+let separationLocks = {received_report_ids: [], reviewed_report_ids: []};
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonthValue();
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
 let openCardKey = null;
@@ -317,13 +317,16 @@ function taskConfig() {
   }
   return null;
 }
-// 職務分掌で、この講師に対する現ロールの承認がブロックされる場合に理由文を返す（なければ空文字）。
-function separationLockReason(tutorId) {
-  if (currentRole === 'admin_receiver' && separationLocks.reviewed_tutor_ids.includes(tutorId)) {
-    return 'この講師は再鑑を担当済みのため受付承認・差戻しはできません';
+// 職務分掌で、このグループ（報告書）に対する現ロールの承認がブロックされる場合に理由文を返す（なければ空文字）。
+// スコープは報告書単位：グループ内のいずれかの報告書を自分が逆工程で担当済みならロックする。
+function separationLockReason(group) {
+  if (!group || (currentRole !== 'admin_receiver' && currentRole !== 'admin_reviewer')) return '';
+  const reportIds = (group.reports || []).map(report => report.id);
+  if (currentRole === 'admin_receiver' && reportIds.some(id => separationLocks.reviewed_report_ids.includes(id))) {
+    return 'この報告書は再鑑を担当済みのため受付承認・差戻しはできません';
   }
-  if (currentRole === 'admin_reviewer' && separationLocks.received_tutor_ids.includes(tutorId)) {
-    return 'この講師は受付を担当済みのため再鑑承認・差戻しはできません';
+  if (currentRole === 'admin_reviewer' && reportIds.some(id => separationLocks.received_report_ids.includes(id))) {
+    return 'この報告書は受付を担当済みのため再鑑承認・差戻しはできません';
   }
   return '';
 }
@@ -410,7 +413,7 @@ function renderTasks(groups) {
   taskList.innerHTML = tasks.length ? tasks.map(group => {
     const groupStatus = currentGroupStatus(group.reports);
     const meta = getTaskMeta(group, groupStatus);
-    const lockReason = separationLockReason(group.tutor_id);
+    const lockReason = separationLockReason(group);
     const approveButton = lockReason
       ? `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto cursor-not-allowed opacity-60" style="background:#9CA3AF;" disabled title="${escapeHtml(lockReason)}">${escapeHtml(config.label)}</button>`
       : `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>`;
@@ -657,7 +660,7 @@ async function approveGroup(key) {
   if (!group) return;
   const config = taskConfig();
   if (!config) return;
-  const lockReason = separationLockReason(group.tutor_id);
+  const lockReason = separationLockReason(group);
   if (lockReason) { showToast(lockReason, 'error'); return; }
   const ids = reportIdsForStatus(group, taskStatuses(config));
   if (!ids.length) return;
@@ -669,7 +672,7 @@ function openReturnModal(key) {
   const group = currentGroups().find(item => item.key === key);
   // admin_master/admin_chief は分掌対象外（reasonは空）。兼務スタッフのみロックされる。
   if (group && currentRole !== 'admin_master' && currentRole !== 'admin_chief') {
-    const reason = separationLockReason(group.tutor_id);
+    const reason = separationLockReason(group);
     if (reason) { showToast(reason, 'error'); return; }
   }
   returnTargetKey = key;
@@ -791,7 +794,7 @@ async function loadAdmin() {
   allReports = reports;
   allAssignments = assignments;
   allTutors = tutors.items || tutors;
-  separationLocks = locks || {received_tutor_ids: [], reviewed_tutor_ids: []};
+  separationLocks = locks || {received_report_ids: [], reviewed_report_ids: []};
   renderFilters();
   renderDashboard();
 }
