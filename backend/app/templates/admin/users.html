@@ -210,16 +210,58 @@ function parentStudentLinks(user) {
     .filter(link => link.student)
     .sort((a, b) => a.student.localeCompare(b.student, 'ja'));
 }
+// 保護者未設定（orphan）の有効な担当一覧。紐づけ候補に使う。
+function orphanAssignments() {
+  return allAssignments
+    .filter(assignment => !assignment.parent_id && assignment.is_active)
+    .sort((a, b) => String(a.student_name || '').localeCompare(String(b.student_name || ''), 'ja'));
+}
 function parentStudentsSection(user) {
   const links = parentStudentLinks(user);
   const body = links.length
     ? `<ul class="mt-3 space-y-1.5">${links.map(link => `<li class="flex flex-wrap items-center gap-2 text-sm"><span class="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 font-medium text-blue-700">${escapeHtml(link.student)}</span>${link.tutor ? `<span class="text-xs text-slate-500">担当講師：${escapeHtml(link.tutor)}</span>` : ''}</li>`).join('')}</ul>`
     : '<p class="mt-2 text-sm text-slate-500">紐づく生徒はありません。</p>';
+  let linker = '';
+  if (CURRENT_USER_ROLE === 'admin_master' || CURRENT_USER_ROLE === 'admin_chief') {
+    const orphans = orphanAssignments();
+    linker = orphans.length
+      ? `<div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <div class="text-xs font-medium text-slate-600">保護者未設定の生徒をこの保護者に紐づける</div>
+          <div class="mt-2 flex flex-wrap items-center gap-2">
+            <select id="orphanAssignmentSelect" class="min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+              <option value="">生徒を選択</option>
+              ${orphans.map(a => { const t = tutors.find(x => x.id === a.tutor_id); return `<option value="${a.id}">${escapeHtml(a.student_name)}（担当講師：${escapeHtml(t ? t.display_name : '未設定')}）</option>`; }).join('')}
+            </select>
+            <button type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="linkOrphanToParent('${user.id}')">紐づける</button>
+          </div>
+          <p class="mt-1.5 text-xs text-slate-500">既存の担当に保護者を設定します（報告書にも反映され、講師が承認依頼できるようになります）。</p>
+        </div>`
+      : '<p class="mt-3 text-xs text-slate-400">紐づけ可能な保護者未設定の生徒はありません。</p>';
+  }
   return `<section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">紐づく生徒</h3>
       <p class="mt-1 text-xs text-slate-500">この保護者に紐づく生徒（担当）です。</p>
       ${body}
+      ${linker}
     </section>`;
+}
+async function linkOrphanToParent(parentId) {
+  const select = document.getElementById('orphanAssignmentSelect');
+  const assignmentId = select && select.value;
+  if (!assignmentId) {
+    showToast('紐づける生徒を選択してください', 'error');
+    return;
+  }
+  const assignment = allAssignments.find(a => a.id === assignmentId);
+  if (!confirm(`「${assignment ? assignment.student_name : ''}」をこの保護者に紐づけます。よろしいですか？`)) return;
+  try {
+    await api(`/api/assignments/${assignmentId}`, {method: 'PATCH', body: JSON.stringify({parent_id: parentId})});
+    showToast('生徒を保護者に紐づけました', 'success');
+    await loadUsersPage(paginationState.page);
+    if (selectedUser && selectedUser.id === parentId) renderDetailDrawer(parentId);
+  } catch (error) {
+    showToast(error.message || '紐づけできませんでした', 'error');
+  }
 }
 function canEditAdminRoles(user) { return userRoles(user).every(role => ['admin_receiver', 'admin_reviewer'].includes(role)); }
 function rolesKey(roles) { return [...roles].sort().join('|'); }
