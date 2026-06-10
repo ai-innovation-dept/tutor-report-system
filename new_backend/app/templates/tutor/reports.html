@@ -105,7 +105,7 @@
             </div>
           </div>
           <label class="block text-sm">
-            <span class="mb-1 block text-slate-700">備考欄</span>
+            <span class="mb-1 block text-slate-700">スケジュール欄</span>
             <textarea data-meta="note_schedule" rows="2" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
           </label>
         </div>
@@ -210,13 +210,15 @@ const DEFAULT_FORM_DEFINITION = {
   ],
   summable_keys: ['teach_minutes', 'break_minutes', 'commute_fee']
 };
+// 従事業務内容の既定値（契約に従事業務内容が未設定のときに適用。報告書確認画面にも反映される）
+const DEFAULT_WORK_CONTENT = '付与される権限はなし';
 const DEFAULT_META = {
   dispatch_place_name: '',
   dispatch_place_school_id: '',
   dispatch_place_address: '',
   customer_id: '',
   note_schedule: '月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。',
-  work_content: '',
+  work_content: DEFAULT_WORK_CONTENT,
   our_staff: '',
   tutor_no: '',
   requests: '',
@@ -355,7 +357,7 @@ function contractMetaValues() {
     contract_period: formatContractPeriod(contract.contract_start, contract.contract_end),
     monthly_minutes_fixed: contract.monthly_minutes != null ? String(contract.monthly_minutes) : '',
     weekly_lessons: contract.weekly_lessons != null ? String(contract.weekly_lessons) : '',
-    work_content: contract.work_content || '',
+    work_content: contract.work_content || DEFAULT_WORK_CONTENT,
     note_schedule: contract.shift_note || '',
   };
 }
