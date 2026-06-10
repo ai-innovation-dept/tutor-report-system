@@ -53,21 +53,23 @@
       <div class="grid grid-cols-2 gap-3 sm:gap-6">
         <div class="min-w-0">
           <label class="block mb-1 text-sm text-slate-700" for="startTime">開始時刻</label>
-          <input name="start_time" id="startTime" type="time" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          <input name="start_time" id="startTime" type="time" step="300" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
         </div>
         <div class="min-w-0">
           <label class="block mb-1 text-sm text-slate-700" for="endTime">終了時刻</label>
-          <input name="end_time" id="endTime" type="time" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+          <input name="end_time" id="endTime" type="time" step="300" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
           <p id="endTimeError" class="hidden mt-1 text-xs text-red-600">終了時刻は開始時刻より後の時刻を選択してください</p>
         </div>
       </div>
       <label class="block text-sm">
         <span class="block mb-1 text-slate-700">休憩等の時間（分）</span>
-        <input name="break_minutes" id="breakMinutes" type="number" min="0" step="1" value="0" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+        <input name="break_minutes" id="breakMinutes" type="number" min="0" step="5" value="0" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+        <span class="mt-1 block text-xs text-slate-500">開始・終了時刻、休憩はいずれも5分単位で入力してください。</span>
       </label>
       <label class="block text-sm">
         <span class="block mb-1 text-slate-700">指導時間数</span>
         <input id="teachingMinutesLabel" type="text" value="0分" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700" readonly>
+        <span id="teachingUnitError" class="hidden mt-1 block text-xs text-red-600">指導時間数は0.5時間（30分）単位にしてください。休憩で調整できます（例：在室2時間10分＋休憩10分＝2.0時間）。</span>
       </label>
       <label class="block text-sm">
         <span class="block mb-1 text-slate-700">科目</span>
@@ -379,6 +381,19 @@ function updateComputedFields() {
   lessonDateLabel.textContent = dateLabel(lessonDate.value);
   const minutes = Math.max(0, minutesBetween(startTime.value, endTime.value) - Number(breakMinutes.value || 0));
   teachingMinutesLabel.value = durationLabel(minutes);
+  validateTeachingUnit();
+}
+// 指導時間確認票の記入単位に合わせ、指導時間数（=終了−開始−休憩）は0.5時間（30分）単位とする。
+// 入力（開始・終了・休憩）は5分単位のまま、休憩で30分単位に調整する運用。倍数でなければ保存不可。
+function validateTeachingUnit() {
+  const hasValidTimes = Boolean(startTime.value && endTime.value && endTime.value > startTime.value);
+  const minutes = hasValidTimes ? Math.max(0, minutesBetween(startTime.value, endTime.value) - Number(breakMinutes.value || 0)) : 0;
+  const invalid = hasValidTimes && (minutes <= 0 || minutes % 30 !== 0);
+  breakMinutes.setCustomValidity(invalid ? '指導時間数を0.5時間（30分）単位にしてください。休憩で調整できます。' : '');
+  teachingUnitError.classList.toggle('hidden', !invalid);
+  teachingMinutesLabel.classList.toggle('border-red-500', invalid);
+  teachingMinutesLabel.classList.toggle('text-red-600', invalid);
+  teachingMinutesLabel.classList.toggle('border-slate-200', !invalid);
 }
 function resetReportForm(keepAssignment = false) {
   const currentAssignment = assignment.value;
