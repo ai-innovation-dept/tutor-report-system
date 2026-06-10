@@ -222,10 +222,12 @@
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
+        items.push(navLink('/admin/assignments', '担当管理'));
       } else if (user.role === 'admin_chief') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
+        items.push(navLink('/admin/assignments', '担当管理'));
       }
       navItems.innerHTML = items.join('');
 

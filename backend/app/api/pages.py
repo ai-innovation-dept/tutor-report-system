@@ -396,6 +396,7 @@ def admin_stale_reports_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/admin/queue/approve", response_class=HTMLResponse)
 @router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
 @router.get("/admin/users", response_class=HTMLResponse)
+@router.get("/admin/assignments", response_class=HTMLResponse)
 def admin_pages(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
     if not user or not user.role.startswith("admin_"):
@@ -410,6 +411,7 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
             "/admin/queue/review",
             "/admin/queue/approve",
             "/admin/users",
+            "/admin/assignments",
         },
         "admin_chief": {
             "/admin/dashboard",
@@ -417,6 +419,7 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
             "/admin/queue/review",
             "/admin/queue/approve",
             "/admin/users",
+            "/admin/assignments",
         },
     }
     if not (path.startswith("/admin/reports/") or path in allowed_paths.get(user.role, set())):
@@ -424,5 +427,7 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     context = _base_context(request, user)
     if path == "/admin/users":
         return templates.TemplateResponse(request, "admin/users.html", context=context)
+    if path == "/admin/assignments":
+        return templates.TemplateResponse(request, "admin/assignments.html", context=context)
     return templates.TemplateResponse(request, "admin/dashboard.html", context=context)
 # === Phase 9 END ===
