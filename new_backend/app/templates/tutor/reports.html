@@ -1,5 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+  /* 数値入力の上下矢印（スピナー）を非表示にして横幅を節約（モバイルは inputmode=numeric で数字キーパッド維持） */
+  #reportForm input[type=number]::-webkit-inner-spin-button,
+  #reportForm input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #reportForm input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+</style>
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
   <section id="reportListPanel" class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -544,22 +550,28 @@ function renderLineHeader(form) {
   for (let index = 0; index < columns.length; index += 1) {
     const column = columns[index];
     if (column.key === 'date') {
-      headers.push(`<th class="w-36 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
-      headers.push('<th class="w-14 px-2 py-2 text-center">曜日</th>');
+      headers.push(`<th class="w-32 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push('<th class="w-12 px-2 py-2 text-center">曜日</th>');
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
-        headers.push('<th class="w-48 px-2 py-2 text-left">業務開始時間〜業務終了時間</th>');
+        headers.push('<th class="w-44 px-2 py-2 text-left">業務開始〜終了時間</th>');
         index += 1;
       } else {
-        headers.push(`<th class="w-28 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+        headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
       }
     } else if (column.key === 'end') {
-      headers.push(`<th class="w-28 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+    } else if (column.key === 'subject_period') {
+      headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'note') {
       headers.push(`<th class="min-w-64 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'count_minutes') {
-      headers.push(`<th class="w-48 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-44 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+    } else if (column.type === 'number') {
+      // 分は最大4桁。往復交通費(円)はやや広め
+      const width = column.key === 'commute_fee' ? 'w-24' : 'w-20';
+      headers.push(`<th class="${width} px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else {
       headers.push(`<th class="w-32 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     }
@@ -586,22 +598,22 @@ function renderCell(column, line) {
   if (column.key === 'start') {
     return `<td class="relative px-2 py-1" data-time-range>
       <div class="flex items-center gap-1">
-        <input type="time" data-field="start" value="${escapeHtml(line.start || '')}" class="${inputClasses('w-[82px]')}">
+        <input type="time" data-field="start" value="${escapeHtml(line.start || '')}" class="${inputClasses('w-[78px]')}">
         <span class="text-slate-500">〜</span>
-        <input type="time" data-field="end" value="${escapeHtml(line.end || '')}" class="${inputClasses('w-[82px]')}">
-        <select data-quick-end title="開始時間からの経過時間で終了時間を設定" class="h-9 w-[92px] rounded border border-slate-300 px-1 text-xs text-slate-600 focus:border-emerald-500 focus:outline-none">
-          <option value="">開始から▼</option>
-          <option value="30">＋30分</option>
-          <option value="60">＋1時間</option>
-          <option value="90">＋1時間半</option>
-          <option value="120">＋2時間</option>
-          <option value="180">＋3時間</option>
-          <option value="240">＋4時間</option>
-        </select>
+        <input type="time" data-field="end" value="${escapeHtml(line.end || '')}" class="${inputClasses('w-[78px]')}">
       </div>
     </td>`;
   }
   if (column.key === 'end') return '';
+  if (column.key === 'subject_period') {
+    const summary = parseSubjectPeriods(line.subject_period).join('・');
+    return `<td class="px-2 py-1">
+      <div class="relative" data-period-cell>
+        <input type="hidden" data-field="subject_period" value="${escapeHtml(line.subject_period || '')}">
+        <button type="button" data-period-btn title="クリックして時限を複数選択" class="line-period-btn h-9 w-full overflow-hidden rounded border border-slate-300 px-2 text-left text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 ${summary ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${summary ? escapeHtml(summary) : '選択'}</span></button>
+      </div>
+    </td>`;
+  }
   if (column.type === 'count_minutes') {
     return `<td class="px-2 py-1">
       <div class="flex items-center gap-1">
@@ -624,7 +636,6 @@ function buildLineRows(lines) {
   </tr>`).join('');
   lineRows.querySelectorAll('.line-input').forEach(input => {
     input.addEventListener('input', () => {
-      if (input.dataset.field === 'subject_period') enforceSubjectPeriod(input);
       if (input.dataset.field === 'date') {
         input.closest('tr').querySelector('[data-weekday]').textContent = weekdayLabel(input.value);
       }
@@ -634,8 +645,8 @@ function buildLineRows(lines) {
       input.addEventListener('change', () => enforceTimeOrder(input));
     }
   });
-  lineRows.querySelectorAll('[data-quick-end]').forEach(select => {
-    select.addEventListener('change', () => applyQuickEnd(select));
+  lineRows.querySelectorAll('[data-period-btn]').forEach(btn => {
+    btn.addEventListener('click', () => openPeriodPopover(btn));
   });
   updateLineSummary();
 }
@@ -669,31 +680,72 @@ function enforceTimeOrder(input) {
     updateLineSummary();
   }
 }
-function applyQuickEnd(select) {
-  const cell = select.closest('[data-time-range]');
-  const minutes = Number(select.value);
-  select.value = '';
-  if (!cell || !minutes) return;
-  const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
-  if (start === null) {
-    showTimePopup(cell, '先に業務開始時間を入力してください');
-    return;
-  }
-  cell.querySelector('[data-field="end"]').value = minutesToTime(start + minutes);
-  updateLineSummary();
+// 担当時限：複数選択（1〜10）。値は「1・3・6」の文字列で保持（report_view/PDF/既存単一値と互換）。
+function parseSubjectPeriods(value) {
+  return String(value || '').split('・').map(s => s.trim()).filter(s => s !== '');
 }
-function enforceSubjectPeriod(input) {
-  if (input.value === '') return;
-  if (!/^\d+$/.test(input.value) || Number(input.value) < 1 || Number(input.value) > 10) {
-    input.value = '';
-  }
+function refreshPeriodCell(cell) {
+  const hidden = cell.querySelector('[data-field="subject_period"]');
+  const btn = cell.querySelector('[data-period-btn]');
+  const summary = parseSubjectPeriods(hidden.value).join('・');
+  btn.querySelector('span').textContent = summary || '選択';
+  btn.classList.toggle('text-slate-400', !summary);
+  btn.classList.toggle('text-slate-800', !!summary);
 }
+function closePeriodPopovers() {
+  document.querySelectorAll('.period-popover').forEach(el => el.remove());
+}
+function openPeriodPopover(btn) {
+  const cell = btn.closest('[data-period-cell]');
+  const alreadyOpen = cell.querySelector('.period-popover');
+  closePeriodPopovers();
+  if (alreadyOpen) return; // 同じセルのボタン再クリックでトグル的に閉じる
+  const hidden = cell.querySelector('[data-field="subject_period"]');
+  const selected = new Set(parseSubjectPeriods(hidden.value));
+  const toggleClass = on => on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-700';
+  const popover = document.createElement('div');
+  popover.className = 'period-popover absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-slate-300 bg-white p-2 shadow-lg';
+  popover.innerHTML = `
+    <div class="grid grid-cols-5 gap-1">
+      ${[1,2,3,4,5,6,7,8,9,10].map(n => `<button type="button" data-period-toggle="${n}" class="h-8 rounded border text-sm ${toggleClass(selected.has(String(n)))}">${n}</button>`).join('')}
+    </div>
+    <div class="mt-2 flex items-center justify-between">
+      <button type="button" data-period-clear class="text-xs text-slate-500 hover:text-slate-700">クリア</button>
+      <button type="button" data-period-close class="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700">閉じる</button>
+    </div>`;
+  cell.appendChild(popover);
+  const commit = () => {
+    hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
+    refreshPeriodCell(cell);
+    updateLineSummary();
+  };
+  popover.querySelectorAll('[data-period-toggle]').forEach(tb => {
+    tb.addEventListener('click', () => {
+      const n = tb.dataset.periodToggle;
+      if (selected.has(n)) selected.delete(n); else selected.add(n);
+      tb.className = `h-8 rounded border text-sm ${toggleClass(selected.has(n))}`;
+      commit();
+    });
+  });
+  popover.querySelector('[data-period-clear]').addEventListener('click', () => {
+    selected.clear();
+    popover.querySelectorAll('[data-period-toggle]').forEach(tb => { tb.className = `h-8 rounded border text-sm ${toggleClass(false)}`; });
+    commit();
+  });
+  popover.querySelector('[data-period-close]').addEventListener('click', closePeriodPopovers);
+}
+// 担当時限ポップオーバーの外側クリックで閉じる
+document.addEventListener('click', event => {
+  if (!event.target.closest('[data-period-cell]')) closePeriodPopovers();
+});
 function collectLines() {
   const numericKeys = new Set();
   (selectedFormDefinition().columns || []).forEach(column => {
     if (column.type === 'count_minutes') { numericKeys.add(column.count_key); numericKeys.add(column.minutes_key); }
     else if (column.type === 'number') numericKeys.add(column.key);
   });
+  // 担当時限は複数選択（"1・3・6"）のため数値化せず文字列で保持する
+  numericKeys.delete('subject_period');
   return [...lineRows.querySelectorAll('tr')].map(row => {
     const line = emptyLine(selectedFormDefinition());
     row.querySelectorAll('[data-field]').forEach(input => {
@@ -927,9 +979,12 @@ reportForm.addEventListener('submit', async e => {
     showFormMessage('少なくとも1行入力してください', true);
     return;
   }
-  const invalidPeriod = lines.some(line => line.subject_period !== '' && (Number(line.subject_period) < 1 || Number(line.subject_period) > 10));
+  const invalidPeriod = lines.some(line => parseSubjectPeriods(line.subject_period).some(p => {
+    const n = Number(p);
+    return !Number.isInteger(n) || n < 1 || n > 10;
+  }));
   if (invalidPeriod) {
-    showFormMessage('担当時限は1〜10で入力してください', true);
+    showFormMessage('担当時限は1〜10で選択してください', true);
     return;
   }
   const invalidTime = lines.some(line => line.start && line.end && line.end < line.start);
