@@ -152,28 +152,31 @@ function renderForm(contract) {
         <div id="taskRows" class="space-y-3">
           ${Array.from({length: MAX_TASKS}, (_, i) => taskRow(i + 1, tasks[i])).join('')}
         </div>
-        <p class="mt-2 text-xs text-slate-500">委託業務は報告書で「業務名（分）」列になります（分のみ）。回数も記録する項目は下の「項目列（回数＋分）」をご利用ください。</p>
+        <p class="mt-2 text-xs text-slate-500">委託業務は報告書で「業務名（分）」列になります（分のみ）。回数も記録する項目は下の「任意項目列」をご利用ください。</p>
       </div>
 
       <div class="rounded-lg border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <span class="text-sm font-medium text-slate-800">項目列（回数＋分）</span>
-            <p class="mt-0.5 text-xs text-slate-500">報告書に「項目名（単位）」列（1セルに 単位／分 を入力）を追加します。項目名・単位は自由に設定できます（分は固定）。</p>
+            <span class="text-sm font-medium text-slate-800">任意項目列</span>
+            <p class="mt-0.5 text-xs text-slate-500">報告書に「項目（単位）」列を1つ追加します。1セルに「nn単位 / nn分」を入力（分は固定）。例：項目「教科会」・単位「回」→ 報告書に「教科会（回）」列、値は nn回 / nn分。</p>
           </div>
           <label class="inline-flex cursor-pointer items-center gap-2 text-sm">
             <input id="scoringEnabled" type="checkbox" ${contract?.scoring_enabled ? 'checked' : ''} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" onchange="toggleScoringFields()">
-            <span class="font-medium text-slate-700">この項目を追加する</span>
+            <span class="font-medium text-slate-700">項目を追加する</span>
           </label>
         </div>
         <div id="scoringFields" class="mt-3 grid gap-2 sm:grid-cols-2 ${contract?.scoring_enabled ? '' : 'hidden'}">
           <label class="block text-sm">
-            <span class="mb-1 block text-slate-600">項目名</span>
+            <span class="mb-1 block text-slate-600">項目</span>
             <input id="scoringLabel" value="${escapeHtml(contract?.scoring_label || '採点')}" maxlength="50" placeholder="例：採点／教科会／進路相談" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
           </label>
           <label class="block text-sm">
-            <span class="mb-1 block text-slate-600">単位（分は固定）</span>
-            <input id="scoringUnit" value="${escapeHtml(contract?.scoring_unit || '回')}" maxlength="10" placeholder="例：回／人／日" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+            <span class="mb-1 block text-slate-600">単位</span>
+            <div class="flex items-center gap-1">
+              <input id="scoringUnit" value="${escapeHtml(contract?.scoring_unit || '回')}" maxlength="10" placeholder="例：回／人／日" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+              <span class="whitespace-nowrap text-slate-500">/分</span>
+            </div>
           </label>
           <label class="block text-sm">
             <span class="mb-1 block text-slate-600">委託業務ID</span>
