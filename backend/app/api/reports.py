@@ -583,18 +583,19 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         # ヘッダー：講師名 / 講師No. / 合計時間数
         header = Table(
             [["講師名", tutor.display_name if tutor else "", "講師No.", tutor_no, "合計時間数", f"{_hours_label(total_minutes)} 時間"]],
-            colWidths=[18 * mm, content_w - 114 * mm, 20 * mm, 24 * mm, 24 * mm, 28 * mm],
+            colWidths=[22 * mm, 80 * mm, 24 * mm, 48 * mm, 30 * mm, content_w - 204 * mm],
+            rowHeights=[11 * mm],
         )
         header.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), font_name),
-            ("FONTSIZE", (0, 0), (-1, -1), 10),
+            ("FONTSIZE", (0, 0), (-1, -1), 13),
             ("GRID", (0, 0), (-1, -1), 0.6, colors.black),
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BACKGROUND", (0, 0), (0, 0), colors.HexColor("#e8e8e8")),
             ("BACKGROUND", (2, 0), (2, 0), colors.HexColor("#e8e8e8")),
             ("BACKGROUND", (4, 0), (4, 0), colors.HexColor("#e8e8e8")),
             ("ALIGN", (2, 0), (5, 0), "CENTER"),
-            ("LEFTPADDING", (1, 0), (1, 0), 6),
+            ("LEFTPADDING", (1, 0), (1, 0), 8),
         ]))
 
         # 明細グリッド（回数1-10／11-20）
@@ -624,6 +625,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
                 [Paragraph(f"会員番号　{member_no}　　生徒名　{_student_name(first)}　　保護者名　{parent_name}", note_style), ""],
             ],
             colWidths=[26 * mm, half_w - 26 * mm],
+            rowHeights=[7 * mm, 7 * mm, 7 * mm, 7 * mm],
         )
         left_info.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), font_name),
@@ -639,7 +641,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
 
-        stamp_w = half_w / 3
+        stamp_w = (half_w - 3 * mm) / 3
         stamps_table = Table(
             [
                 ["受付", "再鑑", "管理者"],
@@ -649,7 +651,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
                     _confirmation_stamp("管理者", stamps_map.get("管理者"), font_name),
                 ],
             ],
-            colWidths=[stamp_w, stamp_w, stamp_w], rowHeights=[6 * mm, 20 * mm],
+            colWidths=[stamp_w, stamp_w, stamp_w], rowHeights=[6 * mm, 22 * mm],
         )
         stamps_table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), font_name),
@@ -660,7 +662,8 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
         ]))
 
-        sign = Table([[left_info, stamps_table]], colWidths=[half_w, half_w])
+        # 左ブロックと押印枠は独立させ、間を3mm（明細グリッドと下部表の間隔と同じ）空ける
+        sign = Table([[left_info, "", stamps_table]], colWidths=[half_w, 3 * mm, half_w - 3 * mm])
         sign.setStyle(TableStyle([
             ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0),
