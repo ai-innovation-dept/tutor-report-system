@@ -138,3 +138,50 @@ def test_parent_cannot_create_invitation(client, db):
         json={"email": "invitee@example.com", "tutor_id": str(tutor.id), "student_name": "招待 生徒"},
     )
     assert res.status_code == 403
+
+
+def test_invite_reuses_parentless_assignment_no_duplicate(client, db, monkeypatch):
+    """保護者未設定の既存担当に保護者を招待すると、重複を作らず既存担当を再利用して紐づく。"""
+    async def fake_send(self, to, subject, body):
+        pass
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    orphan = Assignment(tutor_id=tutor.id, parent_id=None, student_name="二郎", is_active=True)
+    db.add(orphan)
+    db.commit()
+    db.refresh(orphan)
+
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": parent.email, "tutor_id": str(tutor.id), "student_name": "二郎"},
+    )
+    assert res.status_code == 200, res.text
+    db.expire_all()
+    matches = db.query(Assignment).filter(Assignment.tutor_id == tutor.id, Assignment.student_name == "二郎").all()
+    assert len(matches) == 1  # 重複担当が作られない
+    assert matches[0].id == orphan.id
+    assert matches[0].parent_id == parent.id
+
+
+def test_invite_conflicts_when_student_already_has_other_parent(client, db, monkeypatch):
+    """同一(講師,生徒名)が別の保護者に紐づき済みなら、招待は409で拒否（誤った付け替え防止）。"""
+    async def fake_send(self, to, subject, body):
+        pass
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    db.add(Assignment(tutor_id=tutor.id, parent_id=parent.id, student_name="三郎", is_active=True))
+    db.commit()
+
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": "another-parent@example.com", "tutor_id": str(tutor.id), "student_name": "三郎"},
+    )
+    assert res.status_code == 409, res.text

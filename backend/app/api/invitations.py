@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
@@ -124,6 +124,21 @@ def _assignment_for_parent_payload(payload: InvitationCreate, db: Session) -> As
         assignment.student_name = student_name
         assignment.is_active = True
         return assignment
+    # 重複防止：同一(講師, 生徒名)の有効な担当が既にあれば再利用する。
+    # 保護者未設定なら再利用して保護者を紐づけ（＝二郎型の重複生成を防止）、
+    # 別の保護者が設定済みなら誤った付け替えを避けるため競合として拒否する。
+    existing = db.scalar(
+        select(Assignment).where(
+            Assignment.tutor_id == payload.tutor_id,
+            Assignment.student_name == student_name,
+            Assignment.is_active.is_(True),
+            or_(Assignment.system_type != "new", Assignment.system_type.is_(None)),
+        )
+    )
+    if existing is not None:
+        if existing.parent_id is not None:
+            raise HTTPException(status_code=409, detail="同じ講師・生徒名の担当が既に存在します")
+        return existing
     assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=None, is_active=True)
     db.add(assignment)
     db.flush()
