@@ -614,15 +614,16 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
         ]))
 
-        # 月計・会員番号・生徒名・保護者名
+        # 下部：左半分＝月計・会員番号・生徒名・保護者名／右半分＝受付・再鑑・管理者の電子印。
+        # グリッド中央の仕切り線に揃うよう左右をそれぞれ half_w 幅にし、外側テーブルの余白は0にする。
         left_info = Table(
             [
                 ["年月分", year_month],
                 ["月計", f"{len(items)} 回　{_hours_label(total_minutes)} 時間"],
                 [Paragraph("上記指導日時・時間数に相違ありません。", note_style), ""],
-                [f"会員番号　{member_no}", f"生徒名　{_student_name(first)}　保護者名　{parent_name}"],
+                [Paragraph(f"会員番号　{member_no}　　生徒名　{_student_name(first)}　　保護者名　{parent_name}", note_style), ""],
             ],
-            colWidths=[26 * mm, half_w * 1.24 - 26 * mm],
+            colWidths=[26 * mm, half_w - 26 * mm],
         )
         left_info.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), font_name),
@@ -631,12 +632,14 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ("BACKGROUND", (0, 0), (0, 1), colors.HexColor("#e8e8e8")),
             ("SPAN", (0, 2), (1, 2)),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("SPAN", (0, 3), (1, 3)),
+            ("LEFTPADDING", (0, 0), (-1, -1), 5),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
             ("TOPPADDING", (0, 0), (-1, -1), 4),
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
 
-        stamp_w = (content_w - half_w * 1.24) / 3
+        stamp_w = half_w / 3
         stamps_table = Table(
             [
                 ["受付", "再鑑", "管理者"],
@@ -657,8 +660,14 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#e8e8e8")),
         ]))
 
-        sign = Table([[left_info, stamps_table]], colWidths=[half_w * 1.24, content_w - half_w * 1.24])
-        sign.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP")]))
+        sign = Table([[left_info, stamps_table]], colWidths=[half_w, half_w])
+        sign.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
 
         story.extend([
             header,
