@@ -53,6 +53,18 @@ def _dashboard(role: str) -> str:
     return _DASHBOARD.get(role, "/")
 
 
+def _clear_session_cookies(response: Response) -> None:
+    """新システムのセッションCookieを破棄する。
+
+    招待者（経理など）が自分のブラウザでログインしたまま招待URLを開いて
+    登録を完了すると、残存セッションのまま招待者のダッシュボードへ遷移して
+    しまう不具合があったため、登録完了時にCookieを必ず破棄して
+    メールアドレス＋パスワードのログイン画面へ確実に戻す。
+    """
+    response.delete_cookie("w_access_token")
+    response.delete_cookie("w_selected_role")
+
+
 @router.post("/login", response_model=TokenResponse)
 def login(payload: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = authenticate(db, str(payload.username), payload.password)
@@ -153,7 +165,7 @@ def register_info(token: str, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=RegisterOut)
-def register(payload: RegisterIn, db: Session = Depends(get_db)):
+def register(payload: RegisterIn, response: Response, db: Session = Depends(get_db)):
     inv = _valid_invitation(payload.token, db)
     existing_user = db.scalar(select(User).where(User.email == inv.email))
 
@@ -182,6 +194,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
             existing_user.tutor_no = user_no
         inv.accepted_at = datetime.now(timezone.utc)
         db.commit()
+        _clear_session_cookies(response)
         return RegisterOut(message="registered")
 
     user = User(
@@ -199,6 +212,7 @@ def register(payload: RegisterIn, db: Session = Depends(get_db)):
     db.add(user)
     inv.accepted_at = datetime.now(timezone.utc)
     db.commit()
+    _clear_session_cookies(response)
     return RegisterOut(message="registered")
 
 
