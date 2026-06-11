@@ -45,6 +45,13 @@
         </span>
         <select name="assignment_id" id="assignment" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
       </label>
+      <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <button type="button" id="copyLastButton" onclick="copyLastReport()" class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+          前回の記入分をコピー
+        </button>
+        <p id="copyLastHint" class="mt-1.5 text-xs text-slate-500"></p>
+      </div>
       <label class="block text-sm">
         <span class="block mb-1 text-slate-700">指導日</span>
         <input name="lesson_date" id="lessonDate" type="date" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
@@ -289,13 +296,16 @@ function setEndTimeDisabled(disabled) {
     el.classList.toggle('cursor-not-allowed', disabled);
   });
 }
+let reportInputsDisabled = true;
 function setReportInputsDisabled(disabled) {
+  reportInputsDisabled = disabled;
   [lessonDate, startHour, startMin, endHour, endMin, breakMinutes, subject, content, saveButton].forEach(el => {
     el.disabled = disabled;
   });
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
   if (!disabled) setEndTimeDisabled(!startTime.value);
+  updateCopyLastButton();
 }
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
@@ -457,6 +467,46 @@ function resetReportForm(keepAssignment = false) {
   saveButton.textContent = '保存';
   setEndTimeDisabled(true);
   updateComputedFields();
+  updateCopyLastButton();
+}
+// 前回コピー: 選択中の生徒の直近の報告書（編集中の報告書自身は除く）をコピー元とする。
+// allReports は loadTutor() で全月分が古い順に入っているため、末尾の該当データが「前回」。
+function lastReportForAssignment(assignmentId) {
+  if (!assignmentId) return null;
+  const candidates = allReports.filter(r => r.assignment_id === assignmentId && r.id !== editingId.value);
+  return candidates.length ? candidates[candidates.length - 1] : null;
+}
+function updateCopyLastButton() {
+  const source = lastReportForAssignment(assignment.value);
+  const disabled = reportInputsDisabled || !source;
+  copyLastButton.disabled = disabled;
+  copyLastButton.classList.toggle('opacity-50', disabled);
+  copyLastButton.classList.toggle('cursor-not-allowed', disabled);
+  if (!assignment.value) {
+    copyLastHint.textContent = '生徒を選択するとコピーできます';
+  } else if (!source) {
+    copyLastHint.textContent = 'コピーできる前回の報告書はありません';
+  } else {
+    copyLastHint.textContent = `前回：${reportSummary(source)}`;
+  }
+}
+// 指導日はコピーしない（当月分のみ作成可のため）。コピー後は指導日の入力へ誘導する。
+function copyLastReport() {
+  const source = lastReportForAssignment(assignment.value);
+  if (!source || copyLastButton.disabled) return;
+  if ((subject.value.trim() || content.value.trim()) && !confirm('入力中の科目・指導内容を前回の内容で上書きします。よろしいですか。')) return;
+  setTimeSelects(startHour, startMin, source.start_time);
+  syncStartTime();
+  setEndTimeDisabled(!startTime.value);
+  setTimeSelects(endHour, endMin, source.end_time);
+  syncEndTime();
+  breakMinutes.value = snapBreakMinutes(source.break_minutes);
+  subject.value = source.subject || '';
+  content.value = source.content || '';
+  validateEndTime();
+  updateComputedFields();
+  showFormMessage(`前回（${dateLabel(source.lesson_date)}）の内容をコピーしました。指導日を確認して保存してください。`);
+  if (!lessonDate.value) lessonDate.focus();
 }
 function editReport(id) {
   const r = allReports.find(item => item.id === id);
@@ -476,6 +526,7 @@ function editReport(id) {
   formTitle.textContent = `編集中：${dateLabel(r.lesson_date)}`;
   saveButton.textContent = '保存';
   updateComputedFields();
+  updateCopyLastButton();
   formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 async function deleteReport(id) {
