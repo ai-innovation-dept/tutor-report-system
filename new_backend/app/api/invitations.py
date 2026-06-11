@@ -1,4 +1,4 @@
-"""招待管理 API。admin_master / admin_chief が操作可能。"""
+"""招待管理 API。経理（admin_master / admin_chief）・営業・事務が操作可能。"""
 import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
@@ -74,7 +74,7 @@ async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     email = str(payload.email).lower()
     if payload.role not in ALLOWED_INVITATION_ROLES:
@@ -131,7 +131,7 @@ async def create_invitation(
 @router.get("", response_model=list[InvitationOut])
 def list_invitations(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     invs = db.scalars(
         select(Invitation)
@@ -145,7 +145,7 @@ def list_invitations(
 def delete_invitation(
     invitation_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     inv = db.get(Invitation, invitation_id)
     if not inv:

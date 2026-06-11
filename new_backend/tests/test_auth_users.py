@@ -418,6 +418,26 @@ class TestUserManagement:
         assert res.status_code == 200
         assert res.json()["total"] >= 2
 
+    def test_office_can_list_users_and_invite(self, client, master_user):
+        # 事務もユーザ管理（一覧・招待）を営業・経理と同等に利用できる
+        db = TestSession()
+        u = User(email="office_mgr@x.example.com", role="office", roles=["office"], display_name="事務",
+                 password_hash=hash_password("Passw0rd!"), allowed_systems=["new"])
+        db.add(u); db.commit(); db.close()
+        h = _auth(client, "office_mgr@x.example.com")
+        res = client.get("/api/w/users", headers=h)
+        assert res.status_code == 200
+        assert res.json()["total"] >= 2
+        invited = client.post("/api/w/invitations",
+                              json={"role": "tutor", "email": "office_invited@x.example.com"},
+                              headers=h)
+        assert invited.status_code == 201, invited.text
+        # 管理責任者の招待は引き続き管理責任者のみ
+        chief_invite = client.post("/api/w/invitations",
+                                   json={"role": "admin_chief", "email": "x_chief@x.example.com"},
+                                   headers=h)
+        assert chief_invite.status_code == 403
+
 
 # ---------------------------------------------------------------------------
 # Assignment 管理

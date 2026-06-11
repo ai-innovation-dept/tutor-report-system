@@ -188,13 +188,11 @@ def finance_queue(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "finance/queue.html", _ctx(request, user))
 
 
-@router.get("/admin/dashboard", response_class=HTMLResponse)
-def admin_dashboard(request: Request, db: Session = Depends(get_db)):
-    # 承認フロー変更に伴い、統合ダッシュボードは経理（管理者・管理責任者）に加えて営業も利用可
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
-    if redirect:
-        return redirect
-    return templates.TemplateResponse(request, "admin/dashboard.html", _ctx(request, user))
+@router.get("/admin/dashboard", include_in_schema=False)
+def admin_dashboard_redirect():
+    # 統合ダッシュボードは廃止（各ロールのダッシュボードと重複のため）。
+    # 旧URLへのアクセスはルートへ戻し、ロール別のダッシュボードへ振り分ける。
+    return RedirectResponse(url="/", status_code=301)
 
 
 @router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
@@ -211,8 +209,8 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
 
 @router.get("/admin/users", response_class=HTMLResponse)
 def admin_users(request: Request, db: Session = Depends(get_db)):
-    # 承認フロー変更に伴い、ユーザ管理は経理（管理者・管理責任者）に加えて営業も利用可
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
+    # 承認フロー変更に伴い、ユーザ管理は経理（管理者・管理責任者）に加えて営業・事務も利用可
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales", "office"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/users.html", _ctx(request, user))
@@ -220,8 +218,8 @@ def admin_users(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/contracts", response_class=HTMLResponse)
 def admin_contracts(request: Request, db: Session = Depends(get_db)):
-    # 承認フロー変更に伴い、契約管理は経理（管理者・管理責任者）に加えて営業も利用可
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
+    # 承認フロー変更に伴い、契約管理は経理（管理者・管理責任者）に加えて営業・事務も利用可
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales", "office"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/contracts.html", _ctx(request, user))

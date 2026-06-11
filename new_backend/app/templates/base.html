@@ -187,7 +187,6 @@
       const path = window.location.pathname;
       if (href === '/tutor/reports') return path === '/tutor/reports' || path.startsWith('/tutor/reports/');
       if (href === '/tutor/students') return path === '/tutor/students';
-      if (href === '/admin/dashboard') return path === '/admin/dashboard';
       return path === href;
     }
 
@@ -233,22 +232,21 @@
       } else if (user.role === 'sales') {
         navHome.href = '/sales/queue';
         items.push(navLink('/sales/queue', 'ダッシュボード'));
-        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'office') {
         navHome.href = '/office/queue';
         items.push(navLink('/office/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/contracts', '契約管理'));
+        items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/finance/queue';
         items.push(navLink('/finance/queue', 'ダッシュボード'));
-        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'admin_chief') {
         navHome.href = '/finance/queue';
         items.push(navLink('/finance/queue', 'ダッシュボード'));
-        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       }

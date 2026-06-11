@@ -397,14 +397,28 @@ class TestSalesContractAccess:
         assert listed.status_code == 200
         assert len(listed.json()) == 1
 
-    def test_office_still_forbidden_from_contracts(self, client, db, setup):
-        # 事務は契約管理の対象外（営業・経理・管理責任者のみ）
-        _add_user(db, "office@x.example.com", "office")
+    def test_tutor_forbidden_from_contracts(self, client, db, setup):
+        # 講師は契約管理の対象外（経理・管理責任者・営業・事務のみ）
         res = client.post(
+            "/api/w/contracts", json=_payload(setup),
+            headers=_auth(client, "tutor@x.example.com"),
+        )
+        assert res.status_code == 403
+
+
+class TestOfficeContractAccess:
+    """事務ロールも契約管理を営業・経理と同等に利用できる。"""
+
+    def test_office_can_create_and_list_contracts(self, client, db, setup):
+        _add_user(db, "office@x.example.com", "office")
+        created = client.post(
             "/api/w/contracts", json=_payload(setup),
             headers=_auth(client, "office@x.example.com"),
         )
-        assert res.status_code == 403
+        assert created.status_code == 201, created.text
+        listed = client.get("/api/w/contracts", headers=_auth(client, "office@x.example.com"))
+        assert listed.status_code == 200
+        assert len(listed.json()) == 1
 
 
 class TestChiefContractAccess:

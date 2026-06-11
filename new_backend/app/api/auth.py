@@ -45,7 +45,8 @@ _DASHBOARD = {
     "school": "/school/approval",
     "sales": "/sales/queue",
     "office": "/office/queue",
-    "admin_master": "/admin/dashboard",
+    "admin_master": "/finance/queue",
+    "admin_chief": "/finance/queue",
 }
 
 
