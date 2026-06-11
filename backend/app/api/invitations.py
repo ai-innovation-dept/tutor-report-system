@@ -154,6 +154,9 @@ def prepare_parent_invitation_for_assignment(
     email = email.lower()
     now = datetime.now(timezone.utc)
     existing_user = db.scalar(select(User).where(User.email == email))
+    # 削除済み（ソフトデリート）ユーザーは通常の招待として扱い、登録時に同一アカウントを復活させる
+    if existing_user and existing_user.deleted_at:
+        existing_user = None
     if existing_user and existing_user.role != "parent":
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
     if existing_user:
@@ -217,7 +220,10 @@ async def create_invitation(
     existing_user = db.scalar(select(User).where(User.email == email))
     # 所属の基準は allowed_systems。既に当(legacy)システムに登録済みの場合のみ重複扱い。
     # 他システムのみ登録済みのユーザーは招待を許可し、登録時に同一ユーザーへ統合する。
-    existing_in_legacy = bool(existing_user and "legacy" in (existing_user.allowed_systems or []))
+    # 削除済み（ソフトデリート）ユーザーも招待を許可し、登録時に同一アカウントを復活させる。
+    existing_in_legacy = bool(
+        existing_user and not existing_user.deleted_at and "legacy" in (existing_user.allowed_systems or [])
+    )
     if existing_in_legacy and not (payload.role == "parent" and existing_user.role == "parent"):
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
     if existing_in_legacy:

@@ -229,8 +229,9 @@ def admin_contracts(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
-    # バナーの「未処理一覧を確認する」リンクは営業にも表示されるため、ページも営業に開放する
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
+    # バナーの「未処理一覧を確認する」リンクは営業・事務にも表示され、
+    # APIの未処理一覧・強制クローズも営業・事務に許可されているため、ページも開放する
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales", "office"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/stale_reports.html", _ctx(request, user))

@@ -200,11 +200,49 @@ def register_info(token: str, db: Session = Depends(get_db)):
     )
 
 
+def _display_name_for_registration(invitation: Invitation, payload: RegisterIn, assignment: Assignment | None) -> str:
+    """登録時の表示名をロール別に解決する（不正ロール・名前空は422）。"""
+    if invitation.role == "parent":
+        return f"{assignment.student_name}の保護者" if assignment else invitation.email.split("@", 1)[0]
+    if invitation.role == "tutor":
+        if not invitation.tutor_no:
+            raise HTTPException(status_code=422, detail="tutor_no is required")
+    elif invitation.role not in {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}:
+        raise HTTPException(status_code=422, detail="role is invalid")
+    display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="display_name is required")
+    return display_name
+
+
 @router.post("/register", response_model=RegisterOut)
 def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
     invitation = _valid_invitation(payload.token, db)
     assignment = db.get(Assignment, invitation.assignment_id) if invitation.assignment_id else None
     existing_user = db.scalar(select(User).where(User.email == invitation.email))
+    if existing_user and existing_user.deleted_at:
+        # 削除済み（ソフトデリート）ユーザーの再登録：同一アカウントを復活させる。
+        # ロール・No・パスワード・所属は新しい招待内容で初期化し、過去のデータは
+        # 同一人物のものとして引き継がれる。
+        display_name = _display_name_for_registration(invitation, payload, assignment)
+        existing_user.deleted_at = None
+        existing_user.is_active = True
+        existing_user.role = invitation.role
+        existing_user.roles = [invitation.role]
+        existing_user.display_name = display_name
+        existing_user.allowed_systems = (
+            ["legacy", "new"] if invitation.role in {"admin_master", "admin_chief"} else ["legacy"]
+        )
+        existing_user.password_hash = hash_password(payload.password)
+        if invitation.role == "tutor":
+            existing_user.tutor_no = invitation.tutor_no
+        existing_user.user_no = user_no_for_new_user(db, invitation.role, existing_user.tutor_no)
+        if invitation.role == "parent" and assignment:
+            assignment.parent_id = existing_user.id
+            db.query(LessonReport).filter(LessonReport.assignment_id == assignment.id).update({"parent_id": existing_user.id}, synchronize_session=False)
+        invitation.accepted_at = datetime.now(timezone.utc)
+        db.commit()
+        return RegisterOut(message="registered")
     if existing_user:
         if "legacy" in (existing_user.allowed_systems or []):
             raise HTTPException(status_code=409, detail="email already exists")
@@ -231,20 +269,7 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         invitation.accepted_at = datetime.now(timezone.utc)
         db.commit()
         return RegisterOut(message="registered")
-    if invitation.role == "parent":
-        display_name = f"{assignment.student_name}の保護者" if assignment else invitation.email.split("@", 1)[0]
-    elif invitation.role == "tutor":
-        if not invitation.tutor_no:
-            raise HTTPException(status_code=422, detail="tutor_no is required")
-        display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
-        if not display_name:
-            raise HTTPException(status_code=422, detail="display_name is required")
-    elif invitation.role in {"admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}:
-        display_name = (payload.display_name or invitation.display_name or invitation.email.split("@", 1)[0]).strip()
-        if not display_name:
-            raise HTTPException(status_code=422, detail="display_name is required")
-    else:
-        raise HTTPException(status_code=422, detail="role is invalid")
+    display_name = _display_name_for_registration(invitation, payload, assignment)
     user = User(
         email=invitation.email,
         role=invitation.role,

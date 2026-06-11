@@ -185,3 +185,100 @@ def test_invite_conflicts_when_student_already_has_other_parent(client, db, monk
         json={"email": "another-parent@example.com", "tutor_id": str(tutor.id), "student_name": "三郎"},
     )
     assert res.status_code == 409, res.text
+
+
+def test_deleted_user_can_be_reinvited_and_revived(client, db, monkeypatch):
+    """削除済み（ソフトデリート）ユーザーは再招待でき、登録で同一アカウントが復活する。"""
+    from datetime import datetime, timezone
+
+    async def fake_send(self, to, subject, body):
+        pass
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+
+    # 講師を削除（ソフトデリート）
+    tutor = db.query(User).filter(User.email == "tutor@example.com").one()
+    old_id = tutor.id
+    tutor.is_active = False
+    tutor.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+    # 在籍中なら409だが、削除済みは再招待できる
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": "tutor@example.com", "role": "tutor", "display_name": "復職講師"},
+    )
+    assert res.status_code == 200, res.text
+
+    invitation = db.query(Invitation).filter(
+        Invitation.email == "tutor@example.com", Invitation.accepted_at.is_(None)
+    ).one()
+    registered = client.post("/api/auth/register", json={
+        "token": invitation.token,
+        "display_name": "復職講師",
+        "password": "NewPass!!",
+    })
+    assert registered.status_code == 200, registered.text
+
+    db.expire_all()
+    user = db.query(User).filter(User.email == "tutor@example.com").one()
+    assert user.id == old_id              # 同一アカウント（履歴は引き継がれる）
+    assert user.deleted_at is None
+    assert user.is_active is True
+    assert user.roles == ["tutor"]
+    assert user.tutor_no == invitation.tutor_no  # 新しい招待のNoを採用
+
+    # 新しいパスワードでログインできる
+    login = client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "NewPass!!"})
+    assert login.status_code == 200
+
+    # 旧パスワードは使えない
+    bad = client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "Passw0rd!"})
+    assert bad.status_code == 401
+
+
+def test_deleted_parent_can_be_reinvited_and_revived(client, db, monkeypatch):
+    """削除済みの保護者も再招待→登録で復活し、担当・報告書に再紐付けされる。"""
+    from datetime import datetime, timezone
+
+    async def fake_send(self, to, subject, body):
+        pass
+
+    monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
+    master_token = token(client, "master@example.com")
+
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    old_id = parent.id
+    parent.is_active = False
+    parent.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    res = client.post(
+        "/api/invitations",
+        headers={"Authorization": f"Bearer {master_token}"},
+        json={"email": "parent@example.com", "tutor_id": str(tutor.id), "student_name": "復活生徒"},
+    )
+    assert res.status_code == 200, res.text
+    # 削除済みは「既存アカウントへ自動紐付け」ではなく通常の招待メール送付になる
+    assert res.json()["message"] != "既存の保護者アカウントに生徒を紐付けました"
+
+    invitation = db.query(Invitation).filter(
+        Invitation.email == "parent@example.com", Invitation.accepted_at.is_(None)
+    ).one()
+    registered = client.post("/api/auth/register", json={
+        "token": invitation.token,
+        "password": "NewPass!!",
+    })
+    assert registered.status_code == 200, registered.text
+
+    db.expire_all()
+    user = db.query(User).filter(User.email == "parent@example.com").one()
+    assert user.id == old_id
+    assert user.deleted_at is None
+    assert user.is_active is True
+    assert user.roles == ["parent"]
+    assignment = db.query(Assignment).filter(Assignment.student_name == "復活生徒").one()
+    assert assignment.parent_id == user.id

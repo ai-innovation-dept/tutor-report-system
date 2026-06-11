@@ -1,4 +1,4 @@
-"""契約管理 API（経理 admin_master のみ）。
+"""契約管理 API（経理 admin_master・管理責任者 admin_chief・営業 sales）。
 
 契約は (講師, 学校) ごとに1件で、work_assignment_profiles に格納する。
 作成時に (講師, 学校) の assignment を取得/自動作成して紐付ける。
@@ -118,7 +118,7 @@ def _resolve_pair(db: Session, tutor_id: uuid.UUID, school_id: uuid.UUID) -> tup
 @router.get("", response_model=list[ContractOut])
 def list_contracts(
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     profiles = db.scalars(
         select(WorkAssignmentProfile)
@@ -132,7 +132,7 @@ def list_contracts(
 def create_contract(
     payload: ContractCreate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     if not payload.tasks:
         raise HTTPException(status_code=422, detail="委託業務①は必須です")
@@ -190,7 +190,7 @@ def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
 
 
 @router.get("/import-template")
-def download_import_template(_: User = Depends(require_role("admin_master", "sales"))):
+def download_import_template(_: User = Depends(require_role("admin_master", "admin_chief", "sales"))):
     """CSV一括登録用のテンプレート（UTF-8 BOM）をダウンロードする。"""
     return Response(
         content=contract_import_service.build_template_csv(),
@@ -203,7 +203,7 @@ def download_import_template(_: User = Depends(require_role("admin_master", "sal
 def import_contracts(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も登録しない）。
 
@@ -287,7 +287,7 @@ def list_contracts_for_tutor(
 def get_contract(
     contract_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     return _to_out(_get_profile_loaded(db, contract_id))
 
@@ -297,7 +297,7 @@ def update_contract(
     contract_id: uuid.UUID,
     payload: ContractUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     profile = _get_profile_loaded(db, contract_id)
     data = payload.model_dump(exclude_unset=True)
@@ -336,7 +336,7 @@ def delete_contract(
     contract_id: uuid.UUID,
     hard: bool = False,
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "sales")),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales")),
 ):
     """hard=False（既定）は論理削除（無効化）。hard=True は物理削除（行を完全に削除）。
     物理削除は契約レコードのみを対象とし、報告書（assignment 単位で保持）には影響しない。"""
