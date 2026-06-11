@@ -190,7 +190,8 @@ def finance_queue(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/dashboard", response_class=HTMLResponse)
 def admin_dashboard(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
+    # 承認フロー変更に伴い、統合ダッシュボードは経理（管理者・管理責任者）に加えて営業も利用可
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/dashboard.html", _ctx(request, user))
@@ -228,7 +229,8 @@ def admin_contracts(request: Request, db: Session = Depends(get_db)):
 
 @router.get("/admin/stale-reports", response_class=HTMLResponse)
 def admin_stale_reports(request: Request, db: Session = Depends(get_db)):
-    user, redirect = _require_page_role(request, ["admin_master", "admin_chief"], db)
+    # バナーの「未処理一覧を確認する」リンクは営業にも表示されるため、ページも営業に開放する
+    user, redirect = _require_page_role(request, ["admin_master", "admin_chief", "sales"], db)
     if redirect:
         return redirect
     return templates.TemplateResponse(request, "admin/stale_reports.html", _ctx(request, user))

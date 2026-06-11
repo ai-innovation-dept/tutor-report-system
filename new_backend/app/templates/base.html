@@ -233,6 +233,7 @@
       } else if (user.role === 'sales') {
         navHome.href = '/sales/queue';
         items.push(navLink('/sales/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'office') {
@@ -241,11 +242,13 @@
       } else if (user.role === 'admin_master') {
         navHome.href = '/finance/queue';
         items.push(navLink('/finance/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       } else if (user.role === 'admin_chief') {
         navHome.href = '/finance/queue';
         items.push(navLink('/finance/queue', 'ダッシュボード'));
+        items.push(navLink('/admin/dashboard', '統合ダッシュボード'));
         items.push(navLink('/admin/contracts', '契約管理'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
       }

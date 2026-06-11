@@ -241,6 +241,81 @@ class TestRegistration:
 
 
 # ---------------------------------------------------------------------------
+# 削除済みユーザーの再登録（同一アカウント復活）
+# ---------------------------------------------------------------------------
+
+class TestDeletedUserReRegistration:
+    EMAIL = "rejoin@x.example.com"
+
+    def _add_deleted_user(self, role="office"):
+        from datetime import datetime, timezone
+        db = TestSession()
+        u = User(
+            email=self.EMAIL, role=role, roles=[role], display_name="退職済み",
+            password_hash=hash_password("OldPass!!"), allowed_systems=["new"],
+            user_no="50090", is_active=False,
+            deleted_at=datetime.now(timezone.utc),
+        )
+        db.add(u); db.commit()
+        user_id = str(u.id); db.close()
+        return user_id
+
+    def test_active_user_cannot_be_reinvited(self, client, master_user):
+        db = TestSession()
+        db.add(User(email=self.EMAIL, role="office", roles=["office"], display_name="在籍中",
+                    password_hash=hash_password("P!"), allowed_systems=["new"]))
+        db.commit(); db.close()
+        res = client.post("/api/w/invitations",
+                          json={"role": "office", "email": self.EMAIL},
+                          headers=_auth(client))
+        assert res.status_code == 409
+
+    def test_deleted_user_can_be_reinvited(self, client, master_user):
+        self._add_deleted_user()
+        res = client.post("/api/w/invitations",
+                          json={"role": "office", "email": self.EMAIL, "display_name": "再入社"},
+                          headers=_auth(client))
+        assert res.status_code == 201, res.text
+
+    def test_deleted_user_register_revives_account(self, client, master_user):
+        from sqlalchemy import select as sa_select
+        old_id = self._add_deleted_user(role="office")
+
+        # 別ロール（営業）で再招待 → 登録
+        res = client.post("/api/w/invitations",
+                          json={"role": "sales", "email": self.EMAIL, "display_name": "再入社"},
+                          headers=_auth(client))
+        assert res.status_code == 201, res.text
+        new_user_no = res.json()["user_no"]
+
+        db = TestSession()
+        inv = db.scalar(sa_select(Invitation).where(
+            Invitation.email == self.EMAIL, Invitation.accepted_at.is_(None)))
+        token = inv.token; db.close()
+
+        res = client.post("/api/auth/register",
+                          json={"token": token, "password": "NewPass!!", "display_name": "再入社"})
+        assert res.status_code == 200, res.text
+
+        # 同一アカウントが復活し、招待内容で初期化されている
+        db = TestSession()
+        user = db.scalar(sa_select(User).where(User.email == self.EMAIL))
+        assert str(user.id) == old_id          # 同一アカウント（履歴は引き継がれる）
+        assert user.deleted_at is None
+        assert user.is_active is True
+        assert user.roles == ["sales"]         # 旧ロールは引き継がない
+        assert user.user_no == new_user_no     # 新しい招待のNoを採用
+        db.close()
+
+        # 新しいパスワードでログインでき、旧パスワードは使えない
+        ok = client.post("/api/auth/login", json={"username": self.EMAIL, "password": "NewPass!!"})
+        assert ok.status_code == 200
+        assert ok.json()["role"] == "sales"
+        ng = TestClient(app).post("/api/auth/login", json={"username": self.EMAIL, "password": "OldPass!!"})
+        assert ng.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # パスワードリセット
 # ---------------------------------------------------------------------------
 
@@ -331,6 +406,17 @@ class TestUserManagement:
         h = _auth(client, "t2@x.example.com")
         res = client.get("/api/w/users", headers=h)
         assert res.status_code == 403
+
+    def test_sales_can_list_all_users(self, client, master_user):
+        # 営業はユーザ管理を経理と同等に利用できる（「すべて」タブ＝フィルタなし一覧）
+        db = TestSession()
+        u = User(email="sales_mgr@x.example.com", role="sales", roles=["sales"], display_name="営業",
+                 password_hash=hash_password("Passw0rd!"), allowed_systems=["new"])
+        db.add(u); db.commit(); db.close()
+        h = _auth(client, "sales_mgr@x.example.com")
+        res = client.get("/api/w/users", headers=h)
+        assert res.status_code == 200
+        assert res.json()["total"] >= 2
 
 
 # ---------------------------------------------------------------------------

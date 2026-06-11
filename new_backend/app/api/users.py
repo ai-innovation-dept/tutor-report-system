@@ -78,7 +78,8 @@ def list_users(
 ):
     requester_roles = _user_roles(user)
     role_filter = roles or role
-    if not ({"admin_master", "admin_chief"} & set(requester_roles)) and role_filter is None:
+    # 営業はユーザ管理を経理と同等に利用できるため、全件一覧（フィルタなし）も許可する
+    if not ({"admin_master", "admin_chief", "sales"} & set(requester_roles)) and role_filter is None:
         raise HTTPException(status_code=403, detail="forbidden")
     page = max(1, page)
     per_page = min(max(1, per_page), 100)

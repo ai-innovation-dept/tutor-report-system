@@ -174,6 +174,26 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
         raise HTTPException(status_code=422, detail="display_name is required")
 
     user_no = inv.tutor_no  # generate_user_no の結果が格納済み
+    if existing_user and existing_user.deleted_at:
+        # 削除済み（ソフトデリート）ユーザーの再登録：同一アカウントを復活させる。
+        # ロール・No・パスワード・所属は新しい招待内容で初期化し、過去の報告書履歴は
+        # 同一人物のものとして引き継がれる。
+        existing_user.deleted_at = None
+        existing_user.is_active = True
+        existing_user.role = inv.role
+        existing_user.roles = [inv.role]
+        existing_user.allowed_systems = allowed_systems_for_role(inv.role)
+        existing_user.display_name = display_name
+        existing_user.password_hash = hash_password(payload.password)
+        if user_no:
+            existing_user.user_no = user_no
+            if inv.role == "tutor":
+                existing_user.tutor_no = user_no  # legacy 互換
+        inv.accepted_at = datetime.now(timezone.utc)
+        db.commit()
+        _clear_session_cookies(response)
+        return RegisterOut(message="registered")
+
     if existing_user:
         systems = list(existing_user.allowed_systems or [])
         if "new" not in systems:
