@@ -221,7 +221,7 @@ async def forgot_password(
     db.add(token_obj)
     db.commit()
 
-    base_url = settings.BASE_URL.rstrip("/")
+    base_url = settings.NEW_BASE_URL.rstrip("/")
     body = (
         f"{user.display_name} 様\n\n"
         f"パスワードリセットのリクエストを受け付けました。\n"

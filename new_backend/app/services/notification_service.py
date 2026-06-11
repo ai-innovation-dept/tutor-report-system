@@ -178,7 +178,7 @@ def _group_reports(reports: list[WorkReport]) -> dict[tuple[str, str], list[Work
 
 
 def _base_url() -> str:
-    return settings.BASE_URL.rstrip("/")
+    return settings.NEW_BASE_URL.rstrip("/")
 
 
 def _duration_label(minutes: int) -> str:

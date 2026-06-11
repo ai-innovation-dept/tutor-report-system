@@ -122,7 +122,7 @@ async def create_invitation(
     db.commit()
     db.refresh(inv)
 
-    base_url = settings.BASE_URL.rstrip("/")
+    base_url = settings.NEW_BASE_URL.rstrip("/")
     await send_email(inv.email, _SUBJECTS.get(inv.role, _SUBJECTS["school"]), _email_body(inv, base_url))
     return _invitation_out(inv)
 

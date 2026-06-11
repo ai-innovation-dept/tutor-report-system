@@ -9,7 +9,8 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = "development"
     TIMEZONE: str = "Asia/Tokyo"
     PORT: int = 8001
-    BASE_URL: str = "http://localhost:8001"
+    # 旧システム(backend)と .env を共有するため、BASE_URL とは別名にして衝突を防ぐ
+    NEW_BASE_URL: str = "http://localhost:8001"
     SMTP_HOST: str = "mailhog"
     SMTP_PORT: int = 1025
     SMTP_FROM: str = "noreply@work-system.local"
