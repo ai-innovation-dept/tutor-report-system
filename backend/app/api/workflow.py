@@ -119,11 +119,13 @@ async def parent_return_bulk(payload: BulkReturnIn, db: Session = Depends(get_db
 
 @router.post("/admin-return-bulk")
 async def admin_return_bulk(payload: AdminBulkReturnIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    # 管理者(master)の差戻しは廃止。完了後の差戻しは最終承認者である再鑑者(reviewer)が行う。
     action_by_role = {
         "receiver": ReportAction.return_from_receiver.value,
         "reviewer": ReportAction.return_from_reviewer.value,
-        "master": ReportAction.return_from_master.value,
     }
+    if payload.from_role not in action_by_role:
+        raise HTTPException(status_code=422, detail="from_role must be receiver or reviewer")
     reports = _bulk_reports(payload, db, user)
     _validate_target_month(reports, payload.target_month)
     action = action_by_role[payload.from_role]
@@ -138,7 +140,8 @@ async def admin_return_bulk(payload: AdminBulkReturnIn, db: Session = Depends(ge
 
 @router.post("/admin-receive-bulk")
 async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not (has_role(user, "admin_receiver") or has_role(user, "admin_master") or has_role(user, "admin_chief")):
+    # 管理者・管理責任者は承認フロー外のため、受付承認は受付担当のみ
+    if not has_role(user, "admin_receiver"):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
     _validate_bulk_status(reports, ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value)
@@ -154,10 +157,12 @@ async def admin_receive_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db
 
 @router.post("/admin-review-bulk")
 async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not (has_role(user, "admin_reviewer") or has_role(user, "admin_master") or has_role(user, "admin_chief")):
+    # 管理者・管理責任者は承認フロー外のため、再鑑承認（最終承認）は再鑑者のみ。
+    # 旧フローで最終承認待ち(re_reviewed)のまま残った報告書も再鑑者が最終化できる。
+    if not has_role(user, "admin_reviewer"):
         raise HTTPException(status_code=403, detail="action not allowed for role")
     reports = _bulk_reports(payload, db, user)
-    _validate_bulk_status(reports, ReportStatus.received.value)
+    _validate_bulk_status(reports, ReportStatus.received.value, ReportStatus.re_reviewed.value)
     _validate_target_month(reports, payload.target_month)
     changed = []
     for report in reports:
@@ -165,22 +170,6 @@ async def admin_review_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db)
         changed.append(report.id)
     db.commit()
     await send_transition_notifications(db, ReportAction.re_review.value, reports, user)
-    return {"updated": changed}
-
-
-@router.post("/admin-approve-bulk")
-async def admin_approve_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    if not (has_role(user, "admin_master") or has_role(user, "admin_chief")):
-        raise HTTPException(status_code=403, detail="action not allowed for role")
-    reports = _bulk_reports(payload, db, user)
-    _validate_bulk_status(reports, ReportStatus.re_reviewed.value)
-    _validate_target_month(reports, payload.target_month)
-    changed = []
-    for report in reports:
-        transition(db, report, user, ReportAction.admin_approve.value)
-        changed.append(report.id)
-    db.commit()
-    await send_transition_notifications(db, ReportAction.admin_approve.value, reports, user)
     return {"updated": changed}
 
 
@@ -264,12 +253,6 @@ async def return_from_reviewer(report_id: UUID, payload: CommentIn, db: Session 
     return await _run(report_id, ReportAction.return_from_reviewer.value, payload, db, user)
 
 
-@router.post("/{report_id}/admin-approve", response_model=ReportOut)
-async def admin_approve(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return await _run(report_id, ReportAction.admin_approve.value, payload, db, user)
-
-
-@router.post("/{report_id}/return-from-master", response_model=ReportOut)
-async def return_from_master(report_id: UUID, payload: CommentIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return await _run(report_id, ReportAction.return_from_master.value, payload, db, user)
+# /admin-approve・/return-from-master エンドポイントは承認フロー変更（再鑑承認＝最終承認、
+# 管理者・管理責任者はフロー外）に伴い廃止。
 # === Phase 5 END ===

@@ -222,7 +222,8 @@ function parentStudentsSection(user) {
     ? `<ul class="mt-3 space-y-1.5">${links.map(link => `<li class="flex flex-wrap items-center gap-2 text-sm"><span class="inline-flex rounded-full border border-blue-100 bg-blue-50 px-3 py-1 font-medium text-blue-700">${escapeHtml(link.student)}</span>${link.tutor ? `<span class="text-xs text-slate-500">担当講師：${escapeHtml(link.tutor)}</span>` : ''}</li>`).join('')}</ul>`
     : '<p class="mt-2 text-sm text-slate-500">紐づく生徒はありません。</p>';
   let linker = '';
-  if (CURRENT_USER_ROLE === 'admin_master' || CURRENT_USER_ROLE === 'admin_chief') {
+  // ユーザ管理は運営4ロール（受付・再鑑・管理者・管理責任者）が同一機能を利用できる
+  if (['admin_receiver', 'admin_reviewer', 'admin_master', 'admin_chief'].includes(CURRENT_USER_ROLE)) {
     const orphans = orphanAssignments();
     linker = orphans.length
       ? `<div class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">

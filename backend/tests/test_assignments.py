@@ -188,20 +188,27 @@ def test_admin_roles_can_patch_reminder_settings(client, db):
         assert res.json()["reminder_days_after"] == 5
 
 
-def test_admin_receiver_cannot_patch_non_reminder_fields(client, db):
-    # 受付・再鑑はリマインダー設定のみ編集可。生徒名などは変更されない。
+def test_admin_receiver_can_patch_assignment_fields_except_skip(client, db):
+    # 受付・再鑑は担当管理を管理者と同一に利用できる（スキップ設定のみ管理責任者専用）。
     receiver_token = token(client, "receiver@example.com")
     assignment = db.query(Assignment).first()
-    original_student_name = assignment.student_name
 
     res = client.patch(
         f"/api/assignments/{assignment.id}",
         headers={"Authorization": f"Bearer {receiver_token}"},
-        json={"student_name": "改ざん 生徒", "reminder_enabled": True},
+        json={"student_name": "変更後 生徒", "reminder_enabled": True},
     )
     assert res.status_code == 200
-    assert res.json()["student_name"] == original_student_name
+    assert res.json()["student_name"] == "変更後 生徒"
     assert res.json()["reminder_enabled"] is True
+
+    # 保護者承認スキップの設定は引き続き管理責任者のみ
+    blocked = client.patch(
+        f"/api/assignments/{assignment.id}",
+        headers={"Authorization": f"Bearer {receiver_token}"},
+        json={"skip_parent_approval": True},
+    )
+    assert blocked.status_code == 403
 
 
 def test_tutor_cannot_patch_another_tutors_assignment(client, db):

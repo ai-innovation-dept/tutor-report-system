@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Japanese home tutoring lesson report management system (家庭教師 指導実績報告システム). Tutors record monthly lesson reports, which go through a multi-stage approval workflow: tutor → parent → admin (receiver → reviewer → master). Built as a FastAPI + PostgreSQL full-stack web app with server-rendered Jinja2 templates.
+Japanese home tutoring lesson report management system (家庭教師 指導実績報告システム). Tutors record monthly lesson reports, which go through a multi-stage approval workflow: tutor → parent → admin_receiver → admin_reviewer (reviewer approval is final). admin_master / admin_chief are outside the approval flow (view, PDF, user/assignment management, stale-report close). Built as a FastAPI + PostgreSQL full-stack web app with server-rendered Jinja2 templates.
 
 ## Development Commands
 
@@ -93,24 +93,27 @@ draft
     → parent_approved          (parent approves)
       → submitted_to_admin     (auto or manual)
         → received             (admin_receiver)
-          → re_reviewed        (admin_reviewer)
-            → admin_approved   (admin_master)
+          → admin_approved     (admin_reviewer re-review = final approval)
 
+admin_approved → returned_to_receiver  (reviewer can return after completion)
 Any step → returned_to_tutor  (with mandatory comment → email → chat message)
   → resubmit → awaiting_parent_approval...
 ```
 
-Status transitions are enforced in `backend/app/services/workflow_service.py`. All transitions are audit-logged in the `report_events` table (13 action types).
+The `re_reviewed` status remains only for legacy in-flight reports (pre-flow-change); reviewers can finalize them via re-review. The old `admin_approve` / `return_from_master` actions are retired (kept in `ReportAction` enum for historical events).
 
-### User Roles (5 total)
+Status transitions are enforced in `backend/app/services/workflow_service.py`. All transitions are audit-logged in the `report_events` table.
+
+### User Roles (6 total)
 
 | Role | Access |
 |------|--------|
 | `tutor` | Create/submit reports for their own assignments |
 | `parent` | Approve/return reports for their children |
-| `admin_receiver` | Receive submitted reports |
-| `admin_reviewer` | Re-review received reports |
-| `admin_master` | Final approval, user management, full access |
+| `admin_receiver` | Receive submitted reports; user/assignment management |
+| `admin_reviewer` | Re-review received reports (= final approval); user/assignment management |
+| `admin_master` | Outside approval flow: view/PDF, user/assignment management |
+| `admin_chief` | Same as admin_master + chief-only settings (skip approval, chief invite/ops) |
 
 RBAC is enforced in `backend/app/core/rbac.py` with decorators checked in each API route. Tutors can only access their own assignments; parents see only their children's reports.
 

@@ -102,10 +102,19 @@ def test_parent_reports_page_includes_all_child_assignments(client, db):
 
 
 def test_admin_page_role_mismatch_redirects_to_login(client):
+    # 受付は再鑑キューにはアクセスできない（ユーザ管理・担当管理は受付・再鑑にも開放済み）
     client.post("/api/auth/login", data={"username": "receiver@example.com", "password": "Passw0rd!"})
-    res = client.get("/admin/users", follow_redirects=False)
+    res = client.get("/admin/queue/review", follow_redirects=False)
     assert res.status_code == 302
     assert res.headers["location"] == "/login"
+
+
+def test_receiver_and_reviewer_can_access_users_and_assignments_pages(client):
+    # 受付・再鑑はユーザ管理・担当管理を管理者と同一に利用できる
+    for email in ["receiver@example.com", "reviewer@example.com"]:
+        client.post("/api/auth/login", data={"username": email, "password": "Passw0rd!"})
+        assert client.get("/admin/users", follow_redirects=False).status_code == 200
+        assert client.get("/admin/assignments", follow_redirects=False).status_code == 200
 
 
 def test_admin_approval_and_progress_routes_are_removed(client):

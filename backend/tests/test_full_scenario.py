@@ -195,18 +195,19 @@ def full_approve(client, tokens, report_ids, with_return=None):
         ))
         post_bulk(client, tokens["receiver"], "/api/reports/admin-receive-bulk", report_ids, target_month)
 
+    # 再鑑承認＝最終承認（管理者の最終承認ステップは廃止）
     post_bulk(client, tokens["reviewer"], "/api/reports/admin-review-bulk", report_ids, target_month)
 
-    if with_return == "master":
+    if with_return == "after_approved":
+        # 完了後の差戻しは最終承認者である再鑑者が受付へ行う
         assert_ok(client.post(
             "/api/reports/admin-return-bulk",
-            headers=auth(tokens["master"]),
-            json={"report_ids": report_ids, "target_month": target_month, "from_role": "master", "comment": "管理者差戻しコメント"},
+            headers=auth(tokens["reviewer"]),
+            json={"report_ids": report_ids, "target_month": target_month, "from_role": "reviewer", "comment": "完了後差戻しコメント"},
         ))
         post_bulk(client, tokens["receiver"], "/api/reports/admin-receive-bulk", report_ids, target_month)
         post_bulk(client, tokens["reviewer"], "/api/reports/admin-review-bulk", report_ids, target_month)
 
-    post_bulk(client, tokens["master"], "/api/reports/admin-approve-bulk", report_ids, target_month)
     return [report_by_id(db, report_id) for report_id in report_ids]
 
 
@@ -241,7 +242,7 @@ def test_scenario_full_approve_all_months(scenario, scenario_db, monkeypatch):
     assert all(report.status == ReportStatus.admin_approved.value for report in reports)
     for report in reports:
         actions = [event.action for event in scenario_db.scalars(select(ReportEvent).where(ReportEvent.report_id == report.id)).all()]
-        assert actions == ["create", "submit_to_parent", "parent_approve", "submit_to_admin", "receive", "re_review", "admin_approve"]
+        assert actions == ["create", "submit_to_parent", "parent_approve", "submit_to_admin", "receive", "re_review"]
 
     parent_reports = client.get("/api/reports", headers=auth(tokens["parent_a"]))
     assert parent_reports.status_code == 200
@@ -284,13 +285,14 @@ def test_scenario_reviewer_return(scenario, scenario_db, monkeypatch):
     assert any(event.action == "return_from_reviewer" for event in scenario_db.scalars(select(ReportEvent).where(ReportEvent.report_id == UUID(ids[0]))))
 
 
-def test_scenario_master_return(scenario, scenario_db, monkeypatch):
-    """管理者が差戻し 受付が再受付 最終承認"""
+def test_scenario_reviewer_return_after_approved(scenario, scenario_db, monkeypatch):
+    """再鑑者が完了後に差戻し 受付が再受付 再鑑が再承認（最終承認）"""
     FrozenDate(2026, 6).patch(monkeypatch)
     ids = create_month_reports(scenario["client"], scenario["tokens"], scenario["assignments"]["student1"].id, 2026, 6, count=2)
-    approved = full_approve(scenario["client"], scenario["tokens"], ids, with_return="master")
+    approved = full_approve(scenario["client"], scenario["tokens"], ids, with_return="after_approved")
     assert all(report.status == ReportStatus.admin_approved.value for report in approved)
-    assert any(event.action == "return_from_master" for event in scenario_db.scalars(select(ReportEvent).where(ReportEvent.report_id == UUID(ids[0]))))
+    events = list(scenario_db.scalars(select(ReportEvent).where(ReportEvent.report_id == UUID(ids[0]))))
+    assert any(event.action == "return_from_reviewer" and event.from_status == ReportStatus.admin_approved.value for event in events)
 
 
 def test_scenario_duplicate_creation_blocked(scenario, scenario_db, monkeypatch):

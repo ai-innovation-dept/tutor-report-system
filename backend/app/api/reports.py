@@ -641,17 +641,17 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
             ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ]))
 
-        stamp_w = (half_w - 3 * mm) / 3
+        # 承認フロー変更（再鑑承認＝最終承認）により、新フローの承認印は受付・再鑑の2欄。
+        # 旧フローで管理者承認済みの報告書のみ、履歴として管理者印を含む3欄で出力する。
+        stamp_labels = ["受付", "再鑑"] + (["管理者"] if stamps_map.get("管理者") else [])
+        stamp_signers = {"受付": "受付者", "再鑑": "再鑑者", "管理者": "管理者"}
+        stamp_w = (half_w - 3 * mm) / len(stamp_labels)
         stamps_table = Table(
             [
-                ["受付", "再鑑", "管理者"],
-                [
-                    _confirmation_stamp("受付者", stamps_map.get("受付"), font_name),
-                    _confirmation_stamp("再鑑者", stamps_map.get("再鑑"), font_name),
-                    _confirmation_stamp("管理者", stamps_map.get("管理者"), font_name),
-                ],
+                stamp_labels,
+                [_confirmation_stamp(stamp_signers[label], stamps_map.get(label), font_name) for label in stamp_labels],
             ],
-            colWidths=[stamp_w, stamp_w, stamp_w], rowHeights=[6 * mm, 22 * mm],
+            colWidths=[stamp_w] * len(stamp_labels), rowHeights=[6 * mm, 22 * mm],
         )
         stamps_table.setStyle(TableStyle([
             ("FONTNAME", (0, 0), (-1, -1), font_name),

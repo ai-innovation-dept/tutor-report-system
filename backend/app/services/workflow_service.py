@@ -22,6 +22,10 @@ ADMIN_APPROVED_SUBJECT = "【指導実績】最終承認が完了しました"
 REPORT_MODIFIED_SUBJECT = "【指導実績】報告書が修正されました"
 
 
+# 承認フロー: 講師→保護者→受付→再鑑（再鑑承認が最終承認）。
+# 管理者(admin_master)・管理責任者(admin_chief)は承認フローから外れ、閲覧・PDF・未処理クローズのみ。
+# 旧フローの admin_approve / return_from_master アクションは廃止（ReportAction の値は
+# 過去の report_events の履歴表示のため残す）。
 TRANSITIONS = {
     ReportAction.submit_to_parent.value: ("tutor", [ReportStatus.draft.value, ReportStatus.returned_to_tutor.value], ReportStatus.awaiting_parent_approval.value, "submitted_to_parent_at"),
     ReportAction.parent_approve.value: ("parent", [ReportStatus.awaiting_parent_approval.value], ReportStatus.parent_approved.value, "parent_approved_at"),
@@ -29,17 +33,16 @@ TRANSITIONS = {
     ReportAction.submit_to_admin.value: ("tutor", [ReportStatus.parent_approved.value], ReportStatus.submitted_to_admin.value, "submitted_to_admin_at"),
     ReportAction.receive.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value, ReportStatus.returned_to_receiver.value], ReportStatus.received.value, "received_at"),
     ReportAction.return_from_receiver.value: ("admin_receiver", [ReportStatus.submitted_to_admin.value, ReportStatus.received.value, ReportStatus.returned_to_receiver.value], ReportStatus.returned_to_tutor.value, None),
-    ReportAction.re_review.value: ("admin_reviewer", [ReportStatus.received.value], ReportStatus.re_reviewed.value, "re_reviewed_at"),
-    ReportAction.return_from_reviewer.value: ("admin_reviewer", [ReportStatus.received.value, ReportStatus.re_reviewed.value], ReportStatus.returned_to_receiver.value, None),
-    ReportAction.admin_approve.value: ("admin_master", [ReportStatus.re_reviewed.value], ReportStatus.admin_approved.value, "admin_approved_at"),
-    ReportAction.return_from_master.value: ("admin_master", [ReportStatus.re_reviewed.value, ReportStatus.admin_approved.value], ReportStatus.returned_to_receiver.value, None),
+    # 再鑑承認＝最終承認。旧フローで最終承認待ち(re_reviewed)のまま残った報告書も再鑑者が最終化できる。
+    ReportAction.re_review.value: ("admin_reviewer", [ReportStatus.received.value, ReportStatus.re_reviewed.value], ReportStatus.admin_approved.value, "re_reviewed_at"),
+    # 完了(admin_approved)後の差戻しは最終承認者である再鑑者が受付へ行う。
+    ReportAction.return_from_reviewer.value: ("admin_reviewer", [ReportStatus.received.value, ReportStatus.re_reviewed.value, ReportStatus.admin_approved.value], ReportStatus.returned_to_receiver.value, None),
 }
 
 RETURN_ACTIONS = {
     ReportAction.parent_return.value,
     ReportAction.return_from_receiver.value,
     ReportAction.return_from_reviewer.value,
-    ReportAction.return_from_master.value,
 }
 
 # 職務分掌：受付工程(receive)と再鑑工程(re_review)は、同一「報告書」に対して同一スタッフが
@@ -65,9 +68,8 @@ _SEPARATION_MESSAGE = {
 
 
 def _role_allowed(required: str, actor: User) -> bool:
-    return has_role(actor, required) or (
-        (has_role(actor, "admin_master") or has_role(actor, "admin_chief")) and required.startswith("admin_")
-    )
+    # 管理者・管理責任者は承認フロー外のため、かつての「admin_*を代行できる」特例は廃止。
+    return has_role(actor, required)
 
 
 def _reports_acted_by(db: Session, actor_id, action: str) -> set:
@@ -119,6 +121,9 @@ def transition(db: Session, report: LessonReport, actor: User, action: str, comm
     report.status = to_status
     if timestamp_field:
         setattr(report, timestamp_field, datetime.now(timezone.utc))
+    if action == ReportAction.re_review.value:
+        # 再鑑承認＝最終承認のため、最終承認時刻も同時に記録する（帳票・画面の最終承認日時表示用）
+        report.admin_approved_at = datetime.now(timezone.utc)
     db.add(ReportEvent(report_id=report.id, actor_id=actor.id, action=action, from_status=old_status, to_status=to_status, comment=comment))
     if action in RETURN_ACTIONS and comment:
         db.add(ChatMessage(report_id=report.id, sender_id=actor.id, body=f"差戻し理由: {comment}"))
@@ -393,7 +398,7 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
         )
         return
 
-    if action in {ReportAction.return_from_reviewer.value, ReportAction.return_from_master.value}:
+    if action == ReportAction.return_from_reviewer.value:
         receivers = [
             user
             for user in db.scalars(select(User).where(User.is_active.is_(True), User.deleted_at.is_(None))).all()
@@ -412,7 +417,8 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
         )
         return
 
-    if action == ReportAction.admin_approve.value:
+    # 再鑑承認＝最終承認のため、最終承認完了メールは再鑑承認時に送る
+    if action == ReportAction.re_review.value:
         tutor = _tutor(report)
         parent = _parent(report)
         if tutor:

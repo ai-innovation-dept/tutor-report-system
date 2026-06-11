@@ -209,7 +209,7 @@ async def create_invitation(
     payload: InvitationCreate,
     request: Request,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("admin_master", "admin_chief")),
+    user: User = Depends(require_role("admin_receiver", "admin_reviewer", "admin_master", "admin_chief")),
 ):
     email = str(payload.email).lower()
     _validate_invitation_payload(payload)
@@ -311,7 +311,7 @@ async def create_invitation(
 
 
 @router.get("", response_model=list[InvitationOut])
-def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
+def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_role("admin_receiver", "admin_reviewer", "admin_master", "admin_chief"))):
     invitations = db.scalars(
         select(Invitation)
         .options(selectinload(Invitation.assignment).selectinload(Assignment.tutor))
@@ -321,7 +321,7 @@ def list_invitations(db: Session = Depends(get_db), _: User = Depends(require_ro
 
 
 @router.delete("/{invitation_id}")
-def delete_invitation(invitation_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_master", "admin_chief"))):
+def delete_invitation(invitation_id: UUID, db: Session = Depends(get_db), _: User = Depends(require_role("admin_receiver", "admin_reviewer", "admin_master", "admin_chief"))):
     invitation = db.get(Invitation, invitation_id)
     if not invitation:
         raise HTTPException(status_code=404, detail="invitation not found")

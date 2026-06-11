@@ -402,22 +402,18 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     if not user or not user.role.startswith("admin_"):
         return _login_redirect()
     path = request.url.path
+    # 受付・再鑑はユーザ管理・担当管理を管理者と同等に利用可。
+    # 管理者・管理責任者は承認フロー外（承認キューなし、ダッシュボードは閲覧用）。
     allowed_paths = {
-        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive"},
-        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review"},
+        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive", "/admin/users", "/admin/assignments"},
+        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review", "/admin/users", "/admin/assignments"},
         "admin_master": {
             "/admin/dashboard",
-            "/admin/queue/receive",
-            "/admin/queue/review",
-            "/admin/queue/approve",
             "/admin/users",
             "/admin/assignments",
         },
         "admin_chief": {
             "/admin/dashboard",
-            "/admin/queue/receive",
-            "/admin/queue/review",
-            "/admin/queue/approve",
             "/admin/users",
             "/admin/assignments",
         },

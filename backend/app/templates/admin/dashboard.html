@@ -115,7 +115,7 @@
 {% endblock %}
 {% block scripts %}
 <script>
-setBreadcrumb('運営ポータル', '統合ダッシュボード');
+setBreadcrumb('運営ポータル', 'ダッシュボード');
 const STATUS_LABELS = {
   draft: '講師作成',
   awaiting_parent_approval: '保護者承認待ち',
@@ -288,15 +288,7 @@ function taskStatuses(config) {
   return config.statuses || [config.status];
 }
 function taskConfig() {
-  if (currentRole === 'admin_master' || currentRole === 'admin_chief') {
-    return {
-      status: 're_reviewed',
-      subtext: '最終承認が必要',
-      label: '最終承認',
-      endpoint: '/api/reports/admin-approve-bulk',
-      returnRole: 'master'
-    };
-  }
+  // 管理者・管理責任者は承認フローから外れ、承認タスクは持たない（閲覧・PDFのみ）
   if (currentRole === 'admin_receiver') {
     return {
       statuses: ['submitted_to_admin', 'returned_to_receiver'],
@@ -307,9 +299,10 @@ function taskConfig() {
     };
   }
   if (currentRole === 'admin_reviewer') {
+    // 再鑑承認＝最終承認。旧フローで最終承認待ち(re_reviewed)のまま残った報告書も最終化できる
     return {
-      status: 'received',
-      subtext: '再鑑が必要',
+      statuses: ['received', 're_reviewed'],
+      subtext: '再鑑（最終承認）が必要',
       label: '再鑑承認',
       endpoint: '/api/reports/admin-review-bulk',
       returnRole: 'reviewer'
@@ -648,8 +641,9 @@ function showDetails(key) {
     <div class="space-y-6">
       ${sortedReports.map(report => reportCard(report)).join('')}
     </div>
-    ${(currentRole === 'admin_master' || currentRole === 'admin_chief') && activeStatus === 'admin_approved' ? `
+    ${currentRole === 'admin_reviewer' && activeStatus === 'admin_approved' ? `
     <div class="mt-4 border-t border-slate-200 pt-4">
+      <p class="mb-2 text-xs text-slate-500">完了後に修正が必要な場合は、受付へ差戻しできます。</p>
       <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
     </div>` : ''}
   </div>`;
@@ -670,8 +664,8 @@ async function approveGroup(key) {
 }
 function openReturnModal(key) {
   const group = currentGroups().find(item => item.key === key);
-  // admin_master/admin_chief は分掌対象外（reasonは空）。兼務スタッフのみロックされる。
-  if (group && currentRole !== 'admin_master' && currentRole !== 'admin_chief') {
+  // 兼務スタッフ（受付・再鑑）は職務分掌によりロックされる場合がある
+  if (group) {
     const reason = separationLockReason(group);
     if (reason) { showToast(reason, 'error'); return; }
   }
@@ -745,7 +739,7 @@ async function submitReturn() {
   const group = currentGroups().find(item => item.key === returnTargetKey);
   if (!group) return;
   const config = taskConfig();
-  if (!config && !(currentRole === 'admin_master' || currentRole === 'admin_chief')) return;
+  if (!config) return;
   const comment = returnComment.value.trim();
   if (!comment) {
     returnError.textContent = '差戻し理由を入力してください';
@@ -754,14 +748,18 @@ async function submitReturn() {
   }
   const groupStatus = currentGroupStatus(group.reports);
   let ids;
-  if ((currentRole === 'admin_master' || currentRole === 'admin_chief') && groupStatus === 'admin_approved') {
+  if (currentRole === 'admin_reviewer' && groupStatus === 'admin_approved') {
+    // 再鑑者（最終承認者）による完了後の差戻し
     ids = group.reports.filter(r => r.status === 'admin_approved').map(r => r.id);
   } else {
     ids = reportIdsForStatus(group, taskStatuses(config));
   }
   if (!ids.length) return;
-  const returnRole = config ? config.returnRole : 'master';
-  await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: returnRole, comment})});
+  try {
+    await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: config.returnRole, comment})});
+  } catch (error) {
+    showToast(error.message || '差戻しに失敗しました', 'error');
+  }
   closeReturnModal();
   await loadAdmin();
 }

@@ -12,6 +12,7 @@ from tests.conftest import token
 
 
 def test_full_workflow(client, db):
+    # 承認フロー: 講師→保護者→受付→再鑑（再鑑承認＝最終承認）。管理者はフロー外。
     tutor_token = token(client, "tutor@example.com")
     parent_token = token(client, "parent@example.com")
     receiver_token = token(client, "receiver@example.com")
@@ -34,13 +35,18 @@ def test_full_workflow(client, db):
         (tutor_token, "submit-to-parent", "awaiting_parent_approval"),
         (parent_token, "parent-approve", "submitted_to_admin"),
         (receiver_token, "receive", "received"),
-        (reviewer_token, "re-review", "re_reviewed"),
-        (master_token, "admin-approve", "admin_approved"),
+        (reviewer_token, "re-review", "admin_approved"),
     ]
     for tk, endpoint, status in steps:
         res = client.post(f"/api/reports/{rid}/{endpoint}", headers={"Authorization": f"Bearer {tk}"}, json={})
         assert res.status_code == 200
         assert res.json()["status"] == status
+
+    # 再鑑承認で再鑑時刻と最終承認時刻の両方が記録される
+    db.expire_all()
+    final = db.query(LessonReport).filter(LessonReport.id == UUID(rid)).one()
+    assert final.re_reviewed_at is not None
+    assert final.admin_approved_at is not None
 
     listed = client.get("/api/reports", headers={"Authorization": f"Bearer {master_token}"})
     assert listed.status_code == 200
@@ -52,10 +58,9 @@ def test_full_workflow(client, db):
         "submit_to_admin",
         "receive",
         "re_review",
-        "admin_approve",
     ]
-    assert report["events"][-1]["actor_name"] == "Master"
-    assert report["events"][-1]["actor_role"] == "admin_master"
+    assert report["events"][-1]["actor_name"] == "Reviewer"
+    assert report["events"][-1]["actor_role"] == "admin_reviewer"
     assert report["events"][-1]["created_at"]
     assert "comment" in report["events"][-1]
 
@@ -791,7 +796,38 @@ def test_create_report_rejects_duplicate_in_progress(client, db):
     assert res.json()["detail"] == "当月分の報告書がすでに進行中です"
 
 
-def test_admin_master_can_return_admin_approved_bulk(client, db):
+def test_admin_reviewer_can_return_admin_approved_bulk(client, db):
+    # 完了（最終承認済み）後の差戻しは最終承認者である再鑑者が受付へ行う
+    reviewer_token = token(client, "reviewer@example.com")
+    assignment = db.query(Assignment).first()
+    today = date.today()
+    report = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(18, 0),
+        end_time=time(19, 0),
+        break_minutes=0,
+        content="approved",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.admin_approved.value,
+    )
+    db.add(report)
+    db.commit()
+    res = client.post("/api/reports/admin-return-bulk", headers={"Authorization": f"Bearer {reviewer_token}"}, json={
+        "report_ids": [str(report.id)],
+        "target_month": today.strftime("%Y-%m"),
+        "from_role": "reviewer",
+        "comment": "追加修正",
+    })
+    assert res.status_code == 200
+    db.refresh(report)
+    assert report.status == ReportStatus.returned_to_receiver.value
+
+
+def test_admin_master_cannot_act_in_workflow(client, db):
+    # 管理者は承認フロー外: from_role=master は廃止(422)、受付・再鑑承認も403
     master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
     today = date.today()
@@ -815,9 +851,28 @@ def test_admin_master_can_return_admin_approved_bulk(client, db):
         "from_role": "master",
         "comment": "追加修正",
     })
-    assert res.status_code == 200
-    db.refresh(report)
-    assert report.status == ReportStatus.returned_to_receiver.value
+    assert res.status_code == 422
+    submitted = LessonReport(
+        assignment_id=assignment.id,
+        tutor_id=assignment.tutor_id,
+        parent_id=assignment.parent_id,
+        lesson_date=today,
+        start_time=time(19, 0),
+        end_time=time(20, 0),
+        break_minutes=0,
+        content="submitted",
+        target_month=today.strftime("%Y-%m"),
+        status=ReportStatus.submitted_to_admin.value,
+    )
+    db.add(submitted)
+    db.commit()
+    receive = client.post(f"/api/reports/{submitted.id}/receive", headers={"Authorization": f"Bearer {master_token}"}, json={})
+    assert receive.status_code == 403
+    bulk = client.post("/api/reports/admin-receive-bulk", headers={"Authorization": f"Bearer {master_token}"}, json={
+        "report_ids": [str(submitted.id)],
+        "target_month": today.strftime("%Y-%m"),
+    })
+    assert bulk.status_code == 403
 
 
 def test_admin_reviewer_return_goes_to_receiver_and_can_be_received(client, db):
@@ -944,14 +999,15 @@ def test_return_from_reviewer_notifies_receiver(client, db, monkeypatch):
     assert [call[0] for call in sent] == ["receiver@example.com"]
 
 
-def test_return_from_master_notifies_receiver(client, db, monkeypatch):
+def test_reviewer_return_of_approved_notifies_receiver(client, db, monkeypatch):
+    # 完了後の差戻し（再鑑者→受付）でも受付へメール通知される
     sent = []
 
     async def fake_send(to_email, subject, template_name, context):
         sent.append((to_email, subject, template_name, context))
 
     monkeypatch.setattr("app.services.workflow_service.send_email_notification", fake_send)
-    master_token = token(client, "master@example.com")
+    reviewer_token = token(client, "reviewer@example.com")
     assignment = db.query(Assignment).first()
     today = date.today()
     report = LessonReport(
@@ -962,20 +1018,20 @@ def test_return_from_master_notifies_receiver(client, db, monkeypatch):
         start_time=time(18, 0),
         end_time=time(19, 0),
         break_minutes=0,
-        content="re reviewed",
+        content="approved",
         target_month=today.strftime("%Y-%m"),
-        status=ReportStatus.re_reviewed.value,
+        status=ReportStatus.admin_approved.value,
     )
     db.add(report)
     db.commit()
 
     returned = client.post(
         "/api/reports/admin-return-bulk",
-        headers={"Authorization": f"Bearer {master_token}"},
+        headers={"Authorization": f"Bearer {reviewer_token}"},
         json={
             "report_ids": [str(report.id)],
             "target_month": today.strftime("%Y-%m"),
-            "from_role": "master",
+            "from_role": "reviewer",
             "comment": "受付で確認してください",
         },
     )
@@ -1375,10 +1431,10 @@ def test_dual_admin_can_re_review_other_tutor_received_by_someone_else(client, d
     report_e = _make_report(db, tutor_e, ReportStatus.submitted_to_admin.value, content="tutorE")
     assert client.post(f"/api/reports/{report_e.id}/receive", headers={"Authorization": f"Bearer {receiver_token}"}, json={}).status_code == 200
 
-    # dual は講師Eを再鑑承認できる
+    # dual は講師Eを再鑑承認できる（再鑑承認＝最終承認）
     re_reviewed = client.post(f"/api/reports/{report_e.id}/re-review", headers={"Authorization": f"Bearer {dual_token}"}, json={})
     assert re_reviewed.status_code == 200
-    assert re_reviewed.json()["status"] == ReportStatus.re_reviewed.value
+    assert re_reviewed.json()["status"] == ReportStatus.admin_approved.value
 
 
 def test_other_dual_admin_can_re_review_tutor_received_by_first(client, db):
@@ -1394,14 +1450,14 @@ def test_other_dual_admin_can_re_review_tutor_received_by_first(client, db):
     assert re_reviewed.status_code == 200
 
 
-def test_admin_master_is_exempt_from_separation(client, db):
-    """admin_master はフルアクセスのため職務分掌の対象外（受付・再鑑の両方を実行できる）。"""
+def test_admin_master_is_out_of_workflow(client, db):
+    """admin_master は承認フロー外のため、受付・再鑑のいずれの承認も実行できない。"""
     master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
     report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
-    assert client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {master_token}"}, json={}).status_code == 200
-    re_reviewed = client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {master_token}"}, json={})
-    assert re_reviewed.status_code == 200
+    assert client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {master_token}"}, json={}).status_code == 403
+    report2 = _make_report(db, assignment, ReportStatus.received.value, content="received report")
+    assert client.post(f"/api/reports/{report2.id}/re-review", headers={"Authorization": f"Bearer {master_token}"}, json={}).status_code == 403
 
 
 def test_separation_locks_endpoint_reports_acted_reports(client, db):
@@ -1470,21 +1526,23 @@ def test_dual_admin_first_return_from_reviewer_allowed(client, db):
     assert res.json()["status"] == ReportStatus.returned_to_receiver.value
 
 
-def test_receiver_can_return_after_full_cycle_and_master_return(client, db):
-    """事象確認2：C受付→D再鑑→E最終承認→E差戻し後、受付者Cは同じ報告書を受付差戻しできる
+def test_receiver_can_return_after_full_cycle_and_reviewer_return(client, db):
+    """事象確認2：C受付→D再鑑（最終承認）→D完了後差戻し後、受付者Cは同じ報告書を受付差戻しできる
     （Cは再鑑していないため職務分掌に抵触しない）。"""
     _make_dual_admin(db, email="cAdmin@example.com", name="C Admin")
     _make_dual_admin(db, email="dAdmin@example.com", name="D Admin")
     c_token = token(client, "cAdmin@example.com")
     d_token = token(client, "dAdmin@example.com")
-    master_token = token(client, "master@example.com")
     assignment = db.query(Assignment).first()
     report = _make_report(db, assignment, ReportStatus.submitted_to_admin.value)
 
     assert client.post(f"/api/reports/{report.id}/receive", headers={"Authorization": f"Bearer {c_token}"}, json={}).status_code == 200
-    assert client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {d_token}"}, json={}).status_code == 200
-    assert client.post(f"/api/reports/{report.id}/admin-approve", headers={"Authorization": f"Bearer {master_token}"}, json={}).status_code == 200
-    assert client.post(f"/api/reports/{report.id}/return-from-master", headers={"Authorization": f"Bearer {master_token}"}, json={"comment": "再確認"}).status_code == 200
+    # 再鑑承認＝最終承認
+    approved = client.post(f"/api/reports/{report.id}/re-review", headers={"Authorization": f"Bearer {d_token}"}, json={})
+    assert approved.status_code == 200
+    assert approved.json()["status"] == ReportStatus.admin_approved.value
+    # 完了後の差戻しは再鑑者が受付へ行う
+    assert client.post(f"/api/reports/{report.id}/return-from-reviewer", headers={"Authorization": f"Bearer {d_token}"}, json={"comment": "再確認"}).status_code == 200
 
     # 受付者Cは（再鑑していないので）同じ報告書を受付差戻しできる
     res = client.post(f"/api/reports/{report.id}/return-from-receiver", headers={"Authorization": f"Bearer {c_token}"}, json={"comment": "修正依頼"})
