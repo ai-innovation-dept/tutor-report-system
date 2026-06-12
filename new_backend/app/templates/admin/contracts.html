@@ -91,16 +91,18 @@ function periodLabel(contract) {
   if (!contract.contract_start && !contract.contract_end) return '-';
   return `${contract.contract_start || '—'} 〜 ${contract.contract_end || '—'}`;
 }
-// 月時間／週コマのケース一覧をセル表示用に整形（1ケース1行）
+// 月時間／週コマのケース一覧をセル表示用に整形（1ケース1行・担当業務名付き）
 function workloadLabel(contract) {
   const cases = contract.workload_cases || [];
   if (!cases.length) return '-';
   return cases.map(item => {
+    const task = (contract.tasks || [])[(Number(item.task_index) || 1) - 1];
+    const name = task?.task_name ? `${task.task_name}：` : '';
     const parts = [];
     if (item.monthly_minutes != null) parts.push(`月${Number(item.monthly_minutes).toLocaleString()}分`);
     if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
     const period = (item.start_date || item.end_date) ? ` [${item.start_date || '—'}〜${item.end_date || '—'}]` : '';
-    return escapeHtml(`${parts.join('・') || '-'}${period}`);
+    return escapeHtml(`${name}${parts.join('・') || '-'}${period}`);
   }).join('<br>');
 }
 function renderRows() {
@@ -127,28 +129,60 @@ function userOptions(users, selectedId) {
     `<option value="${u.id}" ${String(u.id) === String(selectedId || '') ? 'selected' : ''}>${escapeHtml(u.display_name)}${u.user_no ? `（${escapeHtml(u.user_no)}）` : ''}</option>`
   )].join('');
 }
-function taskRow(kind, index, task) {
-  const hidden = index > visibleTaskCounts[kind];
-  const required = kind === 'main' && index === 1;
-  return `<div class="task-row grid gap-2 sm:grid-cols-3 ${hidden ? 'hidden' : ''}" data-task-kind="${kind}" data-task-index="${index}">
+// 担当業務(main)の行は「業務名/ID/個別契約ID」＋「月時間（分）/週コマ/適用期間」の2段構成。
+// 月時間（分）はその業務の月の上限として講師の報告書（要望連絡事項）に表示される。
+function taskWorkloadInputs(index, workloadCase) {
+  const cls = 'w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+  return `<div class="mt-2 grid gap-2 sm:grid-cols-4">
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">委託業務名${'①②③④⑤'[index - 1]}${required ? '（必須）' : ''}</span>
-      <input data-task="name" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <span class="mb-1 block text-slate-600">月時間（分）</span>
+      <input data-task="monthly_minutes" data-kind="main" data-index="${index}" type="number" min="0" value="${workloadCase?.monthly_minutes ?? ''}" class="${cls}">
     </label>
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">委託業務ID</span>
-      <input data-task="task_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <span class="mb-1 block text-slate-600">週コマ</span>
+      <input data-task="weekly_lessons" data-kind="main" data-index="${index}" type="number" min="0" value="${workloadCase?.weekly_lessons ?? ''}" class="${cls}">
     </label>
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">個別契約ID</span>
-      <input data-task="contract_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <span class="mb-1 block text-slate-600">適用開始日</span>
+      <input data-task="case_start" data-kind="main" data-index="${index}" type="date" value="${escapeHtml(workloadCase?.start_date || '')}" class="${cls}">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">適用終了日</span>
+      <input data-task="case_end" data-kind="main" data-index="${index}" type="date" value="${escapeHtml(workloadCase?.end_date || '')}" class="${cls}">
     </label>
   </div>`;
 }
-function taskSection(kind, tasks) {
+function caseForTaskIndex(workloadCases, index) {
+  const cases = workloadCases || [];
+  return cases.find(c => Number(c.task_index) === index)
+    || (index === 1 ? cases.find(c => c.task_index == null) : null);
+}
+function taskRow(kind, index, task, workloadCase) {
+  const hidden = index > visibleTaskCounts[kind];
+  const required = kind === 'main' && index === 1;
+  const wrapClass = kind === 'main' ? 'rounded-lg border border-slate-200 p-3' : '';
+  return `<div class="task-row ${wrapClass} ${hidden ? 'hidden' : ''}" data-task-kind="${kind}" data-task-index="${index}">
+    <div class="grid gap-2 sm:grid-cols-3">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務名${'①②③④⑤'[index - 1]}${required ? '（必須）' : ''}</span>
+        <input data-task="name" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務ID</span>
+        <input data-task="task_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">個別契約ID</span>
+        <input data-task="contract_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      </label>
+    </div>
+    ${kind === 'main' ? taskWorkloadInputs(index, workloadCase) : ''}
+  </div>`;
+}
+function taskSection(kind, tasks, workloadCases) {
   const def = TASK_KINDS[kind];
   const note = kind === 'main'
-    ? '担当業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（担当→副の順）。'
+    ? '担当業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（担当→副の順）。月時間（分）・週コマ・適用期間は講師の報告書の要望連絡事項に「業務名：（月　n,nnn　分固定　：　週nコマ）[適用期間]」として表示されます。'
     : '副業務はすべて任意です。報告書では担当業務の右に「業務名（分）」列として並びます。';
   return `<div class="rounded-lg border border-slate-200 p-4">
     <div class="mb-2 flex items-center justify-between">
@@ -156,7 +190,7 @@ function taskSection(kind, tasks) {
       <button type="button" id="${kind}AddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ${def.label}を追加</button>
     </div>
     <div id="${kind}TaskRows" class="space-y-3">
-      ${Array.from({length: def.max}, (_, i) => taskRow(kind, i + 1, tasks[i])).join('')}
+      ${Array.from({length: def.max}, (_, i) => taskRow(kind, i + 1, tasks[i], kind === 'main' ? caseForTaskIndex(workloadCases, i + 1) : null)).join('')}
     </div>
     <p class="mt-2 text-xs text-slate-500">${note}</p>
   </div>`;
@@ -191,21 +225,11 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
-      <div class="rounded-lg border border-slate-200 p-4">
-        <div class="mb-2 flex items-start justify-between gap-3">
-          <div>
-            <span class="text-sm font-medium text-slate-800">月時間（分）／週コマ（期間別）</span>
-            <p class="mt-0.5 text-xs text-slate-500">期間ごとに複数登録できます。講師の報告書には「（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」の形式で表示されます。</p>
-          </div>
-          <button type="button" id="addWorkloadBtn" class="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ケースを追加</button>
-        </div>
-        <div id="workloadRows" class="space-y-3"></div>
-      </div>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます。</span></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
 
-      ${taskSection('main', tasks)}
-      ${taskSection('sub', subTasks)}
+      ${taskSection('main', tasks, contract?.workload_cases || [])}
+      ${taskSection('sub', subTasks, [])}
 
       <div class="rounded-lg border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3">
@@ -249,61 +273,9 @@ function renderForm(contract) {
     </form>`;
   document.getElementById('mainAddTaskBtn').addEventListener('click', () => revealNextTask('main'));
   document.getElementById('subAddTaskBtn').addEventListener('click', () => revealNextTask('sub'));
-  document.getElementById('addWorkloadBtn').addEventListener('click', addWorkloadCase);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
-  renderWorkloadRows(contract?.workload_cases || []);
   updateAddTaskButton('main');
   updateAddTaskButton('sub');
-}
-// --- 月時間（分）／週コマの期間付きケース（追加・削除可能な動的行） ---
-function workloadRow(index, item) {
-  return `<div class="workload-row grid items-end gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">月時間（分）</span>
-      <input data-workload="monthly_minutes" type="number" min="0" value="${item?.monthly_minutes ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">週コマ</span>
-      <input data-workload="weekly_lessons" type="number" min="0" value="${item?.weekly_lessons ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">適用開始日</span>
-      <input data-workload="start_date" type="date" value="${escapeHtml(item?.start_date || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">適用終了日</span>
-      <input data-workload="end_date" type="date" value="${escapeHtml(item?.end_date || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-    </label>
-    <button type="button" data-workload-remove="${index}" title="このケースを削除" class="h-[42px] rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-700 hover:bg-red-100">削除</button>
-  </div>`;
-}
-function renderWorkloadRows(cases) {
-  const rows = cases.length ? cases : [{}];
-  document.getElementById('workloadRows').innerHTML = rows.map((item, index) => workloadRow(index, item)).join('');
-  formDrawer.querySelectorAll('[data-workload-remove]').forEach(btn => {
-    btn.addEventListener('click', () => removeWorkloadCase(Number(btn.dataset.workloadRemove)));
-  });
-}
-function collectWorkloadCases() {
-  return [...formDrawer.querySelectorAll('.workload-row')].map(row => ({
-    monthly_minutes: numberOrNull(row.querySelector('[data-workload="monthly_minutes"]').value),
-    weekly_lessons: numberOrNull(row.querySelector('[data-workload="weekly_lessons"]').value),
-    start_date: row.querySelector('[data-workload="start_date"]').value || null,
-    end_date: row.querySelector('[data-workload="end_date"]').value || null,
-  }));
-}
-function isEmptyWorkloadCase(item) {
-  return item.monthly_minutes == null && item.weekly_lessons == null && !item.start_date && !item.end_date;
-}
-function addWorkloadCase() {
-  const cases = collectWorkloadCases();
-  cases.push({});
-  renderWorkloadRows(cases);
-}
-function removeWorkloadCase(index) {
-  const cases = collectWorkloadCases();
-  cases.splice(index, 1);
-  renderWorkloadRows(cases);
 }
 function revealNextTask(kind) {
   if (visibleTaskCounts[kind] >= TASK_KINDS[kind].max) return;
@@ -330,6 +302,33 @@ function collectTasks(kind) {
   }
   return tasks;
 }
+// 担当業務と月時間（分）ケースをセットで収集する。
+// 行を飛ばして入力された場合も保存後の業務番号（詰めた位置）とケースの task_index が一致するようにする。
+function collectMainTasksAndCases() {
+  const tasks = [];
+  const cases = [];
+  for (let i = 1; i <= TASK_KINDS.main.max; i++) {
+    const value = field => formDrawer.querySelector(`[data-task="${field}"][data-kind="main"][data-index="${i}"]`)?.value.trim() || '';
+    const name = value('name');
+    const taskId = value('task_id');
+    const contractId = value('contract_id');
+    const monthly = numberOrNull(value('monthly_minutes'));
+    const weekly = numberOrNull(value('weekly_lessons'));
+    const start = value('case_start') || null;
+    const end = value('case_end') || null;
+    const hasTask = Boolean(name || taskId || contractId);
+    const hasCase = monthly != null || weekly != null || start || end;
+    if (!hasTask && !hasCase) continue;
+    if (!hasTask) {
+      return {error: `担当業務${'①②③'[i - 1]}の月時間・週コマ・適用期間は委託業務名とセットで入力してください`};
+    }
+    tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
+    if (hasCase) {
+      cases.push({task_index: tasks.length, monthly_minutes: monthly, weekly_lessons: weekly, start_date: start, end_date: end});
+    }
+  }
+  return {tasks, cases};
+}
 function numberOrNull(value) {
   const v = String(value ?? '').trim();
   return v === '' ? null : Number(v);
@@ -340,6 +339,8 @@ function showFormMessage(text) {
   el.className = 'rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
 }
 function buildPayload() {
+  const main = collectMainTasksAndCases();
+  if (main.error) return {error: main.error};
   return {
     tutor_id: document.getElementById('tutorSelect').value,
     school_id: document.getElementById('schoolSelect').value,
@@ -348,7 +349,7 @@ function buildPayload() {
     dispatch_place_address: document.getElementById('dispatchPlaceAddress').value.trim() || null,
     contract_start: document.getElementById('contractStart').value || null,
     contract_end: document.getElementById('contractEnd').value || null,
-    workload_cases: collectWorkloadCases().filter(item => !isEmptyWorkloadCase(item)),
+    workload_cases: main.cases,
     shift_note: document.getElementById('shiftNote').value.trim() || null,
     work_content: document.getElementById('workContent').value.trim() || null,
     scoring_enabled: document.getElementById('scoringEnabled').checked,
@@ -356,13 +357,14 @@ function buildPayload() {
     scoring_unit: document.getElementById('scoringUnit').value.trim() || null,
     scoring_task_id: document.getElementById('scoringTaskId').value.trim() || null,
     scoring_contract_id: document.getElementById('scoringContractId').value.trim() || null,
-    tasks: collectTasks('main'),
+    tasks: main.tasks,
     sub_tasks: collectTasks('sub'),
   };
 }
 async function saveContract(event) {
   event.preventDefault();
   const payload = buildPayload();
+  if (payload.error) { showFormMessage(payload.error); return; }
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
   if (!payload.tasks.length) { showFormMessage('担当業務①は必須です'); return; }
   if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {

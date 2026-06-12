@@ -118,6 +118,7 @@ def _workload_cases_to_json(payload: ContractCreate | ContractUpdate) -> list[di
             weekly_lessons=payload.weekly_lessons,
             start_date=payload.contract_start,
             end_date=payload.contract_end,
+            task_index=1,
         )]
     return [case.model_dump(mode="json") for case in cases]
 

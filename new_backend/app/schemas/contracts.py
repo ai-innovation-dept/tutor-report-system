@@ -25,11 +25,23 @@ class ContractTask(BaseModel):
 
 
 class ContractWorkloadCase(BaseModel):
-    """月時間（分）・週コマの期間付きケース。契約期間内で複数登録できる。"""
+    """月時間（分）・週コマの期間付きケース。
+
+    task_index で担当業務①〜③に紐づく（超過判定・要望連絡事項の業務別表示に使用）。
+    旧データ互換のため task_index 無し（None）も許容する。
+    """
     monthly_minutes: int | None = None
     weekly_lessons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
+    task_index: int | None = None  # 担当業務①〜③（1..3）
+
+    @field_validator("task_index")
+    @classmethod
+    def validate_task_index(cls, v: int | None) -> int | None:
+        if v is not None and not (1 <= v <= MAX_MAIN_TASKS):
+            raise ValueError(f"task_index は1〜{MAX_MAIN_TASKS}で指定してください")
+        return v
 
     def is_empty(self) -> bool:
         return (

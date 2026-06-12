@@ -158,7 +158,7 @@ class TestContractWorkloadCases:
         assert body["workload_cases"][1]["start_date"] == "2026-09-01"
 
     def test_legacy_single_values_become_one_case(self, client, db, setup):
-        """ケース未指定で単一値のみ（CSV取込互換）→ 契約期間を適用期間とした1ケースに合成。"""
+        """ケース未指定で単一値のみ（CSV取込互換）→ 契約期間を適用期間とした担当業務①の1ケースに合成。"""
         res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 201, res.text
         cases = res.json()["workload_cases"]
@@ -167,7 +167,31 @@ class TestContractWorkloadCases:
             "weekly_lessons": 3,
             "start_date": "2026-04-01",
             "end_date": "2027-03-31",
+            "task_index": 1,
         }]
+
+    def test_case_task_index_roundtrip(self, client, db, setup):
+        """担当業務ごとのケース（task_index付き）が保存・返却されること。範囲外は422。"""
+        tasks = [
+            {"task_name": "数学科指導", "task_id": "T1", "contract_id": "C1"},
+            {"task_name": "教科会", "task_id": "T2", "contract_id": "C2"},
+        ]
+        cases = [
+            {"task_index": 1, "monthly_minutes": 1200, "weekly_lessons": 6, "start_date": "2026-04-01", "end_date": "2027-03-31"},
+            {"task_index": 2, "monthly_minutes": 800, "weekly_lessons": 4, "start_date": "2026-04-01", "end_date": "2027-03-31"},
+        ]
+        payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, tasks=tasks, workload_cases=cases)
+        res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        saved = res.json()["workload_cases"]
+        assert [c["task_index"] for c in saved] == [1, 2]
+        assert saved[0]["monthly_minutes"] == 1200
+        # 講師向けAPIにも task_index 付きで返る
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert [c["task_index"] for c in entry["workload_cases"]] == [1, 2]
+        # task_index は1〜3のみ
+        bad = _payload(setup, workload_cases=[{"task_index": 4, "monthly_minutes": 100}])
+        assert client.post("/api/w/contracts", json=bad, headers=_auth(client, "master@x.example.com")).status_code == 422
 
     def test_patch_replaces_cases(self, client, db, setup):
         headers = _auth(client, "master@x.example.com")

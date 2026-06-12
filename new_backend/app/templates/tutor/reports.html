@@ -366,15 +366,17 @@ function formatDateJa(value) {
   const [y, m, d] = String(value).split('-');
   return `${y}年${m}月${d}日`;
 }
-// 要望連絡事項に表示する契約情報。月時間（分）・週コマの期間付きケースと契約期間を
-// 「（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」形式で整形する。
+// 要望連絡事項に表示する契約情報。担当業務ごとの月時間（分）・週コマ・適用期間と契約期間を
+// 「業務名：（月　1,200　分固定　：　週6コマ）[2026年04月01日　～　2027年03月31日]」形式で整形する。
 function workloadRequestsText(contract) {
   const lines = (contract.workload_cases || []).map(item => {
     const parts = [];
     if (item.monthly_minutes != null) parts.push(`月　${Number(item.monthly_minutes).toLocaleString('ja-JP')}　分固定`);
     if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
     if (!parts.length) return '';
-    let text = `（${parts.join('　：　')}）`;
+    const task = (contract.tasks || [])[(Number(item.task_index) || 1) - 1];
+    const name = task?.task_name ? `${task.task_name}：` : '';
+    let text = `${name}（${parts.join('　：　')}）`;
     if (item.start_date || item.end_date) {
       text += `[${formatDateJa(item.start_date)}　～　${formatDateJa(item.end_date)}]`;
     }
