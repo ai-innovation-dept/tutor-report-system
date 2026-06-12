@@ -27,7 +27,7 @@
 <script>
   const reportId = {{ report_id | tojson }};
   const STATUS_LABELS = {
-    draft: '下書き', awaiting_school: '学校確認待ち', awaiting_sales: '営業確認待ち',
+    draft: '下書き', awaiting_office_precheck: '事務事前確認待ち（月分超過）', awaiting_school: '学校確認待ち', awaiting_sales: '営業確認待ち',
     awaiting_office: '事務確認待ち', awaiting_finance: '経理確認待ち', approved: '承認済み',
     returned_to_tutor: '差戻し（講師へ）', returned_to_office: '差戻し（事務へ）', closed: '終了'
   };

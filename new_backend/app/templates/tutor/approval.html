@@ -27,6 +27,7 @@ const STEPS = [
 const PHASE_CURRENT_STEP = {
   recording: 0,
   returned: 0,
+  office_precheck: 1,
   awaiting_school: 1,
   awaiting_sales: 2,
   awaiting_office: 2,
@@ -36,6 +37,7 @@ const PHASE_CURRENT_STEP = {
 };
 const STATUS_LABELS = {
   draft: '下書き',
+  awaiting_office_precheck: '事務事前確認待ち（月分超過）',
   awaiting_school: '学校承認待ち',
   awaiting_sales: '営業確認待ち',
   returned_to_tutor: '差戻し（要修正）',
@@ -111,6 +113,7 @@ function monthlyPhase(reports) {
   const ranks = statuses.map(status => ({
     draft: 0,
     returned_to_tutor: 0,
+    awaiting_office_precheck: 1,
     awaiting_school: 1,
     awaiting_sales: 2,
     awaiting_office: 3,
@@ -119,6 +122,8 @@ function monthlyPhase(reports) {
     closed: 7
   }[status] ?? 0));
   if (statuses.includes('returned_to_tutor')) return 'returned';
+  // 月分超過の報告は学校確認の前に事務の事前確認を待つ
+  if (statuses.includes('awaiting_office_precheck')) return 'office_precheck';
   if (statuses.length && statuses.every(status => status === 'closed')) return 'closed';
   if (statuses.length && statuses.every(status => status === 'approved')) return 'completed';
   if (statuses.length && ranks.every(rank => rank >= 4)) return 'awaiting_finance';
@@ -296,6 +301,9 @@ function actionArea(group) {
       <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>まだ記録中の指導日があります</button>
       ${deleteButton(group)}
     </div>`;
+  }
+  if (group.phase === 'office_precheck') {
+    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>月分が契約の固定分を超えているため、事務担当の事前確認を待っています</button>';
   }
   if (group.phase === 'awaiting_school') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>学校の承認を待っています</button>';

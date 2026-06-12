@@ -43,6 +43,7 @@ function dateTimeLabel(value) {
   return `${d.getFullYear()}/${d.getMonth() + 1}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 function statusBadge(status) {
+  if (status === 'awaiting_office_precheck') return '<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">事務確認中</span>';
   if (status === 'awaiting_school') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
   if (status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
   if (status === 'approved') return '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">最終承認済み</span>';

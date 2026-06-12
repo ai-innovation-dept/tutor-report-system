@@ -85,6 +85,7 @@
 setBreadcrumb('管理者', 'ダッシュボード');
 const STATUS_LABELS = {
   draft: '講師作成',
+  awaiting_office_precheck: '事務事前確認待ち（月分超過）',
   awaiting_school: '学校確認待ち',
   returned_to_tutor: '講師へ差戻し中',
   returned_to_office: '事務へ差戻し中',
@@ -111,6 +112,7 @@ const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
+  {key: 'awaiting_office_precheck', label: '事務事前確認（月分超過）', statuses: ['awaiting_office_precheck']},
   {key: 'awaiting_school', label: '学校確認待ち', statuses: ['awaiting_school']},
   {key: 'awaiting_office', label: '事務確認待ち', statuses: ['awaiting_office', 'returned_to_office']},
   {key: 'awaiting_sales', label: '営業確認待ち（最終）', statuses: ['awaiting_sales']},
@@ -188,7 +190,7 @@ function groupKey(report) {
 }
 function currentGroupStatus(reports) {
   const statuses = new Set(reports.map(report => report.status));
-  for (const status of ['closed', 'returned_to_tutor', 'returned_to_office', 'awaiting_finance', 'awaiting_office', 'awaiting_sales', 'awaiting_school', 'draft', 'approved']) {
+  for (const status of ['closed', 'returned_to_tutor', 'returned_to_office', 'awaiting_finance', 'awaiting_office_precheck', 'awaiting_office', 'awaiting_sales', 'awaiting_school', 'draft', 'approved']) {
     if (statuses.has(status)) return status;
   }
   return reports[0]?.status || '';
@@ -267,7 +269,8 @@ function taskConfig() {
   }
   if (currentRole === 'office') {
     return {
-      statuses: ['awaiting_office', 'returned_to_office'],
+      // awaiting_office_precheck = 月分超過報告の事前確認（承認で学校確認へ進む）
+      statuses: ['awaiting_office_precheck', 'awaiting_office', 'returned_to_office'],
       subtext: '事務確認が必要',
       label: '事務承認',
       returnRole: 'office'
@@ -407,6 +410,7 @@ function currentWaitLabel(status) {
   const labels = {
     draft: '講師の作成待ち',
     returned_to_tutor: '講師の修正待ち',
+    awaiting_office_precheck: '事務の事前確認待ち（月分超過）',
     awaiting_school: '学校の承認待ち',
     awaiting_sales: '営業の承認待ち',
     returned_to_office: '事務の対応待ち',

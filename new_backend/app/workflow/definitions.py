@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 
 class WorkStatus:
     DRAFT = "draft"
+    # 事務の事前確認待ち（担当業務の月分が契約の月分固定を超過した報告のみ。学校確認の前段）
+    AWAITING_OFFICE_PRECHECK = "awaiting_office_precheck"
     AWAITING_SCHOOL = "awaiting_school"
     AWAITING_SALES = "awaiting_sales"
     AWAITING_OFFICE = "awaiting_office"
@@ -18,7 +20,7 @@ class WorkStatus:
     CLOSED = "closed"
 
     ALL = {
-        DRAFT, AWAITING_SCHOOL, AWAITING_SALES, AWAITING_OFFICE,
+        DRAFT, AWAITING_OFFICE_PRECHECK, AWAITING_SCHOOL, AWAITING_SALES, AWAITING_OFFICE,
         AWAITING_FINANCE, APPROVED, RETURNED_TO_TUTOR, RETURNED_TO_OFFICE, CLOSED,
     }
 
@@ -81,6 +83,24 @@ TRANSITIONS: list[Transition] = [
         allowed_roles=frozenset({"admin_chief"}),
         to_status=WorkStatus.AWAITING_OFFICE,
         next_approver_role="office",
+    ),
+    # 超過フロー（講師→事務の事前確認→学校→事務→営業）。
+    # 提出時の超過判定で engine が awaiting_school → awaiting_office_precheck に差し替える。
+    # 事前確認の承認で通常フロー（学校確認待ち）へ合流する。
+    Transition(
+        from_status=WorkStatus.AWAITING_OFFICE_PRECHECK,
+        action=WorkAction.APPROVE,
+        allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.AWAITING_SCHOOL,
+        next_approver_role="school",
+    ),
+    Transition(
+        from_status=WorkStatus.AWAITING_OFFICE_PRECHECK,
+        action=WorkAction.RETURN,
+        allowed_roles=frozenset({"office"}),
+        to_status=WorkStatus.RETURNED_TO_TUTOR,
+        comment_required=True,
+        next_approver_role="tutor",
     ),
     # 差戻し
     Transition(

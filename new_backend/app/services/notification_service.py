@@ -26,6 +26,9 @@ _NOTIFICATION_RULES: dict[tuple[str, str], tuple[tuple[str, ...], str, str]] = {
     ("submit", "returned_to_tutor"): (("school",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("submit", "returned_to_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("skip_school", "draft"): (("office",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    # 超過フロー: 事務の事前確認の承認で学校へ承認依頼、差戻しは講師へ
+    ("approve", "awaiting_office_precheck"): (("school",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
+    ("return", "awaiting_office_precheck"): (("tutor",), "returned", _RETURNED_SUBJECT),
     ("approve", "awaiting_school"): (("tutor",), "approved_by_school", _APPROVED_BY_SCHOOL_SUBJECT),
     ("approve", "awaiting_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
     ("approve", "returned_to_office"): (("sales",), "approval_request", _APPROVAL_REQUEST_SUBJECT),
@@ -114,8 +117,11 @@ def _enqueue_notification(
         return []
 
     recipient_roles, notif_type, subject = rule
-    # 学校スキップで提出が事務確認へ直行した場合は通知先も事務に切り替える
-    if action == WorkAction.SUBMIT and report.status == WorkStatus.AWAITING_OFFICE:
+    # 学校スキップで事務確認へ直行、または月分超過で事務の事前確認へ向かった場合は通知先を事務に切り替える
+    if action == WorkAction.SUBMIT and report.status in (
+        WorkStatus.AWAITING_OFFICE,
+        WorkStatus.AWAITING_OFFICE_PRECHECK,
+    ):
         recipient_roles = ("office",)
     body = _notification_body(report, action, from_status)
     notifications: list[WorkNotification] = []
