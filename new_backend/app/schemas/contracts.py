@@ -4,7 +4,9 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, field_validator
 
-MAX_TASKS = 5
+# 委託業務はメイン業務（①〜③・①必須）とサブ業務（①〜⑤・任意）の2区分。
+MAX_MAIN_TASKS = 3
+MAX_SUB_TASKS = 5
 
 
 class ContractTask(BaseModel):
@@ -54,14 +56,23 @@ class ContractBase(BaseModel):
     scoring_unit: str | None = None
     scoring_task_id: str | None = None
     scoring_contract_id: str | None = None
-    tasks: list[ContractTask] = []
+    tasks: list[ContractTask] = []        # メイン業務（①必須・最大3件）
+    sub_tasks: list[ContractTask] = []    # サブ業務（任意・最大5件）
 
     @field_validator("tasks")
     @classmethod
     def validate_tasks(cls, value: list[ContractTask]) -> list[ContractTask]:
         non_empty = [task for task in value if not task.is_empty()]
-        if len(value) > MAX_TASKS:
-            raise ValueError(f"委託業務は最大{MAX_TASKS}件です")
+        if len(value) > MAX_MAIN_TASKS:
+            raise ValueError(f"メイン業務は最大{MAX_MAIN_TASKS}件です")
+        return non_empty
+
+    @field_validator("sub_tasks")
+    @classmethod
+    def validate_sub_tasks(cls, value: list[ContractTask]) -> list[ContractTask]:
+        non_empty = [task for task in value if not task.is_empty()]
+        if len(value) > MAX_SUB_TASKS:
+            raise ValueError(f"サブ業務は最大{MAX_SUB_TASKS}件です")
         return non_empty
 
     @field_validator("workload_cases")
@@ -99,6 +110,7 @@ class ContractForTutorOut(BaseModel):
     shift_note: str | None = None
     work_content: str | None = None
     tasks: list[ContractTask] = []
+    sub_tasks: list[ContractTask] = []
     column_definition: list[dict] = []
 
 
@@ -124,6 +136,7 @@ class ContractOut(BaseModel):
     scoring_task_id: str | None = None
     scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []
+    sub_tasks: list[ContractTask] = []
     is_active: bool
     created_at: datetime
     updated_at: datetime

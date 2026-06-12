@@ -1019,10 +1019,16 @@ function updateLineSummary() {
 function renderTaskReference() {
   const el = document.getElementById('taskReference');
   if (!el) return;
+  // メイン業務(task_minutes_N)→サブ業務(sub_minutes_N)→採点(count_minutes)の順に参照表示する
   const tasks = activeColumnDefinition().filter(column =>
-    column.type === 'count_minutes' || String(column.key || '').startsWith('task_minutes_'));
+    column.type === 'count_minutes'
+    || String(column.key || '').startsWith('task_minutes_')
+    || String(column.key || '').startsWith('sub_minutes_'));
   el.innerHTML = tasks.length
-    ? tasks.map(column => `<div>${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`).join('')
+    ? tasks.map(column => {
+        const kind = String(column.key || '').startsWith('sub_minutes_') ? '【サブ】' : (String(column.key || '').startsWith('task_minutes_') ? '【メイン】' : '');
+        return `<div>${kind}${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`;
+      }).join('')
     : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
 }
 function setReportInputsDisabled(disabled) {

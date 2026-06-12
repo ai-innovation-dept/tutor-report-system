@@ -14,7 +14,8 @@ from app.dependencies.auth import require_role
 from app.models.shared import User
 from app.models.work import WorkAssignmentProfile
 from app.schemas.contracts import (
-    MAX_TASKS,
+    MAX_MAIN_TASKS,
+    MAX_SUB_TASKS,
     ContractCreate,
     ContractForTutorOut,
     ContractOut,
@@ -41,20 +42,22 @@ def _has_role(user: User | None, role: str) -> bool:
     return role in (list(user.roles or []) or ([user.role] if user.role else []))
 
 
-def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask]) -> None:
-    for index in range(1, MAX_TASKS + 1):
+# 委託業務カラム（メイン: task_name_N 等 / サブ: sub_task_name_N 等）の読み書き。
+# prefix="" がメイン（最大3件）、prefix="sub_" がサブ（最大5件）。
+def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask], prefix: str = "", max_count: int = MAX_MAIN_TASKS) -> None:
+    for index in range(1, max_count + 1):
         task = tasks[index - 1] if index <= len(tasks) else None
-        setattr(profile, f"task_name_{index}", (task.task_name or None) if task else None)
-        setattr(profile, f"task_id_{index}", (task.task_id or None) if task else None)
-        setattr(profile, f"contract_id_{index}", (task.contract_id or None) if task else None)
+        setattr(profile, f"{prefix}task_name_{index}", (task.task_name or None) if task else None)
+        setattr(profile, f"{prefix}task_id_{index}", (task.task_id or None) if task else None)
+        setattr(profile, f"{prefix}contract_id_{index}", (task.contract_id or None) if task else None)
 
 
-def _tasks_from_columns(profile: WorkAssignmentProfile) -> list[ContractTask]:
+def _tasks_from_columns(profile: WorkAssignmentProfile, prefix: str = "", max_count: int = MAX_MAIN_TASKS) -> list[ContractTask]:
     tasks: list[ContractTask] = []
-    for index in range(1, MAX_TASKS + 1):
-        name = getattr(profile, f"task_name_{index}")
-        task_id = getattr(profile, f"task_id_{index}")
-        contract_id = getattr(profile, f"contract_id_{index}")
+    for index in range(1, max_count + 1):
+        name = getattr(profile, f"{prefix}task_name_{index}")
+        task_id = getattr(profile, f"{prefix}task_id_{index}")
+        contract_id = getattr(profile, f"{prefix}contract_id_{index}")
         if name or task_id or contract_id:
             tasks.append(ContractTask(task_name=name, task_id=task_id, contract_id=contract_id))
     return tasks
@@ -83,6 +86,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         scoring_task_id=profile.scoring_task_id,
         scoring_contract_id=profile.scoring_contract_id,
         tasks=_tasks_from_columns(profile),
+        sub_tasks=_tasks_from_columns(profile, prefix="sub_", max_count=MAX_SUB_TASKS),
         is_active=profile.is_active,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
@@ -127,6 +131,7 @@ def _apply_payload(profile: WorkAssignmentProfile, payload: ContractCreate) -> N
         setattr(profile, field, getattr(payload, field))
     profile.workload_cases = _workload_cases_to_json(payload)
     _tasks_to_columns(profile, payload.tasks)
+    _tasks_to_columns(profile, payload.sub_tasks, prefix="sub_", max_count=MAX_SUB_TASKS)
 
 
 def _resolve_pair(db: Session, tutor_id: uuid.UUID, school_id: uuid.UUID) -> tuple[User, User]:
@@ -159,7 +164,7 @@ def create_contract(
     _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     if not payload.tasks:
-        raise HTTPException(status_code=422, detail="委託業務①は必須です")
+        raise HTTPException(status_code=422, detail="メイン業務①は必須です")
     tutor, school = _resolve_pair(db, payload.tutor_id, payload.school_id)
 
     duplicate = db.scalar(
@@ -302,6 +307,7 @@ def list_contracts_for_tutor(
             shift_note=p.shift_note,
             work_content=p.work_content,
             tasks=_tasks_from_columns(p),
+            sub_tasks=_tasks_from_columns(p, prefix="sub_", max_count=MAX_SUB_TASKS),
             column_definition=build_column_definition(p),
         )
         for p in profiles
@@ -353,6 +359,8 @@ def update_contract(
         profile.workload_cases = [case.model_dump(mode="json") for case in payload.workload_cases]
     if "tasks" in data:
         _tasks_to_columns(profile, payload.tasks)
+    if "sub_tasks" in data:
+        _tasks_to_columns(profile, payload.sub_tasks, prefix="sub_", max_count=MAX_SUB_TASKS)
 
     db.commit()
     return _to_out(_get_profile_loaded(db, profile.id))

@@ -263,6 +263,71 @@ class TestContractForTutor:
         assert res.status_code == 403
 
 
+class TestMainSubTasks:
+    """委託業務のメイン業務（①〜③・①必須）／サブ業務（①〜⑤・任意）分割。"""
+
+    MAIN = [
+        {"task_name": "a", "task_id": "a", "contract_id": "a"},
+        {"task_name": "b", "task_id": "b", "contract_id": "b"},
+    ]
+    SUB = [
+        {"task_name": "c", "task_id": "c", "contract_id": "c"},
+        {"task_name": "d", "task_id": "d", "contract_id": "d"},
+        {"task_name": "e", "task_id": "e", "contract_id": "e"},
+    ]
+
+    def _create(self, client, setup, **ov):
+        return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com"))
+
+    def test_create_with_main_and_sub(self, client, db, setup):
+        res = self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB)
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert [t["task_name"] for t in body["tasks"]] == ["a", "b"]
+        assert [t["task_name"] for t in body["sub_tasks"]] == ["c", "d", "e"]
+
+    def test_column_order_main_then_sub(self, client, db, setup):
+        """報告書の列はメイン①②→サブ①②③の順（例: 回数,日付,時間,担当時限,a,b,c,d,e,後は同じ）。"""
+        assert self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB).status_code == 201
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        keys = [c["key"] for c in entry["column_definition"]]
+        assert keys == [
+            "date", "start", "end", "subject_period",
+            "task_minutes_1", "task_minutes_2",
+            "sub_minutes_1", "sub_minutes_2", "sub_minutes_3",
+            "break_minutes", "commute_fee", "note",
+        ]
+        labels = [c["label"] for c in entry["column_definition"][4:9]]
+        assert labels == ["a（分）", "b（分）", "c（分）", "d（分）", "e（分）"]
+        sub1 = next(c for c in entry["column_definition"] if c["key"] == "sub_minutes_1")
+        assert sub1["task_id"] == "c"
+        assert sub1["contract_id"] == "c"
+        assert sub1["summable"] is True
+
+    def test_main_over_limit_rejected(self, client, db, setup):
+        over = [{"task_name": f"m{i}"} for i in range(4)]
+        assert self._create(client, setup, tasks=over).status_code == 422
+
+    def test_sub_over_limit_rejected(self, client, db, setup):
+        over = [{"task_name": f"s{i}"} for i in range(6)]
+        assert self._create(client, setup, sub_tasks=over).status_code == 422
+
+    def test_sub_optional(self, client, db, setup):
+        res = self._create(client, setup)
+        assert res.status_code == 201, res.text
+        assert res.json()["sub_tasks"] == []
+
+    def test_patch_sub_tasks(self, client, db, setup):
+        created = self._create(client, setup).json()
+        headers = _auth(client, "master@x.example.com")
+        res = client.patch(f"/api/w/contracts/{created['id']}", json={"sub_tasks": self.SUB}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert len(res.json()["sub_tasks"]) == 3
+        # サブを空に更新するとクリアされる
+        res = client.patch(f"/api/w/contracts/{created['id']}", json={"sub_tasks": []}, headers=headers)
+        assert res.json()["sub_tasks"] == []
+
+
 class TestContractListGetUpdateDelete:
     def _create(self, client, setup, **ov):
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()
@@ -329,8 +394,8 @@ def _csv_row(tutor_no, school_name, **over):
         cis.TUTOR_NO: tutor_no,
         cis.SCHOOL_NAME: school_name,
         cis.CUSTOMER_ID: "9999",
-        cis._task_name_h(1): "数学指導",
-        cis._task_id_h(1): "T1",
+        cis._main_name_h(1): "数学指導",
+        cis._main_id_h(1): "T1",
     }
     row.update(over)
     return row
@@ -420,11 +485,29 @@ class TestContractImport:
 
     def test_import_first_task_required(self, client, db, import_setup):
         row = _csv_row("T100", "渋谷高校")
-        row[cis._task_name_h(1)] = ""
-        row[cis._task_id_h(1)] = ""
+        row[cis._main_name_h(1)] = ""
+        row[cis._main_id_h(1)] = ""
         res = self._upload(client, _csv_bytes([row]))
         assert res.status_code == 400
         assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_sub_tasks(self, client, db, import_setup):
+        # サブ業務列の取り込み（メインに加えてサブ①②を登録）
+        row = _csv_row("T100", "渋谷高校", **{
+            cis._sub_name_h(1): "教科会",
+            cis._sub_id_h(1): "S1",
+            cis._sub_contract_id_h(1): "SC1",
+            cis._sub_name_h(2): "採点補助",
+        })
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.task_name_1 == "数学指導"
+        assert profile.sub_task_name_1 == "教科会"
+        assert profile.sub_task_id_1 == "S1"
+        assert profile.sub_contract_id_1 == "SC1"
+        assert profile.sub_task_name_2 == "採点補助"
 
     def test_import_non_admin_forbidden(self, client, import_setup):
         res = client.post(

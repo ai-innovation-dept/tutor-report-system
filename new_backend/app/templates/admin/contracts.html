@@ -71,12 +71,17 @@
 {% block scripts %}
 <script>
 setBreadcrumb('管理ポータル', '契約管理');
-const MAX_TASKS = 5;
+// 委託業務はメイン業務（①〜③・①必須）とサブ業務（①〜⑤・任意）の2区分。
+// 報告書の列はメイン→サブの順に並ぶ。
+const TASK_KINDS = {
+  main: {max: 3, label: 'メイン業務'},
+  sub: {max: 5, label: 'サブ業務'},
+};
 let contracts = [];
 let tutors = [];
 let schools = [];
 let editingId = null;
-let visibleTaskCount = 1;
+let visibleTaskCounts = {main: 1, sub: 1};
 let deleteTarget = null;
 
 function escapeHtml(value) {
@@ -122,27 +127,45 @@ function userOptions(users, selectedId) {
     `<option value="${u.id}" ${String(u.id) === String(selectedId || '') ? 'selected' : ''}>${escapeHtml(u.display_name)}${u.user_no ? `（${escapeHtml(u.user_no)}）` : ''}</option>`
   )].join('');
 }
-function taskRow(index, task) {
-  const hidden = index > visibleTaskCount;
-  return `<div class="task-row grid gap-2 sm:grid-cols-3 ${hidden ? 'hidden' : ''}" data-task-index="${index}">
+function taskRow(kind, index, task) {
+  const hidden = index > visibleTaskCounts[kind];
+  const required = kind === 'main' && index === 1;
+  return `<div class="task-row grid gap-2 sm:grid-cols-3 ${hidden ? 'hidden' : ''}" data-task-kind="${kind}" data-task-index="${index}">
     <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">委託業務名${index === 1 ? '①（必須）' : `（${'①②③④⑤'[index - 1]}）`}</span>
-      <input data-task="name" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <span class="mb-1 block text-slate-600">委託業務名${'①②③④⑤'[index - 1]}${required ? '（必須）' : ''}</span>
+      <input data-task="name" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
     </label>
     <label class="block text-sm">
       <span class="mb-1 block text-slate-600">委託業務ID</span>
-      <input data-task="task_id" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <input data-task="task_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
     </label>
     <label class="block text-sm">
       <span class="mb-1 block text-slate-600">個別契約ID</span>
-      <input data-task="contract_id" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+      <input data-task="contract_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
     </label>
+  </div>`;
+}
+function taskSection(kind, tasks) {
+  const def = TASK_KINDS[kind];
+  const note = kind === 'main'
+    ? 'メイン業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（メイン→サブの順）。'
+    : 'サブ業務はすべて任意です。報告書ではメイン業務の右に「業務名（分）」列として並びます。';
+  return `<div class="rounded-lg border border-slate-200 p-4">
+    <div class="mb-2 flex items-center justify-between">
+      <span class="text-sm font-medium text-slate-800">■${def.label}${kind === 'main' ? '（①は必須）' : '（任意）'}</span>
+      <button type="button" id="${kind}AddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ${def.label}を追加</button>
+    </div>
+    <div id="${kind}TaskRows" class="space-y-3">
+      ${Array.from({length: def.max}, (_, i) => taskRow(kind, i + 1, tasks[i])).join('')}
+    </div>
+    <p class="mt-2 text-xs text-slate-500">${note}</p>
   </div>`;
 }
 function renderForm(contract) {
   const isEdit = Boolean(contract);
   const tasks = contract?.tasks || [];
-  visibleTaskCount = Math.max(1, tasks.length);
+  const subTasks = contract?.sub_tasks || [];
+  visibleTaskCounts = {main: Math.max(1, tasks.length), sub: Math.max(1, subTasks.length)};
   formDrawer.innerHTML = `
     <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
       <h2 class="font-semibold text-slate-800">${isEdit ? '契約を編集' : '契約を新規登録'}</h2>
@@ -180,16 +203,8 @@ function renderForm(contract) {
       <label class="block text-sm"><span class="mb-1 block text-slate-700">シフト指定欄</span><textarea id="shiftNote" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
 
-      <div class="rounded-lg border border-slate-200 p-4">
-        <div class="mb-2 flex items-center justify-between">
-          <span class="text-sm font-medium text-slate-800">委託業務（①は必須）</span>
-          <button type="button" id="addTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ 委託業務を追加</button>
-        </div>
-        <div id="taskRows" class="space-y-3">
-          ${Array.from({length: MAX_TASKS}, (_, i) => taskRow(i + 1, tasks[i])).join('')}
-        </div>
-        <p class="mt-2 text-xs text-slate-500">委託業務は報告書で「業務名（分）」列になります（分のみ）。回数も記録する項目は下の「任意項目列」をご利用ください。</p>
-      </div>
+      ${taskSection('main', tasks)}
+      ${taskSection('sub', subTasks)}
 
       <div class="rounded-lg border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3">
@@ -231,11 +246,13 @@ function renderForm(contract) {
         <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">${isEdit ? '更新' : '登録'}</button>
       </div>
     </form>`;
-  document.getElementById('addTaskBtn').addEventListener('click', revealNextTask);
+  document.getElementById('mainAddTaskBtn').addEventListener('click', () => revealNextTask('main'));
+  document.getElementById('subAddTaskBtn').addEventListener('click', () => revealNextTask('sub'));
   document.getElementById('addWorkloadBtn').addEventListener('click', addWorkloadCase);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
   renderWorkloadRows(contract?.workload_cases || []);
-  updateAddTaskButton();
+  updateAddTaskButton('main');
+  updateAddTaskButton('sub');
 }
 // --- 月時間（分）／週コマの期間付きケース（追加・削除可能な動的行） ---
 function workloadRow(index, item) {
@@ -287,27 +304,27 @@ function removeWorkloadCase(index) {
   cases.splice(index, 1);
   renderWorkloadRows(cases);
 }
-function revealNextTask() {
-  if (visibleTaskCount >= MAX_TASKS) return;
-  visibleTaskCount += 1;
-  const row = formDrawer.querySelector(`[data-task-index="${visibleTaskCount}"]`);
+function revealNextTask(kind) {
+  if (visibleTaskCounts[kind] >= TASK_KINDS[kind].max) return;
+  visibleTaskCounts[kind] += 1;
+  const row = formDrawer.querySelector(`[data-task-kind="${kind}"][data-task-index="${visibleTaskCounts[kind]}"]`);
   row?.classList.remove('hidden');
-  updateAddTaskButton();
+  updateAddTaskButton(kind);
 }
-function updateAddTaskButton() {
-  const btn = document.getElementById('addTaskBtn');
-  if (btn) btn.classList.toggle('hidden', visibleTaskCount >= MAX_TASKS);
+function updateAddTaskButton(kind) {
+  const btn = document.getElementById(`${kind}AddTaskBtn`);
+  if (btn) btn.classList.toggle('hidden', visibleTaskCounts[kind] >= TASK_KINDS[kind].max);
 }
 function toggleScoringFields() {
   const enabled = document.getElementById('scoringEnabled')?.checked;
   document.getElementById('scoringFields')?.classList.toggle('hidden', !enabled);
 }
-function collectTasks() {
+function collectTasks(kind) {
   const tasks = [];
-  for (let i = 1; i <= MAX_TASKS; i++) {
-    const name = formDrawer.querySelector(`[data-task="name"][data-index="${i}"]`)?.value.trim() || '';
-    const taskId = formDrawer.querySelector(`[data-task="task_id"][data-index="${i}"]`)?.value.trim() || '';
-    const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-index="${i}"]`)?.value.trim() || '';
+  for (let i = 1; i <= TASK_KINDS[kind].max; i++) {
+    const name = formDrawer.querySelector(`[data-task="name"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
+    const taskId = formDrawer.querySelector(`[data-task="task_id"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
+    const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
     if (name || taskId || contractId) tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
   }
   return tasks;
@@ -337,14 +354,15 @@ function buildPayload() {
     scoring_unit: document.getElementById('scoringUnit').value.trim() || null,
     scoring_task_id: document.getElementById('scoringTaskId').value.trim() || null,
     scoring_contract_id: document.getElementById('scoringContractId').value.trim() || null,
-    tasks: collectTasks(),
+    tasks: collectTasks('main'),
+    sub_tasks: collectTasks('sub'),
   };
 }
 async function saveContract(event) {
   event.preventDefault();
   const payload = buildPayload();
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
-  if (!payload.tasks.length) { showFormMessage('委託業務①は必須です'); return; }
+  if (!payload.tasks.length) { showFormMessage('メイン業務①は必須です'); return; }
   if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {
     showFormMessage('月時間・週コマの適用期間は終了日を開始日以降にしてください');
     return;

@@ -13,7 +13,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.models.shared import User
-from app.schemas.contracts import MAX_TASKS, ContractCreate, ContractTask
+from app.schemas.contracts import MAX_MAIN_TASKS, MAX_SUB_TASKS, ContractCreate, ContractTask
 
 # CSVの列見出し（単一の定義元）。テンプレート出力・解析の双方で使用する。
 TUTOR_NO = "講師番号"
@@ -36,24 +36,38 @@ SCORING_CONTRACT_ID = "採点 個別契約ID"
 _CIRCLED = "①②③④⑤"
 
 
-def _task_name_h(i: int) -> str:
-    return f"委託業務{_CIRCLED[i - 1]}名"
+def _main_name_h(i: int) -> str:
+    return f"メイン業務{_CIRCLED[i - 1]}名"
 
 
-def _task_id_h(i: int) -> str:
-    return f"委託業務{_CIRCLED[i - 1]}ID"
+def _main_id_h(i: int) -> str:
+    return f"メイン業務{_CIRCLED[i - 1]}ID"
 
 
-def _contract_id_h(i: int) -> str:
-    return f"個別契約{_CIRCLED[i - 1]}ID"
+def _main_contract_id_h(i: int) -> str:
+    return f"メイン個別契約{_CIRCLED[i - 1]}ID"
+
+
+def _sub_name_h(i: int) -> str:
+    return f"サブ業務{_CIRCLED[i - 1]}名"
+
+
+def _sub_id_h(i: int) -> str:
+    return f"サブ業務{_CIRCLED[i - 1]}ID"
+
+
+def _sub_contract_id_h(i: int) -> str:
+    return f"サブ個別契約{_CIRCLED[i - 1]}ID"
 
 
 def headers() -> list[str]:
     cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
             CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
             SHIFT_NOTE, WORK_CONTENT]
-    for i in range(1, MAX_TASKS + 1):
-        cols += [_task_name_h(i), _task_id_h(i), _contract_id_h(i)]
+    for i in range(1, MAX_MAIN_TASKS + 1):
+        cols += [_main_name_h(i), _main_id_h(i), _main_contract_id_h(i)]
+    for i in range(1, MAX_SUB_TASKS + 1):
+        cols += [_sub_name_h(i), _sub_id_h(i), _sub_contract_id_h(i)]
     cols += [SCORING_ENABLED, SCORING_LABEL, SCORING_UNIT, SCORING_TASK_ID, SCORING_CONTRACT_ID]
     return cols
 
@@ -62,10 +76,11 @@ def _example_row() -> list[str]:
     # 講師番号の先頭が「#」の行は記入例として取り込まれない（削除しても可）。
     row = ["#T0001", "山田太郎", "渋谷高校", "9999", "佐藤麻子",
            "2026-04-01", "2027-03-31", "600", "3", "月9:30-", "数学指導"]
-    row += ["数学科指導", "11111", "99992601"]   # ①
-    row += ["教科会", "", ""]                      # ②
-    row += ["", "", ""] * (MAX_TASKS - 2)          # ③〜⑤
-    row += ["有", "22222", "99992602"]             # 採点
+    row += ["数学科指導", "11111", "99992601"]       # メイン①
+    row += ["", "", ""] * (MAX_MAIN_TASKS - 1)       # メイン②③
+    row += ["教科会", "33333", ""]                    # サブ①
+    row += ["", "", ""] * (MAX_SUB_TASKS - 1)        # サブ②〜⑤
+    row += ["有", "採点", "回", "22222", "99992602"]  # 採点
     return row
 
 
@@ -168,12 +183,12 @@ def _parse_bool(value: str) -> bool:
     return value.strip().lower() in {"有", "true", "1", "○", "〇", "yes", "はい", "y"}
 
 
-def _collect_tasks(row: dict) -> list[ContractTask]:
+def _collect_tasks(row: dict, name_h, id_h, contract_id_h, max_count: int) -> list[ContractTask]:
     tasks: list[ContractTask] = []
-    for i in range(1, MAX_TASKS + 1):
-        name = row.get(_task_name_h(i), "")
-        task_id = row.get(_task_id_h(i), "")
-        contract_id = row.get(_contract_id_h(i), "")
+    for i in range(1, max_count + 1):
+        name = row.get(name_h(i), "")
+        task_id = row.get(id_h(i), "")
+        contract_id = row.get(contract_id_h(i), "")
         if name or task_id or contract_id:
             tasks.append(ContractTask(task_name=name or None, task_id=task_id or None, contract_id=contract_id or None))
     return tasks
@@ -204,9 +219,10 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
     monthly_minutes = _parse_int(row.get(MONTHLY_MINUTES, ""), MONTHLY_MINUTES, errors)
     weekly_lessons = _parse_int(row.get(WEEKLY_LESSONS, ""), WEEKLY_LESSONS, errors)
 
-    tasks = _collect_tasks(row)
+    tasks = _collect_tasks(row, _main_name_h, _main_id_h, _main_contract_id_h, MAX_MAIN_TASKS)
+    sub_tasks = _collect_tasks(row, _sub_name_h, _sub_id_h, _sub_contract_id_h, MAX_SUB_TASKS)
     if not tasks:
-        errors.append("委託業務①は必須です")
+        errors.append("メイン業務①は必須です")
 
     if errors or not tutor or not school:
         return None, errors
@@ -228,5 +244,6 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         scoring_task_id=row.get(SCORING_TASK_ID) or None,
         scoring_contract_id=row.get(SCORING_CONTRACT_ID) or None,
         tasks=tasks,
+        sub_tasks=sub_tasks,
     )
     return payload, []
