@@ -621,7 +621,7 @@ function inputClasses(width = 'w-full') {
 }
 function renderCell(column, line) {
   if (column.key === 'date') {
-    return `<td class="px-2 py-1">
+    return `<td class="relative px-2 py-1">
       <div class="flex items-center gap-1">
         <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-[124px]')}">
         <span data-weekday class="shrink-0 text-xs text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
@@ -688,6 +688,9 @@ function buildLineRows(lines) {
       }
       updateLineSummary();
     });
+    if (input.dataset.field === 'date') {
+      input.addEventListener('change', () => validateLineDateUnique(input));
+    }
   });
   lineRows.querySelectorAll('.line-time-select').forEach(sel => {
     sel.addEventListener('change', () => {
@@ -707,6 +710,29 @@ function buildLineRows(lines) {
     btn.addEventListener('click', () => openEndOffsetPopover(btn));
   });
   updateLineSummary();
+}
+// 同一日付の行の重複登録ガード（空欄は対象外）。他の行と同じ日付を選択した場合は
+// 値をクリアしてポップアップで通知する（時刻の逆転チェックと同方式）。API側でも同条件で422を返す。
+function validateLineDateUnique(input) {
+  const value = input.value;
+  if (!value) return;
+  const duplicated = [...lineRows.querySelectorAll('input[data-field="date"]')]
+    .some(other => other !== input && other.value === value);
+  if (!duplicated) return;
+  input.value = '';
+  input.closest('tr').querySelector('[data-weekday]').textContent = '';
+  showTimePopup(input.closest('td'), `同じ日付の行がすでにあります（${dateLabel(value)}）`);
+  updateLineSummary();
+}
+function findDuplicateLineDate(lines) {
+  const seen = new Set();
+  for (const line of lines) {
+    const value = String(line.date || '').trim();
+    if (!value) continue;
+    if (seen.has(value)) return value;
+    seen.add(value);
+  }
+  return null;
 }
 // 前回の記入分をコピー: 最後に記入済みの行と同じ内容（日付列を除く）を、その次の空行に追加する。
 // 列構成は契約により可変のため、type==='date' の列だけを除外して全列をコピーする。
@@ -1172,6 +1198,11 @@ reportForm.addEventListener('submit', async e => {
   const invalidTime = lines.some(line => line.start && line.end && line.end < line.start);
   if (invalidTime) {
     showFormMessage('業務終了時間が業務開始時間より早い行があります', true);
+    return;
+  }
+  const duplicateDate = findDuplicateLineDate(lines);
+  if (duplicateDate) {
+    showFormMessage(`同じ日付の行が複数あります（${dateLabel(duplicateDate)}）。日付を修正してください。`, true);
     return;
   }
   const schoolSel = document.getElementById('dispatchPlaceSchool');

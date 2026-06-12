@@ -187,6 +187,50 @@ class TestReports:
         res = client.post("/api/w/reports", json=payload, headers=headers)
         assert res.status_code == 403
 
+    def test_duplicate_line_dates_rejected(self, client, users):
+        """明細行に同じ日付が複数あると作成・編集とも422になること（空欄行は対象外）。"""
+        headers = _auth(client, "tutor@work.example.com")
+        base = {
+            "assignment_id": str(users["assignment"].id),
+            "target_month": "2026-06",
+            "form_type": "monthly_dispatch",
+        }
+        duplicate_lines = [
+            {"date": "2026-06-01", "start": "09:00", "end": "10:00"},
+            {"date": "2026-06-01", "start": "11:00", "end": "12:00"},
+        ]
+        res = client.post("/api/w/reports", json={**base, "form_data": {"lines": duplicate_lines}}, headers=headers)
+        assert res.status_code == 422
+        assert "同じ日付の行" in res.json()["detail"]
+
+        # 日付が重複しない（空欄行を含む）場合は作成できる
+        valid_lines = [
+            {"date": "2026-06-01", "start": "09:00", "end": "10:00"},
+            {"date": "2026-06-02", "start": "09:00", "end": "10:00"},
+            {"date": "", "start": "", "end": ""},
+            {"date": "", "start": "", "end": ""},
+        ]
+        res = client.post("/api/w/reports", json={**base, "form_data": {"lines": valid_lines}}, headers=headers)
+        assert res.status_code == 201, res.text
+        report_id = res.json()["id"]
+
+        # 編集（PATCH）でも日付の重複は422
+        res = client.patch(
+            f"/api/w/reports/{report_id}",
+            json={"form_data": {"lines": duplicate_lines}},
+            headers=headers,
+        )
+        assert res.status_code == 422
+        assert "同じ日付の行" in res.json()["detail"]
+
+        # 重複のない編集は通る
+        res = client.patch(
+            f"/api/w/reports/{report_id}",
+            json={"form_data": {"lines": valid_lines}},
+            headers=headers,
+        )
+        assert res.status_code == 200, res.text
+
 
 # ---------------------------------------------------------------------------
 # ワークフロー

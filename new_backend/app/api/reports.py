@@ -191,6 +191,25 @@ def _report_display_name(report: WorkReport) -> str:
     return _student_name(report)
 
 
+# 明細行の同一日付の重複登録ガード（空欄行は対象外）。フロント側でも同条件で入力時にブロックする。
+def _assert_no_duplicate_line_dates(form_data: dict) -> None:
+    if not isinstance(form_data, dict):
+        return
+    lines = form_data.get("lines")
+    if not isinstance(lines, list):
+        return
+    seen: set[str] = set()
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        value = str(line.get("date") or "").strip()
+        if not value:
+            continue
+        if value in seen:
+            raise HTTPException(status_code=422, detail=f"同じ日付の行が複数あります（{value}）")
+        seen.add(value)
+
+
 @router.post("", response_model=ReportOut, status_code=201)
 def create(
     payload: ReportCreate,
@@ -200,6 +219,7 @@ def create(
     assignment = _get_assignment(db, payload.assignment_id)
     if assignment.tutor_id != user.id:
         raise HTTPException(status_code=403, detail="not your assignment")
+    _assert_no_duplicate_line_dates(payload.form_data)
     # 契約（契約管理で登録した内容）が無い場合は業務連絡表を作成できない
     profile = db.scalar(
         select(WorkAssignmentProfile).where(
@@ -479,6 +499,7 @@ def patch_report(
     """講師本人による報告書編集（下書き・差戻し中のみ）。"""
     report = get_report_or_404(db, report_id)
     assert_tutor_owns(report, user)
+    _assert_no_duplicate_line_dates(payload.form_data)
     # 契約管理で登録した内容は講師側で変更させない（保存済みの値を保持）
     _preserve_locked_meta(report, payload.form_data)
     update_report_data(db, report, payload.form_data)
