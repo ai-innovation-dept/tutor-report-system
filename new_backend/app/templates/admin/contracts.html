@@ -71,11 +71,11 @@
 {% block scripts %}
 <script>
 setBreadcrumb('管理ポータル', '契約管理');
-// 委託業務はメイン業務（①〜③・①必須）とサブ業務（①〜⑤・任意）の2区分。
-// 報告書の列はメイン→サブの順に並ぶ。
+// 委託業務は担当業務（①〜③・①必須）と副業務（①〜⑤・任意）の2区分。
+// 報告書の列は担当→副の順に並ぶ（データ上の区分名は main / sub のまま）。
 const TASK_KINDS = {
-  main: {max: 3, label: 'メイン業務'},
-  sub: {max: 5, label: 'サブ業務'},
+  main: {max: 3, label: '担当業務'},
+  sub: {max: 5, label: '副業務'},
 };
 let contracts = [];
 let tutors = [];
@@ -148,11 +148,11 @@ function taskRow(kind, index, task) {
 function taskSection(kind, tasks) {
   const def = TASK_KINDS[kind];
   const note = kind === 'main'
-    ? 'メイン業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（メイン→サブの順）。'
-    : 'サブ業務はすべて任意です。報告書ではメイン業務の右に「業務名（分）」列として並びます。';
+    ? '担当業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（担当→副の順）。'
+    : '副業務はすべて任意です。報告書では担当業務の右に「業務名（分）」列として並びます。';
   return `<div class="rounded-lg border border-slate-200 p-4">
     <div class="mb-2 flex items-center justify-between">
-      <span class="text-sm font-medium text-slate-800">■${def.label}${kind === 'main' ? '（①は必須）' : '（任意）'}</span>
+      <span class="text-sm font-medium text-slate-800">${def.label}${kind === 'main' ? '（①は必須）' : '（任意）'}</span>
       <button type="button" id="${kind}AddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ${def.label}を追加</button>
     </div>
     <div id="${kind}TaskRows" class="space-y-3">
@@ -186,6 +186,7 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">派遣先事業所の所在地</span><input id="dispatchPlaceAddress" maxlength="255" placeholder="例：東京都渋谷区〇〇1-2-3" value="${escapeHtml(contract?.dispatch_place_address || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
@@ -200,7 +201,7 @@ function renderForm(contract) {
         </div>
         <div id="workloadRows" class="space-y-3"></div>
       </div>
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">シフト指定欄</span><textarea id="shiftNote" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea></label>
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます。</span></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
 
       ${taskSection('main', tasks)}
@@ -344,6 +345,7 @@ function buildPayload() {
     school_id: document.getElementById('schoolSelect').value,
     customer_id: document.getElementById('customerId').value.trim() || null,
     our_staff: document.getElementById('ourStaff').value.trim() || null,
+    dispatch_place_address: document.getElementById('dispatchPlaceAddress').value.trim() || null,
     contract_start: document.getElementById('contractStart').value || null,
     contract_end: document.getElementById('contractEnd').value || null,
     workload_cases: collectWorkloadCases().filter(item => !isEmptyWorkloadCase(item)),
@@ -362,7 +364,7 @@ async function saveContract(event) {
   event.preventDefault();
   const payload = buildPayload();
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
-  if (!payload.tasks.length) { showFormMessage('メイン業務①は必須です'); return; }
+  if (!payload.tasks.length) { showFormMessage('担当業務①は必須です'); return; }
   if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {
     showFormMessage('月時間・週コマの適用期間は終了日を開始日以降にしてください');
     return;

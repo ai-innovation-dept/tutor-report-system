@@ -39,6 +39,8 @@ class WorkAssignmentProfile(Base):
     school_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     customer_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     our_staff: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 派遣先事業所の所在地。報告書の同名欄へ自動反映（講師側は読取専用）
+    dispatch_place_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     monthly_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)

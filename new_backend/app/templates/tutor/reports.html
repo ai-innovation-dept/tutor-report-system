@@ -232,7 +232,8 @@ const DEFAULT_META = {
   dispatch_place_school_id: '',
   dispatch_place_address: '',
   customer_id: '',
-  note_schedule: '月(9:30～10:20、10:30～11:20、11:30～12:20、13:20～14:10)金(11:30～12:20、13:20～14:10)。年間スケジュール又はシフト表に準ずる。',
+  // スケジュール欄は契約管理の「スケジュール欄」(shift_note)から自動反映する（固定文言は廃止）
+  note_schedule: '',
   work_content: DEFAULT_WORK_CONTENT,
   our_staff: '',
   tutor_no: '',
@@ -391,6 +392,7 @@ function contractMetaValues() {
   return {
     customer_id: contract.customer_id || '',
     our_staff: contract.our_staff || '',
+    dispatch_place_address: contract.dispatch_place_address || '',
     requests: workloadRequestsText(contract),
     work_content: contract.work_content || DEFAULT_WORK_CONTENT,
     note_schedule: contract.shift_note || '',
@@ -1019,14 +1021,14 @@ function updateLineSummary() {
 function renderTaskReference() {
   const el = document.getElementById('taskReference');
   if (!el) return;
-  // メイン業務(task_minutes_N)→サブ業務(sub_minutes_N)→採点(count_minutes)の順に参照表示する
+  // 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)の順に参照表示する
   const tasks = activeColumnDefinition().filter(column =>
     column.type === 'count_minutes'
     || String(column.key || '').startsWith('task_minutes_')
     || String(column.key || '').startsWith('sub_minutes_'));
   el.innerHTML = tasks.length
     ? tasks.map(column => {
-        const kind = String(column.key || '').startsWith('sub_minutes_') ? '【サブ】' : (String(column.key || '').startsWith('task_minutes_') ? '【メイン】' : '');
+        const kind = String(column.key || '').startsWith('sub_minutes_') ? '【副】' : (String(column.key || '').startsWith('task_minutes_') ? '【担当】' : '');
         return `<div>${kind}${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`;
       }).join('')
     : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
@@ -1089,7 +1091,7 @@ function renderFormAvailability() {
 }
 // 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする。
 // 要望連絡事項(requests)は月時間・週コマのケースと契約期間を契約から自動反映するため読取専用。
-const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'requests', 'work_content', 'note_schedule'];
+const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'dispatch_place_address', 'requests', 'work_content', 'note_schedule'];
 function applyContractLocks() {
   LOCKED_META_KEYS.forEach(key => {
     document.querySelectorAll(`.meta-input[data-meta="${key}"]`).forEach(el => {

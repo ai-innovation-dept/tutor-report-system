@@ -21,11 +21,12 @@ TUTOR_NAME_REF = "講師氏名(参考・未使用)"
 SCHOOL_NAME = "学校名"
 CUSTOMER_ID = "お客様ID"
 OUR_STAFF = "弊社担当"
+DISPATCH_ADDRESS = "派遣先事業所の所在地"
 CONTRACT_START = "契約開始(YYYY-MM-DD)"
 CONTRACT_END = "契約終了(YYYY-MM-DD)"
 MONTHLY_MINUTES = "月時間(分)"
 WEEKLY_LESSONS = "週コマ"
-SHIFT_NOTE = "シフト指定欄"
+SHIFT_NOTE = "スケジュール欄"  # 変数名は旧称shift_note由来（DBカラム互換のため）
 WORK_CONTENT = "従事業務内容"
 SCORING_ENABLED = "採点を追加する(有/無)"
 SCORING_LABEL = "採点 項目名"
@@ -37,32 +38,32 @@ _CIRCLED = "①②③④⑤"
 
 
 def _main_name_h(i: int) -> str:
-    return f"メイン業務{_CIRCLED[i - 1]}名"
+    return f"担当業務{_CIRCLED[i - 1]}名"
 
 
 def _main_id_h(i: int) -> str:
-    return f"メイン業務{_CIRCLED[i - 1]}ID"
+    return f"担当業務{_CIRCLED[i - 1]}ID"
 
 
 def _main_contract_id_h(i: int) -> str:
-    return f"メイン個別契約{_CIRCLED[i - 1]}ID"
+    return f"担当個別契約{_CIRCLED[i - 1]}ID"
 
 
 def _sub_name_h(i: int) -> str:
-    return f"サブ業務{_CIRCLED[i - 1]}名"
+    return f"副業務{_CIRCLED[i - 1]}名"
 
 
 def _sub_id_h(i: int) -> str:
-    return f"サブ業務{_CIRCLED[i - 1]}ID"
+    return f"副業務{_CIRCLED[i - 1]}ID"
 
 
 def _sub_contract_id_h(i: int) -> str:
-    return f"サブ個別契約{_CIRCLED[i - 1]}ID"
+    return f"副個別契約{_CIRCLED[i - 1]}ID"
 
 
 def headers() -> list[str]:
     cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
-            CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
+            DISPATCH_ADDRESS, CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
             SHIFT_NOTE, WORK_CONTENT]
     for i in range(1, MAX_MAIN_TASKS + 1):
         cols += [_main_name_h(i), _main_id_h(i), _main_contract_id_h(i)]
@@ -74,7 +75,7 @@ def headers() -> list[str]:
 
 def _example_row() -> list[str]:
     # 講師番号の先頭が「#」の行は記入例として取り込まれない（削除しても可）。
-    row = ["#T0001", "山田太郎", "渋谷高校", "9999", "佐藤麻子",
+    row = ["#T0001", "山田太郎", "渋谷高校", "9999", "佐藤麻子", "東京都渋谷区〇〇1-2-3",
            "2026-04-01", "2027-03-31", "600", "3", "月9:30-", "数学指導"]
     row += ["数学科指導", "11111", "99992601"]       # メイン①
     row += ["", "", ""] * (MAX_MAIN_TASKS - 1)       # メイン②③
@@ -222,7 +223,7 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
     tasks = _collect_tasks(row, _main_name_h, _main_id_h, _main_contract_id_h, MAX_MAIN_TASKS)
     sub_tasks = _collect_tasks(row, _sub_name_h, _sub_id_h, _sub_contract_id_h, MAX_SUB_TASKS)
     if not tasks:
-        errors.append("メイン業務①は必須です")
+        errors.append("担当業務①は必須です")
 
     if errors or not tutor or not school:
         return None, errors
@@ -232,6 +233,7 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         school_id=school.id,
         customer_id=row.get(CUSTOMER_ID) or None,
         our_staff=row.get(OUR_STAFF) or None,
+        dispatch_place_address=row.get(DISPATCH_ADDRESS) or None,
         contract_start=contract_start,
         contract_end=contract_end,
         monthly_minutes=monthly_minutes,

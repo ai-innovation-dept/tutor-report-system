@@ -118,6 +118,27 @@ class TestContractCreate:
         res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "tutor@x.example.com"))
         assert res.status_code == 403
 
+    def test_dispatch_place_address_roundtrip(self, client, db, setup):
+        """派遣先事業所の所在地を契約で登録し、講師向けAPIにも返ること。"""
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, dispatch_place_address="東京都渋谷区〇〇1-2-3"),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["dispatch_place_address"] == "東京都渋谷区〇〇1-2-3"
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["dispatch_place_address"] == "東京都渋谷区〇〇1-2-3"
+        # PATCHでも更新できる
+        contract_id = res.json()["id"]
+        patched = client.patch(
+            f"/api/w/contracts/{contract_id}",
+            json={"dispatch_place_address": "東京都新宿区△△4-5-6"},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["dispatch_place_address"] == "東京都新宿区△△4-5-6"
+
 
 class TestContractWorkloadCases:
     """月時間（分）・週コマの期間付き複数ケース。"""
@@ -490,6 +511,19 @@ class TestContractImport:
         res = self._upload(client, _csv_bytes([row]))
         assert res.status_code == 400
         assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_dispatch_address_and_schedule(self, client, db, import_setup):
+        # 所在地・スケジュール欄（旧シフト指定欄）のCSV取り込み
+        row = _csv_row("T100", "渋谷高校", **{
+            cis.DISPATCH_ADDRESS: "東京都渋谷区〇〇1-2-3",
+            cis.SHIFT_NOTE: "月(9:30～10:20)金(11:30～12:20)",
+        })
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.dispatch_place_address == "東京都渋谷区〇〇1-2-3"
+        assert profile.shift_note == "月(9:30～10:20)金(11:30～12:20)"
 
     def test_import_sub_tasks(self, client, db, import_setup):
         # サブ業務列の取り込み（メインに加えてサブ①②を登録）

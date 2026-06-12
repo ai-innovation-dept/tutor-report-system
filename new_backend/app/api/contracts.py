@@ -30,7 +30,7 @@ from app.services.contract_form_service import build_column_definition
 router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 
 _DETAIL_FIELDS = (
-    "customer_id", "our_staff", "contract_start", "contract_end",
+    "customer_id", "our_staff", "dispatch_place_address", "contract_start", "contract_end",
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
     "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
 )
@@ -73,6 +73,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         school_name=profile.school.display_name if profile.school else None,
         customer_id=profile.customer_id,
         our_staff=profile.our_staff,
+        dispatch_place_address=profile.dispatch_place_address,
         contract_start=profile.contract_start,
         contract_end=profile.contract_end,
         monthly_minutes=profile.monthly_minutes,
@@ -164,7 +165,7 @@ def create_contract(
     _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     if not payload.tasks:
-        raise HTTPException(status_code=422, detail="メイン業務①は必須です")
+        raise HTTPException(status_code=422, detail="担当業務①は必須です")
     tutor, school = _resolve_pair(db, payload.tutor_id, payload.school_id)
 
     duplicate = db.scalar(
@@ -299,6 +300,7 @@ def list_contracts_for_tutor(
             school_name=p.school.display_name if p.school else None,
             customer_id=p.customer_id,
             our_staff=p.our_staff,
+            dispatch_place_address=p.dispatch_place_address,
             contract_start=p.contract_start,
             contract_end=p.contract_end,
             monthly_minutes=p.monthly_minutes,

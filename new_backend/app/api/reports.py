@@ -467,6 +467,7 @@ def get_report(
 _CONTRACT_LOCKED_META_KEYS = (
     "customer_id",
     "our_staff",
+    "dispatch_place_address",
     "requests",
     "contract_period",
     "monthly_minutes_fixed",

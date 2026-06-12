@@ -4,7 +4,8 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, field_validator
 
-# 委託業務はメイン業務（①〜③・①必須）とサブ業務（①〜⑤・任意）の2区分。
+# 委託業務は担当業務（①〜③・①必須）と副業務（①〜⑤・任意）の2区分。
+# データ上の区分名は main / sub のまま（表示名のみ担当業務／副業務）。
 MAX_MAIN_TASKS = 3
 MAX_SUB_TASKS = 5
 
@@ -42,6 +43,7 @@ class ContractWorkloadCase(BaseModel):
 class ContractBase(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
+    dispatch_place_address: str | None = None
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -64,7 +66,7 @@ class ContractBase(BaseModel):
     def validate_tasks(cls, value: list[ContractTask]) -> list[ContractTask]:
         non_empty = [task for task in value if not task.is_empty()]
         if len(value) > MAX_MAIN_TASKS:
-            raise ValueError(f"メイン業務は最大{MAX_MAIN_TASKS}件です")
+            raise ValueError(f"担当業務は最大{MAX_MAIN_TASKS}件です")
         return non_empty
 
     @field_validator("sub_tasks")
@@ -72,7 +74,7 @@ class ContractBase(BaseModel):
     def validate_sub_tasks(cls, value: list[ContractTask]) -> list[ContractTask]:
         non_empty = [task for task in value if not task.is_empty()]
         if len(value) > MAX_SUB_TASKS:
-            raise ValueError(f"サブ業務は最大{MAX_SUB_TASKS}件です")
+            raise ValueError(f"副業務は最大{MAX_SUB_TASKS}件です")
         return non_empty
 
     @field_validator("workload_cases")
@@ -102,6 +104,7 @@ class ContractForTutorOut(BaseModel):
     school_name: str | None = None
     customer_id: str | None = None
     our_staff: str | None = None
+    dispatch_place_address: str | None = None
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -123,6 +126,7 @@ class ContractOut(BaseModel):
     school_name: str | None = None
     customer_id: str | None = None
     our_staff: str | None = None
+    dispatch_place_address: str | None = None
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
