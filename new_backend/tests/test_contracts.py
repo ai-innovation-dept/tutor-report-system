@@ -119,6 +119,58 @@ class TestContractCreate:
         assert res.status_code == 403
 
 
+class TestContractWorkloadCases:
+    """月時間（分）・週コマの期間付き複数ケース。"""
+
+    CASES = [
+        {"monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-04-01", "end_date": "2026-08-31"},
+        {"monthly_minutes": 4000, "weekly_lessons": 20, "start_date": "2026-09-01", "end_date": "2027-03-31"},
+    ]
+
+    def test_create_with_multiple_cases(self, client, db, setup):
+        payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, workload_cases=self.CASES)
+        res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert len(body["workload_cases"]) == 2
+        assert body["workload_cases"][0]["monthly_minutes"] == 3000
+        assert body["workload_cases"][1]["start_date"] == "2026-09-01"
+
+    def test_legacy_single_values_become_one_case(self, client, db, setup):
+        """ケース未指定で単一値のみ（CSV取込互換）→ 契約期間を適用期間とした1ケースに合成。"""
+        res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        cases = res.json()["workload_cases"]
+        assert cases == [{
+            "monthly_minutes": 600,
+            "weekly_lessons": 3,
+            "start_date": "2026-04-01",
+            "end_date": "2027-03-31",
+        }]
+
+    def test_patch_replaces_cases(self, client, db, setup):
+        headers = _auth(client, "master@x.example.com")
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=headers).json()
+        res = client.patch(f"/api/w/contracts/{created['id']}", json={"workload_cases": self.CASES}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert len(res.json()["workload_cases"]) == 2
+
+    def test_invalid_case_period_rejected(self, client, db, setup):
+        bad = [{"monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-09-01", "end_date": "2026-03-31"}]
+        payload = _payload(setup, workload_cases=bad)
+        res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 422
+
+    def test_for_tutor_returns_cases(self, client, db, setup):
+        payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, workload_cases=self.CASES)
+        assert client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com")).status_code == 201
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
+        assert res.status_code == 200
+        entry = res.json()[0]
+        assert len(entry["workload_cases"]) == 2
+        assert entry["workload_cases"][0]["weekly_lessons"] == 15
+
+
 class TestContractForTutor:
     def _create(self, client, setup, **ov):
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()

@@ -123,26 +123,10 @@
           </label>
         </div>
 
-        <div class="grid gap-3 md:grid-cols-2">
-          <label class="block text-sm">
-            <span class="block mb-1 text-slate-700">要望連絡事項</span>
-            <textarea data-meta="requests" rows="3" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
-          </label>
-          <label class="block text-sm">
-            <span class="block mb-1 text-slate-700">月固定分</span>
-            <div class="flex items-center gap-2">
-              <span>月</span>
-              <input data-meta="monthly_minutes_fixed" type="text" class="meta-input min-w-0 flex-1 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-              <span>分固定：週</span>
-              <input data-meta="weekly_lessons" type="text" class="meta-input w-20 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-              <span>コマ</span>
-            </div>
-          </label>
-          <label class="block text-sm">
-            <span class="block mb-1 text-slate-700">契約期間</span>
-            <input data-meta="contract_period" type="text" placeholder="2026年04月01日〜2027年03月31日" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
-          </label>
-        </div>
+        <label class="block text-sm">
+          <span class="block mb-1 text-slate-700">要望連絡事項</span>
+          <textarea data-meta="requests" rows="4" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+        </label>
 
         <div class="rounded-lg border border-slate-200 p-3 text-sm">
           <div class="mb-3 font-medium text-slate-800">定期代セクション</div>
@@ -253,9 +237,6 @@ const DEFAULT_META = {
   our_staff: '',
   tutor_no: '',
   requests: '',
-  monthly_minutes_fixed: '',
-  weekly_lessons: '',
-  contract_period: '',
   commuter_pass_months: '',
   commuter_pass_amount: '',
   commuter_pass_route: '',
@@ -378,10 +359,30 @@ function normalizedLines(report) {
   const count = form.max_lines || LINE_COUNT;
   return Array.from({length: count}, (_, index) => ({...emptyLine(form), ...(lines[index] || {})}));
 }
-function formatContractPeriod(start, end) {
-  const fmt = (s) => { if (!s) return ''; const [y, m, d] = s.split('-'); return `${y}年${Number(m)}月${Number(d)}日`; };
-  if (!start && !end) return '';
-  return `${fmt(start)}〜${fmt(end)}`;
+// 日付（YYYY-MM-DD）を「2026年04月01日」形式に整形する
+function formatDateJa(value) {
+  if (!value) return '';
+  const [y, m, d] = String(value).split('-');
+  return `${y}年${m}月${d}日`;
+}
+// 要望連絡事項に表示する契約情報。月時間（分）・週コマの期間付きケースと契約期間を
+// 「（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」形式で整形する。
+function workloadRequestsText(contract) {
+  const lines = (contract.workload_cases || []).map(item => {
+    const parts = [];
+    if (item.monthly_minutes != null) parts.push(`月　${Number(item.monthly_minutes).toLocaleString('ja-JP')}　分固定`);
+    if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
+    if (!parts.length) return '';
+    let text = `（${parts.join('　：　')}）`;
+    if (item.start_date || item.end_date) {
+      text += `[${formatDateJa(item.start_date)}　～　${formatDateJa(item.end_date)}]`;
+    }
+    return text;
+  }).filter(Boolean);
+  if (contract.contract_start || contract.contract_end) {
+    lines.push(`契約期間：${formatDateJa(contract.contract_start)}　～　${formatDateJa(contract.contract_end)}`);
+  }
+  return lines.join('\n');
 }
 function contractMetaValues() {
   // 契約管理の値を報告書メタの初期値へ反映（新規作成時のみ defaultMeta 経由で適用）
@@ -390,9 +391,7 @@ function contractMetaValues() {
   return {
     customer_id: contract.customer_id || '',
     our_staff: contract.our_staff || '',
-    contract_period: formatContractPeriod(contract.contract_start, contract.contract_end),
-    monthly_minutes_fixed: contract.monthly_minutes != null ? String(contract.monthly_minutes) : '',
-    weekly_lessons: contract.weekly_lessons != null ? String(contract.weekly_lessons) : '',
+    requests: workloadRequestsText(contract),
     work_content: contract.work_content || DEFAULT_WORK_CONTENT,
     note_schedule: contract.shift_note || '',
   };
@@ -1082,8 +1081,9 @@ function renderFormAvailability() {
   applyContractLocks();
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
 }
-// 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする
-const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'contract_period', 'monthly_minutes_fixed', 'weekly_lessons', 'work_content', 'note_schedule'];
+// 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする。
+// 要望連絡事項(requests)は月時間・週コマのケースと契約期間を契約から自動反映するため読取専用。
+const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'requests', 'work_content', 'note_schedule'];
 function applyContractLocks() {
   LOCKED_META_KEYS.forEach(key => {
     document.querySelectorAll(`.meta-input[data-meta="${key}"]`).forEach(el => {

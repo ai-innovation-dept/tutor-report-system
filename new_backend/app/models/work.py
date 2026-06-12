@@ -43,6 +43,11 @@ class WorkAssignmentProfile(Base):
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     monthly_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     weekly_lessons: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 月時間（分）・週コマの期間付き複数ケース。
+    # 各要素: {"monthly_minutes": int|None, "weekly_lessons": int|None,
+    #          "start_date": "YYYY-MM-DD"|None, "end_date": "YYYY-MM-DD"|None}
+    # 旧 monthly_minutes / weekly_lessons は CSV取込の入力互換用に残す（表示はこちらが正）。
+    workload_cases: Mapped[list] = mapped_column(_JSONB, default=list)
     shift_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     work_content: Mapped[str | None] = mapped_column(Text, nullable=True)
     task_name_1: Mapped[str | None] = mapped_column(String(100), nullable=True)

@@ -664,15 +664,16 @@ class TestContractRequiredAndLocked:
         )
         assert create.status_code == 201, create.text
         report_id = create.json()["id"]
-        # 契約由来(customer_id, our_staff)を改変、自由項目(requests)は変更しようとする
+        # 契約由来(customer_id, our_staff, requests)の改変を試みる
+        # ※要望連絡事項(requests)は月時間・週コマのケース＋契約期間の自動反映欄となり講師変更不可
         patch = client.patch(
             f"/api/w/reports/{report_id}",
-            json={"form_data": {"lines": [], "meta": {"customer_id": "HACKED", "our_staff": "別人", "requests": "修正後"}}},
+            json={"form_data": {"lines": [], "meta": {"customer_id": "HACKED", "our_staff": "別人", "requests": "改変"}}},
             headers=_auth(client, "tutor@work.example.com"),
         )
         assert patch.status_code == 200, patch.text
         meta = patch.json()["form_data"]["meta"]
-        # 契約由来は元の値のまま、自由項目は変更が反映される
+        # 契約由来はすべて元の値のまま
         assert meta["customer_id"] == "C-001"
         assert meta["our_staff"] == "担当A"
-        assert meta["requests"] == "修正後"
+        assert meta["requests"] == "初回"

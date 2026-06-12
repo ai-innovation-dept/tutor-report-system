@@ -461,9 +461,13 @@ def get_report(
 
 
 # 契約管理で登録した内容（契約由来）のメタ項目。講師は変更不可。
+# requests（要望連絡事項）は月時間・週コマの期間付きケース＋契約期間の自動反映欄。
+# contract_period / monthly_minutes_fixed / weekly_lessons は旧形式の報告書の
+# スナップショット保全のために残している（新規報告書では使用しない）。
 _CONTRACT_LOCKED_META_KEYS = (
     "customer_id",
     "our_staff",
+    "requests",
     "contract_period",
     "monthly_minutes_fixed",
     "weekly_lessons",

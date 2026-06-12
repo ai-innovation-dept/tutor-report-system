@@ -24,8 +24,7 @@
           <th class="px-4 py-3 text-left">お客様ID</th>
           <th class="px-4 py-3 text-left">弊社担当</th>
           <th class="px-4 py-3 text-left">契約期間</th>
-          <th class="px-4 py-3 text-left">月時間</th>
-          <th class="px-4 py-3 text-left">週コマ</th>
+          <th class="px-4 py-3 text-left">月時間／週コマ</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
         </tr>
@@ -87,6 +86,18 @@ function periodLabel(contract) {
   if (!contract.contract_start && !contract.contract_end) return '-';
   return `${contract.contract_start || '—'} 〜 ${contract.contract_end || '—'}`;
 }
+// 月時間／週コマのケース一覧をセル表示用に整形（1ケース1行）
+function workloadLabel(contract) {
+  const cases = contract.workload_cases || [];
+  if (!cases.length) return '-';
+  return cases.map(item => {
+    const parts = [];
+    if (item.monthly_minutes != null) parts.push(`月${Number(item.monthly_minutes).toLocaleString()}分`);
+    if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
+    const period = (item.start_date || item.end_date) ? ` [${item.start_date || '—'}〜${item.end_date || '—'}]` : '';
+    return escapeHtml(`${parts.join('・') || '-'}${period}`);
+  }).join('<br>');
+}
 function renderRows() {
   contractRows.innerHTML = contracts.length ? contracts.map(contract => `
     <tr class="border-t border-slate-100 ${contract.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
@@ -95,8 +106,7 @@ function renderRows() {
       <td class="px-4 py-3">${escapeHtml(contract.customer_id || '-')}</td>
       <td class="px-4 py-3">${escapeHtml(contract.our_staff || '-')}</td>
       <td class="px-4 py-3">${escapeHtml(periodLabel(contract))}</td>
-      <td class="px-4 py-3">${contract.monthly_minutes != null ? escapeHtml(String(contract.monthly_minutes)) + '分' : '-'}</td>
-      <td class="px-4 py-3">${contract.weekly_lessons != null ? escapeHtml(String(contract.weekly_lessons)) + 'コマ' : '-'}</td>
+      <td class="px-4 py-3 text-xs leading-5">${workloadLabel(contract)}</td>
       <td class="px-4 py-3">${contract.is_active ? '有効' : '無効'}</td>
       <td class="px-4 py-3">
         <div class="flex flex-wrap gap-2">
@@ -105,7 +115,7 @@ function renderRows() {
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
       </td>
-    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="9">契約はまだ登録されていません。</td></tr>';
+    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="8">契約はまだ登録されていません。</td></tr>';
 }
 function userOptions(users, selectedId) {
   return ['<option value="">選択してください</option>', ...users.map(u =>
@@ -157,9 +167,15 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">月時間（分）</span><input id="monthlyMinutes" type="number" min="0" value="${contract?.monthly_minutes ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">週コマ</span><input id="weeklyLessons" type="number" min="0" value="${contract?.weekly_lessons ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+      <div class="rounded-lg border border-slate-200 p-4">
+        <div class="mb-2 flex items-start justify-between gap-3">
+          <div>
+            <span class="text-sm font-medium text-slate-800">月時間（分）／週コマ（期間別）</span>
+            <p class="mt-0.5 text-xs text-slate-500">期間ごとに複数登録できます。講師の報告書には「（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」の形式で表示されます。</p>
+          </div>
+          <button type="button" id="addWorkloadBtn" class="shrink-0 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ケースを追加</button>
+        </div>
+        <div id="workloadRows" class="space-y-3"></div>
       </div>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">シフト指定欄</span><textarea id="shiftNote" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
@@ -216,8 +232,60 @@ function renderForm(contract) {
       </div>
     </form>`;
   document.getElementById('addTaskBtn').addEventListener('click', revealNextTask);
+  document.getElementById('addWorkloadBtn').addEventListener('click', addWorkloadCase);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
+  renderWorkloadRows(contract?.workload_cases || []);
   updateAddTaskButton();
+}
+// --- 月時間（分）／週コマの期間付きケース（追加・削除可能な動的行） ---
+function workloadRow(index, item) {
+  return `<div class="workload-row grid items-end gap-2 sm:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">月時間（分）</span>
+      <input data-workload="monthly_minutes" type="number" min="0" value="${item?.monthly_minutes ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">週コマ</span>
+      <input data-workload="weekly_lessons" type="number" min="0" value="${item?.weekly_lessons ?? ''}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">適用開始日</span>
+      <input data-workload="start_date" type="date" value="${escapeHtml(item?.start_date || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-600">適用終了日</span>
+      <input data-workload="end_date" type="date" value="${escapeHtml(item?.end_date || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+    </label>
+    <button type="button" data-workload-remove="${index}" title="このケースを削除" class="h-[42px] rounded-lg border border-red-200 bg-red-50 px-3 text-sm font-medium text-red-700 hover:bg-red-100">削除</button>
+  </div>`;
+}
+function renderWorkloadRows(cases) {
+  const rows = cases.length ? cases : [{}];
+  document.getElementById('workloadRows').innerHTML = rows.map((item, index) => workloadRow(index, item)).join('');
+  formDrawer.querySelectorAll('[data-workload-remove]').forEach(btn => {
+    btn.addEventListener('click', () => removeWorkloadCase(Number(btn.dataset.workloadRemove)));
+  });
+}
+function collectWorkloadCases() {
+  return [...formDrawer.querySelectorAll('.workload-row')].map(row => ({
+    monthly_minutes: numberOrNull(row.querySelector('[data-workload="monthly_minutes"]').value),
+    weekly_lessons: numberOrNull(row.querySelector('[data-workload="weekly_lessons"]').value),
+    start_date: row.querySelector('[data-workload="start_date"]').value || null,
+    end_date: row.querySelector('[data-workload="end_date"]').value || null,
+  }));
+}
+function isEmptyWorkloadCase(item) {
+  return item.monthly_minutes == null && item.weekly_lessons == null && !item.start_date && !item.end_date;
+}
+function addWorkloadCase() {
+  const cases = collectWorkloadCases();
+  cases.push({});
+  renderWorkloadRows(cases);
+}
+function removeWorkloadCase(index) {
+  const cases = collectWorkloadCases();
+  cases.splice(index, 1);
+  renderWorkloadRows(cases);
 }
 function revealNextTask() {
   if (visibleTaskCount >= MAX_TASKS) return;
@@ -261,8 +329,7 @@ function buildPayload() {
     our_staff: document.getElementById('ourStaff').value.trim() || null,
     contract_start: document.getElementById('contractStart').value || null,
     contract_end: document.getElementById('contractEnd').value || null,
-    monthly_minutes: numberOrNull(document.getElementById('monthlyMinutes').value),
-    weekly_lessons: numberOrNull(document.getElementById('weeklyLessons').value),
+    workload_cases: collectWorkloadCases().filter(item => !isEmptyWorkloadCase(item)),
     shift_note: document.getElementById('shiftNote').value.trim() || null,
     work_content: document.getElementById('workContent').value.trim() || null,
     scoring_enabled: document.getElementById('scoringEnabled').checked,
@@ -278,6 +345,10 @@ async function saveContract(event) {
   const payload = buildPayload();
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
   if (!payload.tasks.length) { showFormMessage('委託業務①は必須です'); return; }
+  if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {
+    showFormMessage('月時間・週コマの適用期間は終了日を開始日以降にしてください');
+    return;
+  }
   try {
     if (editingId) {
       await api(`/api/w/contracts/${editingId}`, {method: 'PATCH', body: JSON.stringify(payload), suppressFlash: true});

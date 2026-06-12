@@ -21,6 +21,22 @@ class ContractTask(BaseModel):
         ])
 
 
+class ContractWorkloadCase(BaseModel):
+    """月時間（分）・週コマの期間付きケース。契約期間内で複数登録できる。"""
+    monthly_minutes: int | None = None
+    weekly_lessons: int | None = None
+    start_date: date | None = None
+    end_date: date | None = None
+
+    def is_empty(self) -> bool:
+        return (
+            self.monthly_minutes is None
+            and self.weekly_lessons is None
+            and self.start_date is None
+            and self.end_date is None
+        )
+
+
 class ContractBase(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
@@ -28,6 +44,7 @@ class ContractBase(BaseModel):
     contract_end: date | None = None
     monthly_minutes: int | None = None
     weekly_lessons: int | None = None
+    workload_cases: list[ContractWorkloadCase] = []
     shift_note: str | None = None
     work_content: str | None = None
     # 採点専用欄（回数＋分数固定）。enabled のときのみ報告書に「{項目名}（{単位}）」列を生成する。
@@ -45,6 +62,15 @@ class ContractBase(BaseModel):
         non_empty = [task for task in value if not task.is_empty()]
         if len(value) > MAX_TASKS:
             raise ValueError(f"委託業務は最大{MAX_TASKS}件です")
+        return non_empty
+
+    @field_validator("workload_cases")
+    @classmethod
+    def validate_workload_cases(cls, value: list[ContractWorkloadCase]) -> list[ContractWorkloadCase]:
+        non_empty = [case for case in value if not case.is_empty()]
+        for case in non_empty:
+            if case.start_date and case.end_date and case.end_date < case.start_date:
+                raise ValueError("月時間・週コマの適用期間は終了日を開始日以降にしてください")
         return non_empty
 
 
@@ -69,6 +95,7 @@ class ContractForTutorOut(BaseModel):
     contract_end: date | None = None
     monthly_minutes: int | None = None
     weekly_lessons: int | None = None
+    workload_cases: list[ContractWorkloadCase] = []
     shift_note: str | None = None
     work_content: str | None = None
     tasks: list[ContractTask] = []
@@ -88,6 +115,7 @@ class ContractOut(BaseModel):
     contract_end: date | None = None
     monthly_minutes: int | None = None
     weekly_lessons: int | None = None
+    workload_cases: list[ContractWorkloadCase] = []
     shift_note: str | None = None
     work_content: str | None = None
     scoring_enabled: bool = False

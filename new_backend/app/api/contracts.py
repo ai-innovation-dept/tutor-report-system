@@ -20,6 +20,7 @@ from app.schemas.contracts import (
     ContractOut,
     ContractTask,
     ContractUpdate,
+    ContractWorkloadCase,
 )
 from app.services import contract_import_service
 from app.services.assignment_service import get_or_create_new_assignment
@@ -73,6 +74,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         contract_end=profile.contract_end,
         monthly_minutes=profile.monthly_minutes,
         weekly_lessons=profile.weekly_lessons,
+        workload_cases=_workload_cases_from_json(profile),
         shift_note=profile.shift_note,
         work_content=profile.work_content,
         scoring_enabled=profile.scoring_enabled,
@@ -98,10 +100,32 @@ def _get_profile_loaded(db: Session, profile_id: uuid.UUID) -> WorkAssignmentPro
     return profile
 
 
+def _workload_cases_to_json(payload: ContractCreate | ContractUpdate) -> list[dict]:
+    """月時間・週コマのケースをJSONへ変換する。
+
+    ケース未指定で旧来の単一値（monthly_minutes / weekly_lessons）だけが
+    指定された場合（CSV取込など）は、契約期間を適用期間とした1ケースに合成する。
+    """
+    cases = list(payload.workload_cases)
+    if not cases and (payload.monthly_minutes is not None or payload.weekly_lessons is not None):
+        cases = [ContractWorkloadCase(
+            monthly_minutes=payload.monthly_minutes,
+            weekly_lessons=payload.weekly_lessons,
+            start_date=payload.contract_start,
+            end_date=payload.contract_end,
+        )]
+    return [case.model_dump(mode="json") for case in cases]
+
+
+def _workload_cases_from_json(profile: WorkAssignmentProfile) -> list[ContractWorkloadCase]:
+    return [ContractWorkloadCase(**case) for case in (profile.workload_cases or []) if isinstance(case, dict)]
+
+
 def _apply_payload(profile: WorkAssignmentProfile, payload: ContractCreate) -> None:
     """契約詳細フィールドと委託業務をプロファイルへ反映する（作成・upsertで共用）。"""
     for field in _DETAIL_FIELDS:
         setattr(profile, field, getattr(payload, field))
+    profile.workload_cases = _workload_cases_to_json(payload)
     _tasks_to_columns(profile, payload.tasks)
 
 
@@ -274,6 +298,7 @@ def list_contracts_for_tutor(
             contract_end=p.contract_end,
             monthly_minutes=p.monthly_minutes,
             weekly_lessons=p.weekly_lessons,
+            workload_cases=_workload_cases_from_json(p),
             shift_note=p.shift_note,
             work_content=p.work_content,
             tasks=_tasks_from_columns(p),
@@ -324,6 +349,8 @@ def update_contract(
     for field in _DETAIL_FIELDS:
         if field in data:
             setattr(profile, field, data[field])
+    if "workload_cases" in data:
+        profile.workload_cases = [case.model_dump(mode="json") for case in payload.workload_cases]
     if "tasks" in data:
         _tasks_to_columns(profile, payload.tasks)
 
