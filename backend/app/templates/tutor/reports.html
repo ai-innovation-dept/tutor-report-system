@@ -56,6 +56,7 @@
         <span class="block mb-1 text-slate-700">指導日</span>
         <input name="lesson_date" id="lessonDate" type="date" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
         <span id="lessonDateLabel" class="block mt-1 text-xs text-slate-500"></span>
+        <span id="lessonDateError" class="hidden mt-1 block text-xs text-red-600">この指導日の報告書はすでに登録されています。別の日付を選択してください。</span>
       </label>
       <div class="grid grid-cols-2 gap-3 sm:gap-6">
         <div class="min-w-0">
@@ -404,6 +405,25 @@ function updateComputedFields() {
   const minutes = Number.isFinite(raw) ? Math.max(0, raw) : 0;
   teachingMinutesLabel.value = durationLabel(minutes);
   validateTeachingUnit();
+  validateLessonDate();
+}
+// 同一生徒×同一指導日の重複登録防止（クローズ済みと編集中の報告書自身は対象外）。API側でも同条件で409を返す。
+function isDuplicateLessonDate() {
+  const assignmentId = assignment.value;
+  if (!assignmentId || !lessonDate.value) return false;
+  return allReports.some(r =>
+    r.assignment_id === assignmentId &&
+    r.lesson_date === lessonDate.value &&
+    r.id !== editingId.value &&
+    r.status !== 'closed'
+  );
+}
+function validateLessonDate() {
+  const duplicate = isDuplicateLessonDate();
+  lessonDateError.classList.toggle('hidden', !duplicate);
+  lessonDate.classList.toggle('border-red-500', duplicate);
+  lessonDate.classList.toggle('border-slate-300', !duplicate);
+  lessonDate.setCustomValidity(duplicate ? 'この指導日の報告書はすでに登録されています。別の日付を選択してください。' : '');
 }
 // 指導時間確認票の記入単位に合わせ、指導時間数（=終了−開始−休憩）は0.5時間（30分）単位とする。
 // 入力（開始・終了・休憩）は5分単位のまま、休憩で30分単位に調整する運用。倍数でなければ保存不可。
@@ -560,6 +580,11 @@ reportForm.addEventListener('submit', async e => {
     validateEndTime();
     return;
   }
+  if (isDuplicateLessonDate()) {
+    validateLessonDate();
+    showFormMessage('この指導日の報告書はすでに登録されています。別の日付を選択してください。', true);
+    return;
+  }
   try {
     if (editingId.value) {
       delete payload.assignment_id;
@@ -586,6 +611,7 @@ assignment.addEventListener('change', () => {
   updateStudentBadge();
   renderCurrentList();
   renderFormAvailability();
+  validateLessonDate();
 });
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;

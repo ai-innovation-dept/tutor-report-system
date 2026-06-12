@@ -343,6 +343,40 @@ def test_scenario_duplicate_creation_blocked(scenario, scenario_db, monkeypatch)
     assert report_by_id(scenario_db, created).status == ReportStatus.draft.value
 
 
+def test_scenario_duplicate_lesson_date_blocked(scenario, scenario_db, monkeypatch):
+    """同一生徒×同一指導日の報告書は作成・変更できないこと（クローズ済み・別生徒は対象外）。"""
+    FrozenDate(2026, 6).patch(monkeypatch)
+    client, tokens, assignments = scenario["client"], scenario["tokens"], scenario["assignments"]
+    token = tokens["tutor_a"]
+    create_report(client, token, assignments["student1"].id, "2026-06-10")
+
+    # 同一生徒×同一指導日の新規作成 → 409
+    response = client.post("/api/reports", headers=auth(token), json={
+        "assignment_id": str(assignments["student1"].id),
+        "lesson_date": "2026-06-10",
+        "start_time": "20:00",
+        "end_time": "21:00",
+        "content": "重複日",
+    })
+    assert response.status_code == 409
+
+    # 別の生徒なら同一日でも作成可
+    create_report(client, token, assignments["student2"].id, "2026-06-10")
+
+    # 別日は作成可。ただし PATCH で既存日へ変更すると 409、同日のままの更新は可
+    second = create_report(client, token, assignments["student1"].id, "2026-06-11")
+    response = client.patch(f"/api/reports/{second}", headers=auth(token), json={"lesson_date": "2026-06-10"})
+    assert response.status_code == 409
+    assert_ok(client.patch(f"/api/reports/{second}", headers=auth(token), json={"lesson_date": "2026-06-11", "content": "更新"}))
+
+    # クローズ済みの報告書と同一日なら作成可
+    scenario_db.query(ReportEvent).delete()
+    scenario_db.query(LessonReport).delete()
+    scenario_db.commit()
+    seed_report(scenario_db, assignments["student1"], date(2026, 6, 20), 1, status=ReportStatus.closed.value)
+    create_report(client, token, assignments["student1"].id, "2026-06-20")
+
+
 def test_scenario_parent_list_shows_correct_statuses(scenario, scenario_db, monkeypatch):
     """保護者の list_reports が正しいステータスのみ返すこと。"""
     FrozenDate(2026, 6).patch(monkeypatch)

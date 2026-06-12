@@ -2,6 +2,7 @@
 import io
 import os
 from collections import defaultdict
+from datetime import date
 from urllib.parse import quote
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
@@ -131,6 +132,19 @@ def _monthly_phase(reports: list[LessonReport]) -> str:
     return "recording"
 
 
+# 同一生徒（assignment）×同一指導日の重複登録ガード。クローズ済みは無効分として対象外。
+def _duplicate_lesson_date_exists(db: Session, tutor_id: UUID, assignment_id: UUID, lesson_date: date, exclude_report_id: UUID | None = None) -> bool:
+    stmt = select(func.count(LessonReport.id)).where(
+        LessonReport.tutor_id == tutor_id,
+        LessonReport.assignment_id == assignment_id,
+        LessonReport.lesson_date == lesson_date,
+        LessonReport.status != ReportStatus.closed.value,
+    )
+    if exclude_report_id is not None:
+        stmt = stmt.where(LessonReport.id != exclude_report_id)
+    return (db.scalar(stmt) or 0) > 0
+
+
 @router.post("", response_model=ReportOut)
 def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if user.role != "tutor":
@@ -169,6 +183,10 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     ) or 0
     if existing_in_progress > 0:
         raise HTTPException(status_code=409, detail="当月分の報告書がすでに進行中です")
+    # 月単位の状態チェックを通過した後に、同一生徒×同一指導日の重複を確認する
+    # （最終承認済み・進行中の場合はより具体的な上記メッセージを優先する）
+    if _duplicate_lesson_date_exists(db, user.id, payload.assignment_id, payload.lesson_date):
+        raise HTTPException(status_code=409, detail="同じ指導日の報告書がすでに登録されています")
     report = LessonReport(
         **payload.model_dump(),
         tutor_id=user.id,
@@ -719,6 +737,8 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
         report.target_month = month_string(report.lesson_date)
         if report.target_month != _current_month():
             raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
+        if _duplicate_lesson_date_exists(db, report.tutor_id, report.assignment_id, report.lesson_date, exclude_report_id=report.id):
+            raise HTTPException(status_code=409, detail="同じ指導日の報告書がすでに登録されています")
     db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))
     db.commit()
     db.refresh(report)
