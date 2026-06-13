@@ -27,20 +27,22 @@
     <div id="totalTeachingTime" class="border-t border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-700"></div>
   </section>
   <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" id="formPanel">
-    <div class="mb-4 flex items-center justify-between gap-3">
-      <h2 class="font-semibold text-slate-800" id="formTitle">簡易作成</h2>
-      <div class="flex shrink-0 items-center gap-2">
-        <label class="text-xs text-slate-500" for="monthFilter">表示月</label>
-        <select id="monthFilter" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-      </div>
+    <h2 class="mb-4 font-semibold text-slate-800" id="formTitle">簡易作成</h2>
+    <!-- 生徒・表示月は見出しの下に、同じ高さ・同じ幅（各50%）の2プルダウンとして左右整列する。
+         生徒(assignment)はフォーム外に出すため、保存時は formPayload() で assignment_id を明示付与する。 -->
+    <div class="mb-4 grid grid-cols-2 gap-3">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">生徒</span>
+        <select name="assignment_id" id="assignment" class="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-700">表示月</span>
+        <select id="monthFilter" class="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      </label>
     </div>
     <div id="formMessage" class="mb-3 hidden rounded-lg px-3 py-2 text-sm"></div>
     <form id="reportForm" class="space-y-3">
       <input type="hidden" id="editingId">
-      <label class="flex items-center gap-2 text-sm">
-        <span class="whitespace-nowrap text-slate-700">生徒：</span>
-        <select name="assignment_id" id="assignment" class="w-1/2 rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-      </label>
       <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <button type="button" id="copyLastButton" onclick="copyLastReport()" class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
@@ -389,6 +391,8 @@ function sortReportsOldestFirst(reports) {
 }
 function formPayload() {
   const data = Object.fromEntries(new FormData(reportForm));
+  // 生徒(assignment)プルダウンはフォーム外に配置しているため明示的に付与する（編集時は呼び出し側で削除）
+  data.assignment_id = assignment.value;
   data.break_minutes = Number(data.break_minutes || 0);
   return data;
 }
@@ -473,6 +477,9 @@ function resetReportForm(keepAssignment = false) {
   syncEndTime();
   if (keepAssignment) {
     assignment.value = currentAssignment;
+  } else {
+    // assignment はフォーム外のため reportForm.reset() では初期化されない。従来どおり「すべての生徒」へ戻す
+    assignment.value = '';
   }
   selectedAssignmentId = assignment.value || selectedAssignmentId;
   updateStudentBadge();
