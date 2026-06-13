@@ -5,6 +5,10 @@
   #reportForm input[type=number]::-webkit-inner-spin-button,
   #reportForm input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   #reportForm input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  /* 明細の日付セル: 曜日をボックス内に併記するため、ネイティブのカレンダーアイコンを非表示（クリックでピッカーを開く） */
+  #reportForm .line-input[type=date]::-webkit-calendar-picker-indicator { display: none; }
+  /* 読取専用時はメモ未記入行の追加アイコンを表示しない（メモ帳アイコンがない行＝メモ書きなし） */
+  #reportForm.form-readonly [data-note-btn][data-note-empty] { visibility: hidden; }
 </style>
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
@@ -12,6 +16,10 @@
     <div class="flex items-center gap-3 px-4 py-3">
       <button id="newReportBtn" type="button" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 別の学校の報告書を作成</button>
       <div id="reportList" class="flex flex-1 gap-2 overflow-x-auto"></div>
+      <button type="button" id="copyPrevLineBtn" onclick="copyPreviousLine()" title="最後に記入した行と同じ内容（日付以外）を次の行に追加します" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        前回の記入分をコピー
+      </button>
     </div>
   </section>
 
@@ -62,7 +70,7 @@
               <!-- 氏名 row -->
               <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
                 <div class="flex w-24 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-700">氏名</div>
-                <div id="tutorNameDisplay" class="flex flex-1 items-center justify-center px-3 py-1 text-center font-semibold text-slate-800">-</div>
+                <div id="tutorNameDisplay" class="flex flex-1 items-center justify-start px-3 py-1 text-left font-semibold text-slate-800">-</div>
               </div>
               <!-- 講師番号 + お客様ID row -->
               <div class="flex min-h-[46px] flex-1">
@@ -90,13 +98,6 @@
 
         </div>
 
-        <div class="flex flex-wrap items-center gap-2">
-          <button type="button" id="copyPrevLineBtn" onclick="copyPreviousLine()" class="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-            前回の記入分をコピー
-          </button>
-          <span class="text-xs text-slate-500">最後に記入した行と同じ内容（日付以外）を次の行に追加します</span>
-        </div>
         <div class="overflow-x-auto rounded-lg border border-slate-200">
           <table class="min-w-[1080px] w-full text-sm">
             <thead id="lineHead" class="bg-slate-50 text-xs font-medium text-slate-600"></thead>
@@ -286,10 +287,10 @@ function weekdayLabel(value) {
   const d = new Date(`${value}T00:00:00`);
   return Number.isNaN(d.getTime()) ? '' : WEEKDAYS[d.getDay()];
 }
-// 日付セル内に曜日を「（水）」形式で併記（曜日列を廃止して横幅を節約）
+// 日付入力ボックス内の右側に併記する曜日「(月)」（曜日以外はすべて半角）
 function weekdayParen(value) {
   const wd = weekdayLabel(value);
-  return wd ? `（${wd}）` : '';
+  return wd ? `(${wd})` : '';
 }
 function numberValue(value) {
   const n = Number(value || 0);
@@ -488,13 +489,12 @@ function reportTabDotClass(status) {
   return 'bg-amber-500';
 }
 function reportListCard(report) {
-  // 横タブ: 学校ごとの報告書を1行で切り替える
+  // 横タブ: 学校ごとの報告書を1行で切り替える。表示は学校名のみ（状態はドット色＋ツールチップで確認）
   const selected = report.assignment_id === selectedAssignmentId;
   const schoolName = report.school_name || '学校未設定';
   return `<button type="button" title="${escapeHtml(schoolName)} / ${escapeHtml(statusLabel(report.status))}" class="flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-4 py-2 text-sm transition ${selected ? 'border-emerald-600 bg-emerald-50 font-semibold text-emerald-800 ring-1 ring-emerald-500/30' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="editReport('${report.id}')">
     <span class="inline-block h-2 w-2 rounded-full ${reportTabDotClass(report.status)}"></span>
     <span class="max-w-[12rem] truncate">${escapeHtml(schoolName)}</span>
-    <span class="text-xs text-slate-500">${escapeHtml(statusLabel(report.status))}</span>
   </button>`;
 }
 function renderReportList() {
@@ -580,33 +580,33 @@ function columnHeaderHtml(column) {
 }
 function renderLineHeader(form) {
   const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
-  const headers = ['<th class="w-12 px-2 py-2 text-center">回数</th>'];
+  const headers = ['<th class="w-10 px-1 py-2 text-center">回数</th>'];
   for (let index = 0; index < columns.length; index += 1) {
     const column = columns[index];
     if (column.key === 'date') {
-      headers.push(`<th class="w-40 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-32 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
-        headers.push('<th class="w-72 px-2 py-2 text-left">業務開始〜終了時間</th>');
+        headers.push('<th class="w-72 px-1 py-2 text-left">業務開始〜終了時間</th>');
         index += 1;
       } else {
-        headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+        headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
       }
     } else if (column.key === 'end') {
-      headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'subject_period') {
-      headers.push(`<th class="w-24 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'note') {
-      headers.push(`<th class="w-44 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-12 px-1 py-2 text-center">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'count_minutes') {
-      headers.push(`<th class="w-44 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-40 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'number') {
       // 分は最大4桁。往復交通費(円)はやや広め
       const width = column.key === 'commute_fee' ? 'w-24' : 'w-20';
-      headers.push(`<th class="${width} px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="${width} px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else {
-      headers.push(`<th class="w-32 px-2 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      headers.push(`<th class="w-32 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     }
   }
   lineHead.innerHTML = `<tr>${headers.join('')}</tr>`;
@@ -625,15 +625,16 @@ function inputClasses(width = 'w-full') {
 }
 function renderCell(column, line) {
   if (column.key === 'date') {
-    return `<td class="relative px-2 py-1">
-      <div class="flex items-center gap-1">
-        <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-[124px]')}">
-        <span data-weekday class="shrink-0 text-xs text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
+    // 曜日は日付入力ボックス内の右側に「(月)」形式で併記する（カレンダーアイコンはCSSで非表示、クリックでピッカーを開く）
+    return `<td class="relative px-1 py-1">
+      <div class="relative">
+        <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-[120px]')} pr-8">
+        <span data-weekday class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-xs text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
       </div>
     </td>`;
   }
   if (column.key === 'start') {
-    return `<td class="relative px-2 py-1" data-time-range>
+    return `<td class="relative px-1 py-1" data-time-range>
       <div class="flex items-center gap-1">
         <input type="hidden" data-field="start" value="${escapeHtml(line.start || '')}">
         ${timeSelectHtml('start', line.start)}
@@ -649,7 +650,7 @@ function renderCell(column, line) {
   if (column.key === 'end') return '';
   if (column.key === 'subject_period') {
     const summary = parseSubjectPeriods(line.subject_period).join('・');
-    return `<td class="px-2 py-1">
+    return `<td class="px-1 py-1">
       <div class="relative" data-period-cell>
         <input type="hidden" data-field="subject_period" value="${escapeHtml(line.subject_period || '')}">
         <button type="button" data-period-btn title="クリックして時限を複数選択" class="line-period-btn h-9 w-full overflow-hidden rounded border border-slate-300 px-2 text-left text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 ${summary ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${summary ? escapeHtml(summary) : '選択'}</span></button>
@@ -657,32 +658,35 @@ function renderCell(column, line) {
     </td>`;
   }
   if (column.type === 'count_minutes') {
-    return `<td class="px-2 py-1">
+    // 入力ボックスは半角4文字が入る幅（w-12）に固定する
+    return `<td class="px-1 py-1">
       <div class="flex items-center gap-1">
-        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.count_key)}" value="${escapeHtml(line[column.count_key] ?? '')}" class="${inputClasses('w-16')}">
+        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.count_key)}" value="${escapeHtml(line[column.count_key] ?? '')}" class="${inputClasses('w-12')}">
         <span class="whitespace-nowrap text-xs text-slate-500">${escapeHtml(column.unit || '回')} /</span>
-        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.minutes_key)}" value="${escapeHtml(line[column.minutes_key] ?? '')}" class="${inputClasses('w-16')}">
+        <input type="number" min="0" step="1" inputmode="numeric" data-field="${escapeHtml(column.minutes_key)}" value="${escapeHtml(line[column.minutes_key] ?? '')}" class="${inputClasses('w-12')}">
         <span class="text-xs text-slate-500">分</span>
       </div>
     </td>`;
   }
   if (column.key === 'note') {
+    // 枠（ダイジェスト表示）は廃止し、メモ帳アイコンのみ配置する。アイコンがない行＝メモ書きなし。
+    // 未記入行は編集可能時のみ薄い「＋」アイコンを表示して入力導線を残す（読取専用時はCSSで非表示）。
     const val = line.note || '';
-    return `<td class="px-2 py-1">
-      <div data-note-cell>
+    return `<td class="px-1 py-1 text-center">
+      <div data-note-cell class="inline-flex">
         <input type="hidden" data-field="note" value="${escapeHtml(val)}">
-        <button type="button" data-note-btn title="クリックして内容を表示・編集" class="h-9 w-full overflow-hidden rounded border border-slate-300 px-2 text-left text-sm hover:border-emerald-500 focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 ${val ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${val ? escapeHtml(noteDigest(val)) : '＋入力'}</span></button>
+        <button type="button" data-note-btn${val ? '' : ' data-note-empty'} title="${val ? escapeHtml(val) : 'クリックして内容を入力'}" class="inline-flex h-9 w-9 items-center justify-center rounded transition hover:bg-emerald-50 ${val ? 'text-emerald-600 hover:text-emerald-700' : 'text-slate-300 hover:text-slate-500'}">${val ? NOTE_ICON_SVG : NOTE_ADD_SVG}</button>
       </div>
     </td>`;
   }
-  return `<td class="px-2 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
+  return `<td class="px-1 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
 }
 function buildLineRows(lines) {
   const form = selectedFormDefinition();
   const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
   renderLineHeader(form);
   lineRows.innerHTML = lines.map((line, index) => `<tr class="border-t border-slate-100" data-index="${index}">
-    <td class="px-2 py-1 text-center text-slate-600">${index + 1}</td>
+    <td class="px-1 py-1 text-center text-slate-600">${index + 1}</td>
     ${columns.map(column => renderCell(column, line)).join('')}
   </tr>`).join('');
   lineRows.querySelectorAll('.line-input').forEach(input => {
@@ -694,6 +698,10 @@ function buildLineRows(lines) {
     });
     if (input.dataset.field === 'date') {
       input.addEventListener('change', () => validateLineDateUnique(input));
+      // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
+      input.addEventListener('click', () => {
+        if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
+      });
     }
   });
   lineRows.querySelectorAll('.line-time-select').forEach(sel => {
@@ -910,18 +918,21 @@ document.addEventListener('click', event => {
   if (!event.target.closest('[data-period-cell]')) closePeriodPopovers();
   if (!event.target.closest('[data-time-range]')) closeEndOffsetPopovers();
 });
-// 内容：セルはダイジェスト表示。クリックでモーダルに全文を表示し、編集可能な状態のときは編集できる。
-function noteDigest(value) {
-  const text = String(value || '').replace(/\s+/g, ' ').trim();
-  return text.length > 10 ? text.slice(0, 10) + '…' : text;
-}
+// 内容：記入ありはメモ帳アイコン、未記入は薄い「＋」アイコン。クリックでモーダルに全文を表示し、
+// 編集可能な状態のときは編集できる。全文はアイコンのツールチップ（title）でも確認できる。
+const NOTE_ICON_SVG = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>';
+const NOTE_ADD_SVG = '<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>';
 function refreshNoteCell(cell) {
   const hidden = cell.querySelector('[data-field="note"]');
   const btn = cell.querySelector('[data-note-btn]');
   const val = hidden.value || '';
-  btn.querySelector('span').textContent = val ? noteDigest(val) : '＋入力';
-  btn.classList.toggle('text-slate-400', !val);
-  btn.classList.toggle('text-slate-800', !!val);
+  btn.innerHTML = val ? NOTE_ICON_SVG : NOTE_ADD_SVG;
+  btn.title = val || 'クリックして内容を入力';
+  btn.toggleAttribute('data-note-empty', !val);
+  btn.classList.toggle('text-emerald-600', !!val);
+  btn.classList.toggle('hover:text-emerald-700', !!val);
+  btn.classList.toggle('text-slate-300', !val);
+  btn.classList.toggle('hover:text-slate-500', !val);
 }
 function openNoteModal(btn) {
   activeNoteCell = btn.closest('[data-note-cell]');
@@ -1038,10 +1049,15 @@ function renderTaskReference() {
 }
 function setReportInputsDisabled(disabled) {
   formEditable = !disabled;
+  // 読取専用時はメモ未記入行の追加アイコンをCSSで非表示にする
+  reportForm.classList.toggle('form-readonly', disabled);
   reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
     // 内容ボタンは読取専用時も「閲覧」のためクリックできるよう無効化しない
     if (el.id !== 'monthFilter' && !el.hasAttribute('data-note-btn')) el.disabled = disabled;
   });
+  // 「前回の記入分をコピー」はフォーム外（報告書タブ行の右端）にあるため個別に無効化する
+  const copyBtn = document.getElementById('copyPrevLineBtn');
+  if (copyBtn) copyBtn.disabled = disabled;
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
 }
@@ -1067,6 +1083,8 @@ function resetReportForm(keepAssignment = false) {
 function renderFormAvailability() {
   if (isSubmitPage) {
     formPanel.classList.add('hidden');
+    const copyBtn = document.getElementById('copyPrevLineBtn');
+    if (copyBtn) copyBtn.classList.add('hidden');
     return;
   }
   formPanel.classList.remove('hidden');
