@@ -1,0 +1,12 @@
+{
+  "name": "tutor-report-system-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright E2E smoke tests for the tutor report system (既存=8000 / 新=8001)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0"
+  }
+}

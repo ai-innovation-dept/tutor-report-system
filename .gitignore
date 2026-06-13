@@ -10,3 +10,9 @@ build/
 postgres-data/
 *.log
 backups/
+
+# Playwright E2E (Node ツールチェーン。Python サービスとは独立)
+e2e/node_modules/
+e2e/test-results/
+e2e/playwright-report/
+e2e/.playwright/

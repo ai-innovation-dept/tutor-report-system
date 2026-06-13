@@ -1,15 +1,8 @@
 {% extends "base.html" %}
 {% block content %}
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
-<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
-  <div>
-    <div id="studentBadge" class="inline-flex rounded-full bg-blue-100 px-3 py-1.5 text-sm font-medium text-blue-800">生徒：すべて</div>
-  </div>
-  <div class="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-    <label class="text-sm text-slate-700" for="monthFilter">表示月</label>
-    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-  </div>
-</div>
+<!-- 生徒バッジは表示しないが、updateStudentBadge() が参照するため要素は残す（非表示） -->
+<div id="studentBadge" class="hidden">生徒：すべて</div>
 <div class="grid gap-4 lg:grid-cols-[1fr_380px]">
   <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div id="bulkSubmitPanel" class="hidden border-b border-slate-200 bg-slate-50 p-5"></div>
@@ -34,16 +27,19 @@
     <div id="totalTeachingTime" class="border-t border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-700"></div>
   </section>
   <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" id="formPanel">
-    <h2 class="mb-4 font-semibold text-slate-800" id="formTitle">簡易作成</h2>
+    <div class="mb-4 flex items-center justify-between gap-3">
+      <h2 class="font-semibold text-slate-800" id="formTitle">簡易作成</h2>
+      <div class="flex shrink-0 items-center gap-2">
+        <label class="text-xs text-slate-500" for="monthFilter">表示月</label>
+        <select id="monthFilter" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      </div>
+    </div>
     <div id="formMessage" class="mb-3 hidden rounded-lg px-3 py-2 text-sm"></div>
     <form id="reportForm" class="space-y-3">
       <input type="hidden" id="editingId">
-      <label class="block text-sm">
-        <span class="mb-1 flex items-center gap-2">
-          <span class="text-slate-700">生徒</span>
-          <span id="assignmentError" class="hidden text-xs text-red-600">※生徒を選択してください</span>
-        </span>
-        <select name="assignment_id" id="assignment" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+      <label class="flex items-center gap-2 text-sm">
+        <span class="whitespace-nowrap text-slate-700">生徒：</span>
+        <select name="assignment_id" id="assignment" class="w-1/2 rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
       </label>
       <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <button type="button" id="copyLastButton" onclick="copyLastReport()" class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
@@ -259,10 +255,7 @@ function renderFormAvailability() {
     formPanel.classList.remove('hidden');
     formUnavailablePanel.classList.add('hidden');
     setReportInputsDisabled(true);
-    document.getElementById('assignmentError').classList.remove('hidden');
     return;
-  } else {
-    document.getElementById('assignmentError').classList.add('hidden');
   }
   let message = '';
   if (selectedMonth !== currentMonth) {
@@ -503,7 +496,7 @@ function updateCopyLastButton() {
   copyLastButton.classList.toggle('opacity-50', disabled);
   copyLastButton.classList.toggle('cursor-not-allowed', disabled);
   if (!assignment.value) {
-    copyLastHint.textContent = '生徒を選択するとコピーできます';
+    copyLastHint.textContent = '';
   } else if (!source) {
     copyLastHint.textContent = 'コピーできる前回の報告書はありません';
   } else {
