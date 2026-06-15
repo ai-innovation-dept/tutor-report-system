@@ -4,6 +4,7 @@
 作成時に (講師, 学校) の assignment を取得/自動作成して紐付ける。
 """
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import select
@@ -33,6 +34,10 @@ _DETAIL_FIELDS = (
     "customer_id", "our_staff", "dispatch_place_address", "classroom_name", "contract_start", "contract_end",
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
     "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
+    "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
+)
+# CSVは報告書の表示項目フラグを扱わないため、CSV upsert の更新では既存値を保持する（ドロワー管理）。
+_CSV_PRESERVED_FLAGS = (
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
 )
 
@@ -221,19 +226,33 @@ def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
             is_active=True,
         )
         db.add(profile)
+        _apply_payload(profile, payload)
     else:
         profile.is_active = True
-    _apply_payload(profile, payload)
+        # 既存契約の表示項目フラグ（CSV対象外）を保持してから上書きする
+        preserved = {field: getattr(profile, field) for field in _CSV_PRESERVED_FLAGS}
+        _apply_payload(profile, payload)
+        for field, value in preserved.items():
+            setattr(profile, field, value)
     return created
 
 
-@router.get("/import-template")
-def download_import_template(_: User = Depends(require_role("admin_master", "admin_chief", "sales", "office"))):
-    """CSV一括登録用のテンプレート（UTF-8 BOM）をダウンロードする。"""
+@router.get("/export")
+def export_contracts(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """現在の契約（有効）をCSV(UTF-8 BOM)でエクスポートする。編集して /import で再取込できる（番号で照合・upsert）。"""
+    profiles = db.scalars(
+        select(WorkAssignmentProfile)
+        .options(selectinload(WorkAssignmentProfile.tutor), selectinload(WorkAssignmentProfile.school))
+        .where(WorkAssignmentProfile.is_active.is_(True))
+        .order_by(WorkAssignmentProfile.created_at.desc())
+    ).all()
     return Response(
-        content=contract_import_service.build_template_csv(),
+        content=contract_import_service.build_export_csv(profiles),
         media_type="text/csv; charset=utf-8",
-        headers={"Content-Disposition": 'attachment; filename="contract_import_template.csv"'},
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote("契約一覧.csv")},
     )
 
 

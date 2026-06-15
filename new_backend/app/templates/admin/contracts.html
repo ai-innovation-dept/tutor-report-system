@@ -40,13 +40,13 @@
     <p class="mt-1 text-sm text-slate-500">講師×学校ごとの契約情報を登録・管理します。</p>
   </div>
   <div class="flex flex-wrap items-center gap-2">
-    <a href="/api/w/contracts/import-template" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVテンプレート</a>
+    <a href="/api/w/contracts/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
     <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
     <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
     <button id="newContractBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規登録</button>
   </div>
 </section>
-<p class="mb-4 -mt-1 text-xs text-slate-500">CSV一括登録：「CSVテンプレート」を編集して「CSVインポート」してください。講師は<b>講師番号</b>、学校は<b>学校名</b>で照合します。同一(講師×学校)は上書き更新、1件でもエラーがあれば全件取り込みません。記入例（講師番号の先頭が#）の行は取り込まれません。</p>
+<p class="mb-4 -mt-1 text-xs text-slate-500">CSV一括更新：「CSVエクスポート」で現在の契約を書き出し、編集して「CSVインポート」で取り込みます。講師は<b>講師番号</b>、学校は<b>学校番号</b>で照合します（氏名・学校名は参考列）。同一(講師番号×学校番号)は<b>上書き更新</b>、無ければ<b>新規追加</b>。1件でもエラーがあれば全件取り込みません。先頭が#の行は取り込まれません。</p>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="overflow-x-auto">

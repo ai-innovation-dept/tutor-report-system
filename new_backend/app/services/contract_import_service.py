@@ -1,9 +1,10 @@
-"""契約管理のCSV一括登録（テンプレート生成・解析・検証）。
+"""契約管理のCSV一括エクスポート/取り込み（生成・解析・検証）。
 
-- テンプレートはUTF-8(BOM付き)で出力しExcelでの文字化けを防ぐ。
+- エクスポート/取り込みCSVはUTF-8(BOM付き)で出力しExcelでの文字化けを防ぐ。
 - 取り込みCSVはUTF-8/Shift-JISの双方を自動判定して読み込む。
-- 識別子: 講師=講師番号(user_no/tutor_no)、学校=学校名(display_name)。
-- 「講師番号」が空、または先頭が「#」の行は記入例/コメントとして取り込み対象外。
+- 識別子(必須): 講師=講師番号(user_no/tutor_no)、学校=学校番号(user_no)。氏名・学校名は参考列(照合に未使用)。
+- 「講師番号」が空、または先頭が「#」の行はコメント行として取り込み対象外。
+- (講師番号, 学校番号)が一致する契約は上書き更新、一致しなければ新規追加（upsert）。
 """
 import csv
 import io
@@ -15,13 +16,16 @@ from sqlalchemy.orm import Session
 from app.models.shared import User
 from app.schemas.contracts import MAX_MAIN_TASKS, MAX_SUB_TASKS, ContractCreate, ContractTask
 
-# CSVの列見出し（単一の定義元）。テンプレート出力・解析の双方で使用する。
+# CSVの列見出し（単一の定義元）。エクスポート出力・解析の双方で使用する。
+# 照合は番号(ID)で行う: 講師=講師番号(user_no/tutor_no)、学校=学校番号(user_no)。氏名・学校名は参考列。
 TUTOR_NO = "講師番号"
-TUTOR_NAME_REF = "講師氏名(参考・未使用)"
-SCHOOL_NAME = "学校名"
+TUTOR_NAME_REF = "講師氏名(参考)"
+SCHOOL_NO = "学校番号"
+SCHOOL_NAME = "学校名(参考)"
 CUSTOMER_ID = "お客様ID"
 OUR_STAFF = "弊社担当"
-DISPATCH_ADDRESS = "派遣先事業所の所在地"
+DISPATCH_ADDRESS = "事業所の所在地"
+CLASSROOM_NAME = "教室名"
 CONTRACT_START = "契約開始(YYYY-MM-DD)"
 CONTRACT_END = "契約終了(YYYY-MM-DD)"
 MONTHLY_MINUTES = "月時間(分)"
@@ -62,8 +66,8 @@ def _sub_contract_id_h(i: int) -> str:
 
 
 def headers() -> list[str]:
-    cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
-            DISPATCH_ADDRESS, CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
+    cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NO, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
+            DISPATCH_ADDRESS, CLASSROOM_NAME, CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
             SHIFT_NOTE, WORK_CONTENT]
     for i in range(1, MAX_MAIN_TASKS + 1):
         cols += [_main_name_h(i), _main_id_h(i), _main_contract_id_h(i)]
@@ -73,24 +77,59 @@ def headers() -> list[str]:
     return cols
 
 
-def _example_row() -> list[str]:
-    # 講師番号の先頭が「#」の行は記入例として取り込まれない（削除しても可）。
-    row = ["#T0001", "山田太郎", "渋谷高校", "9999", "佐藤麻子", "東京都渋谷区〇〇1-2-3",
-           "2026-04-01", "2027-03-31", "600", "3", "月9:30-", "数学指導"]
-    row += ["数学科指導", "11111", "99992601"]       # メイン①
-    row += ["", "", ""] * (MAX_MAIN_TASKS - 1)       # メイン②③
-    row += ["教科会", "33333", ""]                    # サブ①
-    row += ["", "", ""] * (MAX_SUB_TASKS - 1)        # サブ②〜⑤
-    row += ["有", "採点", "回", "22222", "99992602"]  # 採点
+def _workload_case_for_task1(profile) -> dict | None:
+    """担当業務①(task_index=1)の月時間・週コマケースを返す（CSVは単一値のみ表現）。"""
+    cases = [c for c in (profile.workload_cases or []) if isinstance(c, dict)]
+    return next((c for c in cases if (c.get("task_index") or 1) == 1), cases[0] if cases else None)
+
+
+def _row_from_profile(profile) -> dict:
+    """契約(プロファイル)を1行のCSV辞書へ変換する（エクスポート用。氏名・学校名も補完）。"""
+    tutor = getattr(profile, "tutor", None)
+    school = getattr(profile, "school", None)
+    case1 = _workload_case_for_task1(profile)
+    row = {
+        TUTOR_NO: (tutor.tutor_no or tutor.user_no or "") if tutor else "",
+        TUTOR_NAME_REF: (tutor.display_name or "") if tutor else "",
+        SCHOOL_NO: (school.user_no or "") if school else "",
+        SCHOOL_NAME: (school.display_name or "") if school else "",
+        CUSTOMER_ID: profile.customer_id or "",
+        OUR_STAFF: profile.our_staff or "",
+        DISPATCH_ADDRESS: profile.dispatch_place_address or "",
+        CLASSROOM_NAME: profile.classroom_name or "",
+        CONTRACT_START: profile.contract_start.isoformat() if profile.contract_start else "",
+        CONTRACT_END: profile.contract_end.isoformat() if profile.contract_end else "",
+        MONTHLY_MINUTES: str(case1["monthly_minutes"]) if case1 and case1.get("monthly_minutes") is not None else "",
+        WEEKLY_LESSONS: str(case1["weekly_lessons"]) if case1 and case1.get("weekly_lessons") is not None else "",
+        SHIFT_NOTE: profile.shift_note or "",
+        WORK_CONTENT: profile.work_content or "",
+        SCORING_ENABLED: "有" if profile.scoring_enabled else "",
+        SCORING_LABEL: profile.scoring_label or "",
+        SCORING_UNIT: profile.scoring_unit or "",
+        SCORING_TASK_ID: profile.scoring_task_id or "",
+        SCORING_CONTRACT_ID: profile.scoring_contract_id or "",
+    }
+    for i in range(1, MAX_MAIN_TASKS + 1):
+        row[_main_name_h(i)] = getattr(profile, f"task_name_{i}") or ""
+        row[_main_id_h(i)] = getattr(profile, f"task_id_{i}") or ""
+        row[_main_contract_id_h(i)] = getattr(profile, f"contract_id_{i}") or ""
+    for i in range(1, MAX_SUB_TASKS + 1):
+        row[_sub_name_h(i)] = getattr(profile, f"sub_task_name_{i}") or ""
+        row[_sub_id_h(i)] = getattr(profile, f"sub_task_id_{i}") or ""
+        row[_sub_contract_id_h(i)] = getattr(profile, f"sub_contract_id_{i}") or ""
     return row
 
 
-def build_template_csv() -> bytes:
-    """ヘッダー＋記入例1行のテンプレートCSVを UTF-8(BOM) で返す。"""
+def build_export_csv(profiles) -> bytes:
+    """現在の契約一覧を UTF-8(BOM) のCSVで返す。空でもヘッダーのみ出力（取込テンプレートを兼ねる）。
+
+    表示項目フラグ(show_*)はCSV対象外（ドロワー管理・取込時も保持）。月時間/週コマは担当業務①の1ケースのみ。
+    """
     buf = io.StringIO()
-    writer = csv.writer(buf)
-    writer.writerow(headers())
-    writer.writerow(_example_row())
+    writer = csv.DictWriter(buf, fieldnames=headers())
+    writer.writeheader()
+    for profile in profiles:
+        writer.writerow(_row_from_profile(profile))
     return buf.getvalue().encode("utf-8-sig")
 
 
@@ -146,17 +185,17 @@ def _find_tutor(db: Session, tutor_no: str) -> tuple[User | None, str | None]:
     return candidates[0], None
 
 
-def _find_school(db: Session, school_name: str) -> tuple[User | None, str | None]:
+def _find_school(db: Session, school_no: str) -> tuple[User | None, str | None]:
     candidates = [
         u for u in db.scalars(
-            select(User).where(User.deleted_at.is_(None), User.display_name == school_name)
+            select(User).where(User.deleted_at.is_(None), User.user_no == school_no)
         ).all()
         if _has_role(u, "school")
     ]
     if not candidates:
-        return None, f"学校名「{school_name}」の学校が見つかりません"
+        return None, f"学校番号「{school_no}」の学校が見つかりません"
     if len(candidates) > 1:
-        return None, f"学校名「{school_name}」が複数の学校に一致します"
+        return None, f"学校番号「{school_no}」が複数の学校に一致します"
     return candidates[0], None
 
 
@@ -200,7 +239,7 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
     errors: list[str] = []
 
     tutor_no = row.get(TUTOR_NO, "")
-    school_name = row.get(SCHOOL_NAME, "")
+    school_no = row.get(SCHOOL_NO, "")
     tutor = school = None
     if not tutor_no:
         errors.append(f"{TUTOR_NO}は必須です")
@@ -208,10 +247,10 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         tutor, err = _find_tutor(db, tutor_no)
         if err:
             errors.append(err)
-    if not school_name:
-        errors.append(f"{SCHOOL_NAME}は必須です")
+    if not school_no:
+        errors.append(f"{SCHOOL_NO}は必須です")
     else:
-        school, err = _find_school(db, school_name)
+        school, err = _find_school(db, school_no)
         if err:
             errors.append(err)
 
@@ -234,6 +273,7 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         customer_id=row.get(CUSTOMER_ID) or None,
         our_staff=row.get(OUR_STAFF) or None,
         dispatch_place_address=row.get(DISPATCH_ADDRESS) or None,
+        classroom_name=row.get(CLASSROOM_NAME) or None,
         contract_start=contract_start,
         contract_end=contract_end,
         monthly_minutes=monthly_minutes,
