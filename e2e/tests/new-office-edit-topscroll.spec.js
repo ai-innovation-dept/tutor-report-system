@@ -1,38 +1,44 @@
 // @ts-check
-// 新システム（業務連絡表 / port 8001）事務・営業の進捗パイプライン編集モーダル：
-// 上部にも横スクロールバーを追加し、下部の表とスクロール位置が双方向同期することを検証する。
+// 新システム（業務連絡表 / port 8001）事務・営業の進捗パイプライン編集モーダルの表検証。
+//  (1) 上部にも横スクロールバーがあり、下部の表とスクロール位置が双方向同期する。
+//  (2) 縦スクロールで見出し行(thead)が固定される。
+//  (3) 横スクロールで先頭=日付列が固定される。
 // office/queue.html と sales/queue.html は同一実装のため、両ロールで同じ検証を行う。
-// シードデータに依存しないよう、列の多い合成レポートを allReports へ注入して編集モーダルを開く。
+// シードに依存しないよう、列も行も多い合成レポートを allReports へ注入して編集モーダルを開く。
 const { test } = require('@playwright/test');
 const { login, NEW, expect } = require('./helpers');
 
-// 列が確実にモーダル幅を超える（横スクロールが発火する）よう、数値列を多めに持つ列定義を作る。
+// 共有 login()（認証レスポンス受領後に遷移）でログインし、queue.html の静的要素 #officeEditHead を
+// 待って到達を確証する。
+async function robustLogin(page, email, path) {
+  await login(page, NEW, email, path);
+  await page.waitForSelector('#officeEditHead', { state: 'attached', timeout: 15000 });
+}
+
+// 列が確実にモーダル幅を、行が確実に表領域の高さを超えるよう、多列・多行の合成レポートを作る。
 function wideReport() {
   const columnDefinition = [
     { key: 'date', label: '日付', type: 'date' },
-    { key: 'start', label: '開始', type: 'time' },
-    { key: 'end', label: '終了', type: 'time' },
+    { key: 'start', label: '業務開始時間', type: 'time' },
+    { key: 'end', label: '業務終了時間', type: 'time' },
     { key: 'note', label: '指導内容', type: 'text' },
   ];
   for (let i = 1; i <= 10; i++) {
     columnDefinition.push({ key: `num${i}`, label: `数値${i}`, type: 'number' });
   }
+  const lines = [];
+  for (let d = 1; d <= 40; d++) {
+    lines.push({ date: `2026-06-${String(((d - 1) % 28) + 1).padStart(2, '0')}`, start: '10:00', end: '11:00', note: `行${d}` });
+  }
   return {
     id: 'topscroll-test-report',
-    status: 'awaiting_office', // OFFICE_EDIT_STATUSES に含まれる＝編集ボタン対象
+    status: 'awaiting_office', // OFFICE_EDIT_STATUSES に含まれる＝編集対象
     target_month: '2026-06',
-    form_data: {
-      meta: { column_definition: columnDefinition },
-      lines: [
-        { date: '2026-06-01', start: '10:00', end: '11:00', note: 'テスト行1' },
-        { date: '2026-06-02', start: '13:00', end: '14:30', note: 'テスト行2' },
-      ],
-    },
+    form_data: { meta: { column_definition: columnDefinition }, lines },
   };
 }
 
-async function verifyTopScrollSync(page) {
-  // 合成レポートを注入して編集モーダルを開く（実テンプレートの openOfficeEditModal を使用）。
+async function openWideEditModal(page) {
   // allReports は `let` グローバルで window に乗らず page.evaluate の関数スコープから見えないため、
   // 全 <script> と同じグローバル字句環境で解決される indirect eval 経由で参照する。
   await page.evaluate((reportJson) => {
@@ -41,63 +47,102 @@ async function verifyTopScrollSync(page) {
     g('allReports').push(report);
     g('openOfficeEditModal')(report.id);
   }, JSON.stringify(wideReport()));
-
-  const modal = page.locator('#officeEditModal');
-  await expect(modal).toBeVisible();
-
-  // 上部スクロールバー・本体・スペーサの状態を計測
-  const metrics = await page.evaluate(() => {
-    const top = document.getElementById('officeEditScrollTop');
-    const body = document.getElementById('officeEditScrollBody');
-    const spacer = document.getElementById('officeEditScrollTopSpacer');
-    return {
-      hasTop: !!top,
-      hasBody: !!body,
-      hasSpacer: !!spacer,
-      // 本体は横にあふれている（スクロール可能）か
-      bodyOverflow: body ? body.scrollWidth - body.clientWidth : 0,
-      // 上部バーもあふれている（＝横スクロールバーが出る）か
-      topOverflow: top ? top.scrollWidth - top.clientWidth : 0,
-      spacerWidth: spacer ? Math.round(spacer.getBoundingClientRect().width) : 0,
-      bodyScrollWidth: body ? body.scrollWidth : 0,
-    };
-  });
-  expect(metrics.hasTop, '上部スクロールバー要素が存在する').toBeTruthy();
-  expect(metrics.hasSpacer, 'スペーサ要素が存在する').toBeTruthy();
-  expect(metrics.bodyOverflow, '表本体が横にあふれている（横スクロール可能）').toBeGreaterThan(0);
-  expect(metrics.topOverflow, '上部バーも横にあふれている（上部に横スクロールバーが出る）').toBeGreaterThan(0);
-  // スペーサ幅は本体の描画幅に一致（数pxの誤差を許容）
-  expect(Math.abs(metrics.spacerWidth - metrics.bodyScrollWidth)).toBeLessThanOrEqual(2);
-
-  // 上部バー → 本体 への同期
-  const topToBody = await page.evaluate(() => {
-    const top = document.getElementById('officeEditScrollTop');
-    const body = document.getElementById('officeEditScrollBody');
-    top.scrollLeft = 120;
-    top.dispatchEvent(new Event('scroll'));
-    return { topLeft: top.scrollLeft, bodyLeft: body.scrollLeft };
-  });
-  expect(topToBody.bodyLeft, '上部バーを動かすと本体も同じ位置へ').toBe(topToBody.topLeft);
-
-  // 本体 → 上部バー への同期
-  const bodyToTop = await page.evaluate(() => {
-    const top = document.getElementById('officeEditScrollTop');
-    const body = document.getElementById('officeEditScrollBody');
-    body.scrollLeft = 60;
-    body.dispatchEvent(new Event('scroll'));
-    return { topLeft: top.scrollLeft, bodyLeft: body.scrollLeft };
-  });
-  expect(bodyToTop.topLeft, '本体を動かすと上部バーも同じ位置へ').toBe(bodyToTop.bodyLeft);
+  await expect(page.locator('#officeEditModal')).toBeVisible();
 }
 
-test.describe('新システム 事務/営業 進捗パイプライン編集 上部横スクロール', () => {
-  test('事務(office)：上部スクロールバーが本体と双方向同期', async ({ page }) => {
-    await login(page, NEW, 'office1@example.com', '/office/queue');
-    await verifyTopScrollSync(page);
-  });
+test.describe('新システム 事務/営業 進捗パイプライン編集 表スクロール', () => {
+  for (const role of [
+    { name: '事務(office)', email: 'office1@example.com', path: '/office/queue' },
+    { name: '営業(sales)', email: 'sales1@example.com', path: '/sales/queue' },
+  ]) {
+    test(`${role.name}：上部スクロールバーが本体と双方向同期`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await robustLogin(page, role.email, role.path);
+      await openWideEditModal(page);
 
-  test('営業(sales)：上部スクロールバーが本体と双方向同期', async ({ page }) => {
-    await login(page, NEW, 'sales1@example.com', '/sales/queue');
-    await verifyTopScrollSync(page);
-  });
+      const m = await page.evaluate(() => {
+        const top = document.getElementById('officeEditScrollTop');
+        const body = document.getElementById('officeEditScrollBody');
+        const spacer = document.getElementById('officeEditScrollTopSpacer');
+        return {
+          bodyOverflow: body.scrollWidth - body.clientWidth,
+          topOverflow: top.scrollWidth - top.clientWidth,
+          // 上部バーと本体の最大スクロール量が一致する（縦スクロールバー幅を補正済み）
+          topMax: top.scrollWidth - top.clientWidth,
+          bodyMax: body.scrollWidth - body.clientWidth,
+          hasSpacer: !!spacer,
+        };
+      });
+      expect(m.hasSpacer, 'スペーサ要素が存在').toBeTruthy();
+      expect(m.bodyOverflow, '表本体が横にあふれている').toBeGreaterThan(0);
+      expect(m.topOverflow, '上部バーも横にあふれている').toBeGreaterThan(0);
+      expect(Math.abs(m.topMax - m.bodyMax), '上部バーと本体の最大横スクロール量が一致').toBeLessThanOrEqual(2);
+
+      const topToBody = await page.evaluate(() => {
+        const top = document.getElementById('officeEditScrollTop');
+        const body = document.getElementById('officeEditScrollBody');
+        top.scrollLeft = 120; top.dispatchEvent(new Event('scroll'));
+        return { topLeft: top.scrollLeft, bodyLeft: body.scrollLeft };
+      });
+      expect(topToBody.bodyLeft, '上部バー→本体 同期').toBe(topToBody.topLeft);
+
+      const bodyToTop = await page.evaluate(() => {
+        const top = document.getElementById('officeEditScrollTop');
+        const body = document.getElementById('officeEditScrollBody');
+        body.scrollLeft = 60; body.dispatchEvent(new Event('scroll'));
+        return { topLeft: top.scrollLeft, bodyLeft: body.scrollLeft };
+      });
+      expect(bodyToTop.topLeft, '本体→上部バー 同期').toBe(bodyToTop.bodyLeft);
+    });
+
+    test(`${role.name}：縦スクロールで見出し行が固定`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await robustLogin(page, role.email, role.path);
+      await openWideEditModal(page);
+
+      const r = await page.evaluate(() => {
+        const body = document.getElementById('officeEditScrollBody');
+        const th = document.querySelector('#officeEditHead th');
+        const pos = getComputedStyle(th).position;
+        const before = th.getBoundingClientRect().top - body.getBoundingClientRect().top;
+        body.scrollTop = 300; // 縦に大きくスクロール
+        const after = th.getBoundingClientRect().top - body.getBoundingClientRect().top;
+        return { pos, before, after, vScroll: body.scrollTop, vOverflow: body.scrollHeight - body.clientHeight };
+      });
+      expect(r.vOverflow, '表本体が縦にあふれている（縦スクロール可能）').toBeGreaterThan(0);
+      expect(r.vScroll, '実際に縦スクロールした').toBeGreaterThan(0);
+      expect(r.pos, '見出しセルが position:sticky').toBe('sticky');
+      // 見出し行は縦スクロールしても表領域の上端に留まる（移動量はごく僅か）
+      expect(Math.abs(r.after - r.before), '見出し行が縦スクロールで上端に固定').toBeLessThanOrEqual(2);
+    });
+
+    test(`${role.name}：横スクロールで日付列が固定`, async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await robustLogin(page, role.email, role.path);
+      await openWideEditModal(page);
+
+      const r = await page.evaluate(() => {
+        const body = document.getElementById('officeEditScrollBody');
+        const firstHeadCell = document.querySelector('#officeEditHead th');           // 日付見出し
+        const firstBodyCell = document.querySelector('#officeEditBody tr td');         // 日付セル
+        const secondBodyCell = document.querySelector('#officeEditBody tr td:nth-child(2)'); // 種別セル（非固定）
+        const bx = body.getBoundingClientRect().left;
+        const headPos = getComputedStyle(firstHeadCell).position;
+        const bodyPos = getComputedStyle(firstBodyCell).position;
+        const dateBefore = firstBodyCell.getBoundingClientRect().left - bx;
+        const kindBefore = secondBodyCell.getBoundingClientRect().left - bx;
+        body.scrollLeft = 300; // 横に大きくスクロール
+        const dateAfter = firstBodyCell.getBoundingClientRect().left - bx;
+        const kindAfter = secondBodyCell.getBoundingClientRect().left - bx;
+        return { headPos, bodyPos, dateBefore, dateAfter, kindBefore, kindAfter, hScroll: body.scrollLeft };
+      });
+      expect(r.hScroll, '実際に横スクロールした').toBeGreaterThan(0);
+      expect(r.headPos, '日付見出しが position:sticky').toBe('sticky');
+      expect(r.bodyPos, '日付セルが position:sticky').toBe('sticky');
+      // 日付列は横スクロールしても表領域の左端に留まる
+      expect(Math.abs(r.dateAfter - r.dateBefore), '日付列が横スクロールで左端に固定').toBeLessThanOrEqual(2);
+      // 非固定の種別列は横スクロールで左へ移動する（固定されていないことの対照確認）
+      expect(r.kindBefore - r.kindAfter, '非固定列(種別)は横スクロールで移動する').toBeGreaterThan(50);
+    });
+  }
 });

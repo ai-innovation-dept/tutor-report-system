@@ -82,29 +82,30 @@
 </div>
 
 <div id="officeEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeOfficeEditModal()">
-  <div class="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+  <div class="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
       <h2 class="font-semibold text-slate-800">報告書の修正（営業）</h2>
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
     </div>
-    <div class="max-h-[70vh] overflow-y-auto p-5">
-      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。列が多い場合は表の上部・下部どちらの横スクロールバーでも左右にスクロールできます。</p>
+    <div class="flex min-h-0 flex-auto flex-col p-5">
+      <p class="mb-3 shrink-0 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。見出し行と日付列は固定したまま、表内を上下・左右にスクロールできます（横スクロールは上部・下部どちらのバーも利用可）。</p>
       <!-- 上部の横スクロールバー：下部の表とスクロール位置を双方向同期し、最下部まで送らなくても上部で左右にスクロールできる -->
-      <div id="officeEditScrollTop" class="overflow-x-auto overflow-y-hidden" aria-hidden="true">
+      <div id="officeEditScrollTop" class="shrink-0 overflow-x-auto overflow-y-hidden" aria-hidden="true">
         <div id="officeEditScrollTopSpacer" class="h-px"></div>
       </div>
-      <div id="officeEditScrollBody" class="mt-1 overflow-x-auto rounded border border-slate-200">
-        <table class="w-full border-collapse text-sm">
+      <!-- 表本体：唯一の縦横スクロール領域。thead を sticky top で、先頭=日付列を sticky left で固定する -->
+      <div id="officeEditScrollBody" class="mt-1 min-h-0 flex-auto overflow-auto rounded border border-slate-200">
+        <table class="w-full border-separate border-spacing-0 text-sm">
           <thead><tr id="officeEditHead"></tr></thead>
           <tbody id="officeEditBody"></tbody>
         </table>
       </div>
-      <label class="mt-4 block text-sm text-slate-700">修正内容のコメント（任意・通知に含まれます）
+      <label class="mt-4 block shrink-0 text-sm text-slate-700">修正内容のコメント（任意・通知に含まれます）
         <textarea id="officeEditComment" class="mt-1 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="例：3日を有給休暇に修正しました"></textarea>
       </label>
-      <div id="officeEditError" class="mt-2 hidden text-sm text-red-700"></div>
+      <div id="officeEditError" class="mt-2 hidden shrink-0 text-sm text-red-700"></div>
     </div>
-    <div class="flex justify-end gap-2 border-t border-slate-200 px-5 py-4">
+    <div class="flex shrink-0 justify-end gap-2 border-t border-slate-200 px-5 py-4">
       <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeOfficeEditModal()">キャンセル</button>
       <button type="button" id="officeEditSubmit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="submitOfficeEdit()">保存して通知</button>
     </div>
@@ -730,8 +731,9 @@ function syncOfficeEditScroll() {
     top.addEventListener('scroll', () => { if (body.scrollLeft !== top.scrollLeft) body.scrollLeft = top.scrollLeft; });
     body.addEventListener('scroll', () => { if (top.scrollLeft !== body.scrollLeft) top.scrollLeft = body.scrollLeft; });
   }
-  // モーダル表示後に表の実描画幅へスペーサ幅を合わせ、上部バーのスクロール量を本体と一致させる。
-  spacer.style.width = body.scrollWidth + 'px';
+  // モーダル表示後にスペーサ幅を更新。表本体は縦スクロールバー分だけ可視幅が狭いため、
+  // その差(top.clientWidth - body.clientWidth)を加味して上部バーと本体の横スクロール量を一致させる。
+  spacer.style.width = (body.scrollWidth + top.clientWidth - body.clientWidth) + 'px';
 }
 function openOfficeEditModal(reportId) {
   const report = reportById(reportId);
@@ -743,11 +745,18 @@ function openOfficeEditModal(reportId) {
   const widths = cols.map(col => officeEditColWidth(col));
   const table = headTr.closest('table');
   if (table) table.style.minWidth = widths.reduce((sum, w) => sum + w, 0) + 'px';
+  // 見出し行は縦スクロールで固定(sticky top)。先頭=日付列は横スクロールでも固定(sticky left)。角セルは最前面(z-30)。
   headTr.innerHTML =
-    cols.map((col, ci) => `<th style="width:${widths[ci]}px" class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`).join('');
+    cols.map((col, ci) => {
+      const pos = ci === 0 ? 'sticky left-0 top-0 z-30' : 'sticky top-0 z-20';
+      return `<th style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`;
+    }).join('');
+  // 先頭=日付列は横スクロールで固定(sticky left)。固定セルは下層が透けないよう不透明背景(bg-white)にする。
   document.getElementById('officeEditBody').innerHTML = lines.length
-    ? lines.map((line, i) => `<tr>${cols.map((col, ci) => `
-        <td style="width:${widths[ci]}px" class="border border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`).join('')}</tr>`).join('')
+    ? lines.map((line, i) => `<tr>${cols.map((col, ci) => {
+        const pos = ci === 0 ? 'sticky left-0 z-10 bg-white' : '';
+        return `<td style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`;
+      }).join('')}</tr>`).join('')
     : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + cols.length + '">編集可能な明細行がありません。</td></tr>';
   document.getElementById('officeEditComment').value = '';
   document.getElementById('officeEditError').classList.add('hidden');
