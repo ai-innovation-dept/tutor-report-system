@@ -9,6 +9,9 @@
   #reportForm .line-input[type=date]::-webkit-calendar-picker-indicator { display: none; }
   /* 読取専用時はメモ未記入行の追加アイコンを表示しない（メモ帳アイコンがない行＝メモ書きなし） */
   #reportForm.form-readonly [data-note-btn][data-note-empty] { visibility: hidden; }
+  /* iOS Safari は input[type=date] が width:100% を無視して枠からはみ出す（見切れる）ことがあるため、
+     定期代などのメタ日付入力を確実に枠内へ収める（明細テーブルの .line-input は対象外） */
+  #reportForm input.meta-input[type=date] { max-width: 100%; min-width: 0; box-sizing: border-box; }
 </style>
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
@@ -212,7 +215,7 @@ const EDITABLE_STATUSES = new Set(['draft', 'returned_to_tutor', 'returned_to_sa
 // 勤怠区分（種別）: 空＝勤務（既定）。有給休暇・欠勤の行は勤務時間を持たず、月内の取得回数・欠勤回数として集計する。
 // 値（'paid_leave' / 'absent'）は report_view・PDF・事務修正と共有する不変キー。
 const ATTENDANCE_KINDS = [
-  {value: '', label: '--'},
+  {value: '', label: '勤務'},
   {value: 'paid_leave', label: '有給'},
   {value: 'absent', label: '欠勤'}
 ];

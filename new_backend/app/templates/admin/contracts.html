@@ -1,5 +1,39 @@
 {% extends "base.html" %}
 {% block content %}
+<style>
+/* スマホ(<768px)は表をカード化して縦書き潰れを解消（admin/users と同方式） */
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 84px;
+    margin-right: 4px;
+  }
+}
+</style>
 <section class="mb-4 flex flex-wrap items-center justify-between gap-3">
   <div>
     <h1 class="text-xl font-bold text-slate-800">契約管理</h1>
@@ -16,15 +50,13 @@
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
+    <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
           <th class="px-4 py-3 text-left">講師名</th>
           <th class="px-4 py-3 text-left">学校名</th>
           <th class="px-4 py-3 text-left">お客様ID</th>
-          <th class="px-4 py-3 text-left">弊社担当</th>
           <th class="px-4 py-3 text-left">契約期間</th>
-          <th class="px-4 py-3 text-left">月時間／週コマ</th>
           <th class="px-4 py-3 text-left">状態</th>
           <th class="px-4 py-3 text-left">操作</th>
         </tr>
@@ -91,38 +123,24 @@ function periodLabel(contract) {
   if (!contract.contract_start && !contract.contract_end) return '-';
   return `${contract.contract_start || '—'} 〜 ${contract.contract_end || '—'}`;
 }
-// 月時間／週コマのケース一覧をセル表示用に整形（1ケース1行・担当業務名付き）
-function workloadLabel(contract) {
-  const cases = contract.workload_cases || [];
-  if (!cases.length) return '-';
-  return cases.map(item => {
-    const task = (contract.tasks || [])[(Number(item.task_index) || 1) - 1];
-    const name = task?.task_name ? `${task.task_name}：` : '';
-    const parts = [];
-    if (item.monthly_minutes != null) parts.push(`月${Number(item.monthly_minutes).toLocaleString()}分`);
-    if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
-    const period = (item.start_date || item.end_date) ? ` [${item.start_date || '—'}〜${item.end_date || '—'}]` : '';
-    return escapeHtml(`${name}${parts.join('・') || '-'}${period}`);
-  }).join('<br>');
-}
 function renderRows() {
   contractRows.innerHTML = contracts.length ? contracts.map(contract => `
     <tr class="border-t border-slate-100 ${contract.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
-      <td class="px-4 py-3 font-medium text-slate-800">${escapeHtml(contract.tutor_name || '-')}</td>
-      <td class="px-4 py-3">${escapeHtml(contract.school_name || '-')}</td>
-      <td class="px-4 py-3">${escapeHtml(contract.customer_id || '-')}</td>
-      <td class="px-4 py-3">${escapeHtml(contract.our_staff || '-')}</td>
-      <td class="px-4 py-3">${escapeHtml(periodLabel(contract))}</td>
-      <td class="px-4 py-3 text-xs leading-5">${workloadLabel(contract)}</td>
-      <td class="px-4 py-3">${contract.is_active ? '有効' : '無効'}</td>
-      <td class="px-4 py-3">
+      <td class="px-4 py-3 font-medium text-slate-800" data-label="講師名">${escapeHtml(contract.tutor_name || '-')}</td>
+      <td class="px-4 py-3" data-label="学校名">${escapeHtml(contract.school_name || '-')}</td>
+      <td class="px-4 py-3" data-label="お客様ID">${escapeHtml(contract.customer_id || '-')}</td>
+      <td class="px-4 py-3" data-label="契約期間">${escapeHtml(periodLabel(contract))}</td>
+      <td class="px-4 py-3" data-label="状態">${contract.is_active
+        ? '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">有効</span>'
+        : '<span class="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600">無効</span>'}</td>
+      <td class="px-4 py-3" data-label="操作">
         <div class="flex flex-wrap gap-2">
           <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openForm('${contract.id}')">編集</button>
           ${contract.is_active ? `<button class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100" onclick="disableContract('${contract.id}')">無効化</button>` : ''}
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
       </td>
-    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="8">契約はまだ登録されていません。</td></tr>';
+    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">契約はまだ登録されていません。</td></tr>';
 }
 function userOptions(users, selectedId) {
   return ['<option value="">選択してください</option>', ...users.map(u =>
