@@ -23,9 +23,13 @@
   <script>
     const reportId = {{ report_id | tojson }};
     const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-    // monthly_dispatch のラインカラム定義（参照表示用）
+    // 勤怠区分（種別）。講師フォーム・PDFと共有する不変キー。空＝勤務。
+    const ATTENDANCE_LABELS = {'': '勤務', work: '勤務', paid_leave: '有給休暇', absent: '欠勤'};
+    function isLeaveKind(value) { return value === 'paid_leave' || value === 'absent'; }
+    // monthly_dispatch のラインカラム定義（参照表示用）。日付の直後に種別列を併記する。
     const COLUMNS = [
       {key: 'date', label: '日付', type: 'date'},
+      {key: 'kind', label: '種別', type: 'text'},
       {key: 'start', label: '開始', type: 'time'},
       {key: 'end', label: '終了', type: 'time'},
       {key: 'subject_period', label: '担当時限', type: 'text'},
@@ -64,6 +68,12 @@
         const wd = weekday(value);
         return `${escapeHtml(value || '')}${wd ? `（${wd}）` : ''}`;
       }
+      if (column.key === 'kind') {
+        const k = line.kind || '';
+        if (k === 'paid_leave') return '<span class="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">有給</span>';
+        if (k === 'absent') return '<span class="inline-block rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-800">欠勤</span>';
+        return '<span class="text-slate-400">勤務</span>';
+      }
       if (column.key === 'note') {
         const text = String(value || '');
         if (!text.trim()) return '<span class="text-slate-400">-</span>';
@@ -96,8 +106,12 @@
       }
       const meta = (report.form_data && report.form_data.meta) || {};
       const lines = (report.form_data && Array.isArray(report.form_data.lines) ? report.form_data.lines : []).filter(hasData);
+      // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する
+      const workLines = lines.filter(line => !isLeaveKind(line.kind));
+      const paidLeaveCount = lines.filter(line => line.kind === 'paid_leave').length;
+      const absentCount = lines.filter(line => line.kind === 'absent').length;
       const totals = COLUMNS.filter(c => c.summable).reduce((acc, c) => {
-        acc[c.key] = lines.reduce((sum, line) => sum + num(line[c.key]), 0);
+        acc[c.key] = workLines.reduce((sum, line) => sum + num(line[c.key]), 0);
         return acc;
       }, {});
 
@@ -133,7 +147,9 @@
             <tbody>${bodyRows}</tbody>
           </table>
           <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">
-            <div>勤務日数：<span class="font-semibold">${lines.length}</span>日</div>
+            <div>勤務日数：<span class="font-semibold">${workLines.length}</span>日</div>
+            <div>有給休暇：<span class="font-semibold text-amber-700">${paidLeaveCount}</span>回</div>
+            <div>欠勤：<span class="font-semibold text-rose-700">${absentCount}</span>回</div>
             <div>数学科指導：<span class="font-semibold">${(totals.teach_minutes || 0).toLocaleString()}</span>分</div>
             <div>休憩時間：<span class="font-semibold">${(totals.break_minutes || 0).toLocaleString()}</span>分</div>
             <div>往復交通費：<span class="font-semibold">${(totals.commute_fee || 0).toLocaleString()}</span>円</div>

@@ -14,6 +14,37 @@ def current_month() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m")
 
 
+# 勤怠区分（種別）。明細行の "kind" キーで保持する。空＝勤務（既定）。
+# 講師フォーム(reports.html)・参照ビュー(report_view.html)・PDF(export_service)で共有する不変キー。
+ATTENDANCE_LABELS = {"": "勤務", "work": "勤務", "paid_leave": "有給休暇", "absent": "欠勤"}
+
+
+def is_leave_kind(kind) -> bool:
+    """有給休暇または欠勤の区分か。"""
+    return kind in ("paid_leave", "absent")
+
+
+def attendance_counts(lines) -> dict[str, int]:
+    """明細行から有給休暇の取得回数・欠勤回数・勤務日数を数える。
+
+    有給休暇/欠勤の行は勤務日数に含めない。勤務日数は「勤務区分かつ何らかの記入がある行」。
+    """
+    paid_leave = 0
+    absent = 0
+    work_days = 0
+    for line in lines or []:
+        if not isinstance(line, dict):
+            continue
+        kind = line.get("kind") or ""
+        if kind == "paid_leave":
+            paid_leave += 1
+        elif kind == "absent":
+            absent += 1
+        elif any(str(value).strip() for key, value in line.items() if key != "kind"):
+            work_days += 1
+    return {"paid_leave": paid_leave, "absent": absent, "work_days": work_days}
+
+
 def get_report_or_404(db: Session, report_id) -> WorkReport:
     report = db.get(WorkReport, report_id)
     if not report:

@@ -99,7 +99,7 @@
         </div>
 
         <div class="overflow-x-auto rounded-lg border border-slate-200">
-          <table class="min-w-[1080px] w-full text-sm">
+          <table class="min-w-[1144px] w-full text-sm">
             <thead id="lineHead" class="bg-slate-50 text-xs font-medium text-slate-600"></thead>
             <tbody id="lineRows"></tbody>
           </table>
@@ -209,6 +209,14 @@ const STATUS_LABELS = {
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const LINE_COUNT = 26;
 const EDITABLE_STATUSES = new Set(['draft', 'returned_to_tutor', 'returned_to_sales']);
+// 勤怠区分（種別）: 空＝勤務（既定）。有給休暇・欠勤の行は勤務時間を持たず、月内の取得回数・欠勤回数として集計する。
+// 値（'paid_leave' / 'absent'）は report_view・PDF・事務修正と共有する不変キー。
+const ATTENDANCE_KINDS = [
+  {value: '', label: '勤務'},
+  {value: 'paid_leave', label: '有給'},
+  {value: 'absent', label: '欠勤'}
+];
+function isLeaveKind(value) { return value === 'paid_leave' || value === 'absent'; }
 let formEditable = true;       // 報告書フォームが編集可能か（内容モーダルの編集/閲覧切替に使用）
 let activeNoteCell = null;     // 内容モーダルで編集中の内容セル
 const DEFAULT_FORM_DEFINITION = {
@@ -345,7 +353,7 @@ function assignmentName(id) {
   return allAssignments.find(a => a.id === id)?.student_name || '生徒未設定';
 }
 function emptyLine(form = selectedFormDefinition()) {
-  const line = {};
+  const line = {kind: ''};
   (form.columns || DEFAULT_FORM_DEFINITION.columns).forEach(column => {
     if (column.type === 'count_minutes') {
       line[column.count_key] = '';
@@ -585,6 +593,8 @@ function renderLineHeader(form) {
     const column = columns[index];
     if (column.key === 'date') {
       headers.push(`<th class="w-32 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      // 日付の直後に勤怠区分（種別）列を差し込む。コンパクトな幅（半角2文字）に固定。
+      headers.push('<th class="w-16 px-1 py-2 text-center">種別</th>');
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
@@ -626,11 +636,18 @@ function inputClasses(width = 'w-full') {
 function renderCell(column, line) {
   if (column.key === 'date') {
     // 曜日は日付入力ボックス内の右側に「(月)」形式で併記する（カレンダーアイコンはCSSで非表示、クリックでピッカーを開く）
+    // 日付セルの直後に勤怠区分（種別）セルを併記する（ヘッダーと同順）。
+    const kind = line.kind || '';
+    const options = ATTENDANCE_KINDS.map(item =>
+      `<option value="${item.value}"${item.value === kind ? ' selected' : ''}>${item.label}</option>`).join('');
     return `<td class="relative px-1 py-1">
       <div class="relative">
         <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-[120px]')} pr-8">
         <span data-weekday class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-xs text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
       </div>
+    </td>
+    <td class="px-1 py-1">
+      <select data-field="kind" class="line-kind-select h-9 w-full rounded border border-slate-300 px-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">${options}</select>
     </td>`;
   }
   if (column.key === 'start') {
@@ -721,7 +738,47 @@ function buildLineRows(lines) {
   lineRows.querySelectorAll('[data-end-offset-btn]').forEach(btn => {
     btn.addEventListener('click', () => openEndOffsetPopover(btn));
   });
+  lineRows.querySelectorAll('.line-kind-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      applyRowKind(sel.closest('tr'));
+      updateLineSummary();
+    });
+  });
+  // 行の勤怠区分に応じて業務セルの活殺・背景色を初期反映する
+  lineRows.querySelectorAll('tr').forEach(applyRowKind);
   updateLineSummary();
+}
+// 勤怠区分（種別）以外の業務入力（時刻・担当時限・各分・休憩・交通費）。日付・内容（メモ）は有給/欠勤でも残す。
+function rowWorkControls(row) {
+  return [...row.querySelectorAll('[data-field]')].filter(el => {
+    const field = el.dataset.field;
+    return field !== 'kind' && field !== 'date' && field !== 'note';
+  });
+}
+// 有給休暇／欠勤の行は勤務時間等を持たないため、業務セルを無効化し値をクリアする。
+// 行の背景色で勤務（無色）／有給（amber）／欠勤（rose）を視覚的に区別する。
+function applyRowKind(row) {
+  if (!row) return;
+  const kindSelect = row.querySelector('[data-field="kind"]');
+  const kind = kindSelect ? kindSelect.value : '';
+  const leave = isLeaveKind(kind);
+  row.classList.remove('bg-amber-50', 'bg-rose-50');
+  if (kind === 'paid_leave') row.classList.add('bg-amber-50');
+  else if (kind === 'absent') row.classList.add('bg-rose-50');
+  if (leave) {
+    // 業務関連の値をクリア（隠しフィールド・数値入力）し、見える時刻セレクト・担当時限ボタンも初期化
+    rowWorkControls(row).forEach(el => { el.value = ''; });
+    row.querySelectorAll('select.line-time-select').forEach(sel => { sel.value = ''; });
+    const periodCell = row.querySelector('[data-period-cell]');
+    if (periodCell) refreshPeriodCell(periodCell);
+  }
+  // フォーム全体が読取専用のとき（!formEditable）は setReportInputsDisabled の制御を尊重し、ここでも無効のまま
+  const disabled = leave || !formEditable;
+  rowWorkControls(row).forEach(el => { el.disabled = disabled; });
+  row.querySelectorAll('select.line-time-select, [data-period-btn], [data-end-offset-btn]').forEach(el => { el.disabled = disabled; });
+}
+function applyAllRowKinds() {
+  lineRows.querySelectorAll('tr').forEach(applyRowKind);
 }
 // 同一日付の行の重複登録ガード（空欄は対象外）。他の行と同じ日付を選択した場合は
 // 値をクリアしてポップアップで通知する（時刻の逆転チェックと同方式）。API側でも同条件で422を返す。
@@ -1005,12 +1062,17 @@ function updateLineSummary() {
   const columns = selectedFormDefinition().columns.filter(column => column.summable);
   const lines = collectLines();
   let days = 0;
+  let paidLeave = 0;
+  let absent = 0;
   const sums = {};
   columns.forEach(column => {
     if (column.type === 'count_minutes') { sums[column.count_key] = 0; sums[column.minutes_key] = 0; }
     else sums[column.key] = 0;
   });
   lines.forEach(line => {
+    // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として数える
+    if (line.kind === 'paid_leave') { paidLeave += 1; return; }
+    if (line.kind === 'absent') { absent += 1; return; }
     if (lineHasData(line)) days += 1;
     columns.forEach(column => {
       if (column.type === 'count_minutes') {
@@ -1021,7 +1083,11 @@ function updateLineSummary() {
       }
     });
   });
-  const parts = [`<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`];
+  const parts = [
+    `<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`,
+    `<div>有給休暇：<span class="font-semibold text-amber-700">${paidLeave}</span>回</div>`,
+    `<div>欠勤：<span class="font-semibold text-rose-700">${absent}</span>回</div>`
+  ];
   columns.forEach(column => {
     if (column.type === 'count_minutes') {
       parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.count_key].toLocaleString()}</span>${escapeHtml(column.unit || '回')} / <span class="font-semibold">${sums[column.minutes_key].toLocaleString()}</span>分</div>`);
@@ -1102,12 +1168,14 @@ function renderFormAvailability() {
   if (report && report.status === 'returned_to_tutor') {
     setReportInputsDisabled(false);
     applyContractLocks();
+    applyAllRowKinds();
     const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
     showFormMessage(`学校から差戻しされています。修正のうえ承認管理画面から再依頼してください。${reason}`, true);
     return;
   }
   setReportInputsDisabled(false);
   applyContractLocks();
+  applyAllRowKinds();
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
 }
 // 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする。
@@ -1214,6 +1282,11 @@ reportForm.addEventListener('submit', async e => {
   const lines = collectLines();
   if (!lines.some(lineHasData)) {
     showFormMessage('少なくとも1行入力してください', true);
+    return;
+  }
+  const leaveWithoutDate = lines.some(line => isLeaveKind(line.kind) && !line.date);
+  if (leaveWithoutDate) {
+    showFormMessage('有給休暇・欠勤の行は日付を入力してください', true);
     return;
   }
   const invalidPeriod = lines.some(line => parseSubjectPeriods(line.subject_period).some(p => {
