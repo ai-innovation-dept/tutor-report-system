@@ -82,14 +82,14 @@
 </div>
 
 <div id="officeEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeOfficeEditModal()">
-  <div class="max-h-[90vh] w-full max-w-5xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+  <div class="max-h-[90vh] w-full max-w-6xl overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
       <h2 class="font-semibold text-slate-800">報告書の修正（営業）</h2>
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
     </div>
-    <div class="max-h-[70vh] overflow-auto p-5">
-      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。</p>
-      <div class="overflow-x-auto">
+    <div class="max-h-[70vh] overflow-y-auto p-5">
+      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。列が多い場合は表を左右にスクロールできます。</p>
+      <div class="overflow-x-auto rounded border border-slate-200">
         <table class="w-full border-collapse text-sm">
           <thead><tr id="officeEditHead"></tr></thead>
           <tbody id="officeEditBody"></tbody>
@@ -678,6 +678,18 @@ function officeEditColumns(report) {
   }
   return out;
 }
+// 列ごとの幅(px)。table-layout:auto では td の min-width が無視されるため、
+// 各セルに width を、表自体に合計幅の min-width を与えて横スクロール(overflow-x-auto)を効かせる。
+function officeEditColWidth(col) {
+  if (col.type === 'kind') return 84;
+  if (col.type === 'count_minutes') return 132;
+  if (col.key === 'date') return 124;
+  if (col.key === 'start' || col.key === 'end') return 96;
+  if (col.key === 'subject_period') return 96;
+  if (col.key === 'note') return 160;
+  if (col.type === 'number') return 80;
+  return 112;
+}
 // 事務修正テーブルの入力セル。種別=セレクト、採点等=回/分の2入力、日付/時刻/数値/文字は型に応じた input。
 function officeEditCellInput(col, index, line) {
   const id = `oe_${index}_${col.key}`;
@@ -707,11 +719,15 @@ function openOfficeEditModal(reportId) {
   officeEditReportId = reportId;
   const cols = officeEditColumns(report);
   const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
-  document.getElementById('officeEditHead').innerHTML =
-    cols.map(col => `<th class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`).join('');
+  const headTr = document.getElementById('officeEditHead');
+  const widths = cols.map(col => officeEditColWidth(col));
+  const table = headTr.closest('table');
+  if (table) table.style.minWidth = widths.reduce((sum, w) => sum + w, 0) + 'px';
+  headTr.innerHTML =
+    cols.map((col, ci) => `<th style="width:${widths[ci]}px" class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`).join('');
   document.getElementById('officeEditBody').innerHTML = lines.length
-    ? lines.map((line, i) => `<tr>${cols.map(col => `
-        <td class="border border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`).join('')}</tr>`).join('')
+    ? lines.map((line, i) => `<tr>${cols.map((col, ci) => `
+        <td style="width:${widths[ci]}px" class="border border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`).join('')}</tr>`).join('')
     : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + cols.length + '">編集可能な明細行がありません。</td></tr>';
   document.getElementById('officeEditComment').value = '';
   document.getElementById('officeEditError').classList.add('hidden');
