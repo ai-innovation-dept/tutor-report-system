@@ -13,10 +13,10 @@
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
   <section id="reportListPanel" class="mb-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-    <div class="flex items-center gap-3 px-3 py-2.5">
-      <button id="newReportBtn" type="button" class="shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 別の学校の報告書を作成</button>
-      <div id="reportList" class="flex flex-1 gap-2 overflow-x-auto"></div>
-      <button type="button" id="copyPrevLineBtn" onclick="copyPreviousLine()" title="最後に記入した行と同じ内容（日付以外）を次の行に追加します" class="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50">
+    <div class="flex flex-col gap-2 px-3 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+      <button id="newReportBtn" type="button" class="w-full shrink-0 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 sm:w-auto">＋ 別の学校の報告書を作成</button>
+      <div id="reportList" class="flex w-full flex-1 gap-2 overflow-x-auto"></div>
+      <button type="button" id="copyPrevLineBtn" onclick="copyPreviousLine()" title="最後に記入した行と同じ内容（日付以外）を次の行に追加します" class="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         前回の記入分をコピー
       </button>
@@ -31,9 +31,9 @@
         <!-- 業務連絡表ヘッダー（サンプル紙面レイアウト準拠） -->
         <div class="overflow-hidden rounded-lg border border-slate-300 text-sm">
 
-          <!-- 行1: 派遣先名称・所在地（左）＋ 月分業務連絡表（右） -->
-          <div class="flex border-b border-slate-300">
-            <div class="flex flex-1 flex-col border-r border-slate-300">
+          <!-- 行1: 派遣先名称・所在地（左）＋ 月分業務連絡表（右）。モバイルは縦積み、md以上は従来の横並び -->
+          <div class="flex flex-col border-b border-slate-300 md:flex-row">
+            <div class="flex flex-1 flex-col border-b border-slate-300 md:border-b-0 md:border-r md:border-slate-300">
               <!-- 派遣先事業所の名称・組織単位 row（氏名と同じ 項目→入力ボックス 形式） -->
               <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
                 <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">派遣先事業所の<br>名称・組織単位</div>
@@ -53,7 +53,7 @@
                 </div>
               </div>
             </div>
-            <div class="flex w-96 flex-shrink-0 flex-col items-center justify-center gap-2 p-3 text-center">
+            <div class="flex w-full flex-col items-center justify-center gap-2 p-3 text-center md:w-96 md:flex-shrink-0">
               <div class="flex items-center justify-center gap-1 whitespace-nowrap font-bold leading-snug text-slate-900">
                 <select id="monthFilter"
                   class="w-36 rounded border border-slate-400 px-1.5 py-1 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none"></select>
@@ -63,10 +63,10 @@
             </div>
           </div>
 
-          <!-- 行2: 氏名 | 値 | 従事業務内容（縦結合） | 内容テキスト -->
-          <div class="flex border-b border-slate-300">
+          <!-- 行2: 氏名 | 値 | 従事業務内容（縦結合） | 内容テキスト。モバイルは縦積み、md以上は従来の横並び -->
+          <div class="flex flex-col border-b border-slate-300 md:flex-row">
             <!-- 左ブロック: 氏名 + 講師番号・お客様ID（2段） -->
-            <div class="flex flex-col border-r border-slate-300" style="flex: 0 0 420px">
+            <div class="flex flex-col border-b border-slate-300 md:flex-[0_0_420px] md:border-b-0 md:border-r">
               <!-- 氏名 row -->
               <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
                 <div class="flex w-24 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs text-slate-700">氏名</div>
