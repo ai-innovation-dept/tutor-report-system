@@ -9,9 +9,13 @@
   #reportForm .line-input[type=date]::-webkit-calendar-picker-indicator { display: none; }
   /* 読取専用時はメモ未記入行の追加アイコンを表示しない（メモ帳アイコンがない行＝メモ書きなし） */
   #reportForm.form-readonly [data-note-btn][data-note-empty] { visibility: hidden; }
-  /* iOS Safari は input[type=date] が width:100% を無視して枠からはみ出す（見切れる）ことがあるため、
-     定期代などのメタ日付入力を確実に枠内へ収める（明細テーブルの .line-input は対象外） */
+  /* iOS Safari は input[type=date] が width 指定を無視して枠外へはみ出す（見切れる）ため、メタ日付入力を枠内へ収める。
+     スマホでは appearance を解除しないと width:100% が効かないため、<=767px で解除する（PCはネイティブ表示を維持／明細の .line-input は対象外） */
   #reportForm input.meta-input[type=date] { max-width: 100%; min-width: 0; box-sizing: border-box; }
+  @media (max-width: 767px) {
+    #reportForm input.meta-input[type=date] { -webkit-appearance: none; appearance: none; width: 100%; }
+    #reportForm input.meta-input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+  }
 </style>
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
@@ -37,9 +41,9 @@
           <!-- 行1: 派遣先名称・所在地（左）＋ 月分業務連絡表（右）。モバイルは縦積み、md以上は従来の横並び -->
           <div class="flex flex-col border-b border-slate-300 md:flex-row">
             <div class="flex flex-1 flex-col border-b border-slate-300 md:border-b-0 md:border-r md:border-slate-300">
-              <!-- 派遣先事業所の名称・組織単位 row（氏名と同じ 項目→入力ボックス 形式） -->
+              <!-- 事業所の名称・組織単位 row（氏名と同じ 項目→入力ボックス 形式） -->
               <div class="flex min-h-[46px] flex-1 border-b border-slate-300">
-                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">派遣先事業所の<br>名称・組織単位</div>
+                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">事業所の<br>名称・組織単位</div>
                 <div class="flex flex-1 items-center px-2 py-1">
                   <select id="dispatchPlaceSchool" data-meta="dispatch_place_school_id"
                     class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-sm font-semibold focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
@@ -47,9 +51,9 @@
                   </select>
                 </div>
               </div>
-              <!-- 派遣先事業所の所在地 row -->
+              <!-- 事業所の所在地 row -->
               <div class="flex min-h-[46px] flex-1">
-                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">派遣先事業所の<br>所在地</div>
+                <div class="flex w-40 flex-shrink-0 items-center justify-center border-r border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs leading-tight text-slate-700">事業所の<br>所在地</div>
                 <div class="flex flex-1 items-center px-2 py-1">
                   <input id="dispatchPlaceAddress" data-meta="dispatch_place_address" type="text"
                     class="meta-input w-full rounded border border-slate-300 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">
@@ -596,8 +600,8 @@ function renderLineHeader(form) {
     const column = columns[index];
     if (column.key === 'date') {
       headers.push(`<th class="w-32 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
-      // 日付の直後に勤怠区分（種別）列を差し込む。コンパクトな幅（半角2文字）に固定。
-      headers.push('<th class="w-16 px-1 py-2 text-center">種別</th>');
+      // 日付の直後に勤怠区分（種別）列を差し込む。セレクトの文字が切れないよう余裕を持たせる（表は横スクロール可）。
+      headers.push('<th class="w-24 px-1 py-2 text-center">種別</th>');
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
