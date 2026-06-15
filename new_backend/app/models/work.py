@@ -138,6 +138,13 @@ class WorkReport(Base):
         return self.tutor.display_name if self.tutor else None
 
     @property
+    def tutor_no(self) -> str | None:
+        """提出した講師の番号（講師番号）。表示用に tutor_no→user_no の順で解決する。"""
+        if not self.tutor:
+            return None
+        return self.tutor.tutor_no or self.tutor.user_no
+
+    @property
     def school_approved_at(self) -> datetime | None:
         """学校が承認した日時（awaiting_school からの approve イベント）。"""
         for event in self.events:

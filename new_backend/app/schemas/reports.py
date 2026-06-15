@@ -94,6 +94,7 @@ class ReportOut(BaseModel):
     approved_at: datetime | None = None
     student_name: str | None = None
     tutor_name: str | None = None
+    tutor_no: str | None = None
     school_name: str | None = None
     events: list[ReportEventOut] = []
     created_at: datetime
