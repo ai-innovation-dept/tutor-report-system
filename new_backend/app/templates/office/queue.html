@@ -141,24 +141,23 @@ const ATTENDANCE_KIND_OPTIONS = [
   {value: 'paid_leave', label: '有給'},
   {value: 'absent', label: '欠勤'}
 ];
-// 種別以外の業務セルのキー（有給/欠勤に変更した行はこれらをクリアする）。日付・内容・種別は残す。
-const OFFICE_EDIT_WORK_KEYS = ['start', 'end', 'subject_period', 'teach_minutes', 'break_minutes', 'commute_fee'];
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 // 事務担当が報告書を修正できるステータス（受付の編集可能3ステータスに対応）
 const OFFICE_EDIT_STATUSES = new Set(['awaiting_office', 'awaiting_sales', 'returned_to_office']);
-// monthly_dispatch フォームの行カラム定義（forms/definitions.py と一致）
-const OFFICE_EDIT_COLUMNS = [
+// 報告書の保存済み列定義(snapshot)が無い旧データ用のフォールバック列。
+const OFFICE_EDIT_DEFAULT_COLUMNS = [
   {key: 'date', label: '日付', type: 'date'},
-  {key: 'kind', label: '種別', type: 'select', options: ATTENDANCE_KIND_OPTIONS},
-  {key: 'start', label: '開始', type: 'time'},
-  {key: 'end', label: '終了', type: 'time'},
-  {key: 'subject_period', label: '担当時限', type: 'number'},
-  {key: 'teach_minutes', label: '指導(分)', type: 'number'},
-  {key: 'break_minutes', label: '休憩(分)', type: 'number'},
-  {key: 'commute_fee', label: '交通費(円)', type: 'number'},
+  {key: 'start', label: '業務開始時間', type: 'time'},
+  {key: 'end', label: '業務終了時間', type: 'time'},
+  {key: 'subject_period', label: '担当時限', type: 'text'},
+  {key: 'teach_minutes', label: '数学科指導（分）', type: 'number'},
+  {key: 'break_minutes', label: '休憩時間（分）', type: 'number'},
+  {key: 'commute_fee', label: '往復交通費（円）', type: 'number'},
   {key: 'note', label: '内容', type: 'text'}
 ];
+// 種別列は列定義に含まれないため、講師フォーム・参照ビュー同様に日付の直後へ差し込む。
+const OFFICE_EDIT_KIND = {key: 'kind', label: '種別', type: 'kind'};
 let officeEditReportId = '';
 // 職務分掌：兼務スタッフが事務/営業承認を担当済みの講師ID（UI制御用）
 let separationLocks = {office_tutor_ids: [], sales_tutor_ids: []};
@@ -602,28 +601,53 @@ async function saveReminder(assignmentId) {
 function reportById(reportId) {
   return allReports.find(report => report.id === reportId);
 }
-// 事務修正テーブルの入力セル。種別はセレクト、それ以外は型に応じた input。
-function officeEditInput(col, index, line) {
+// 報告書の保存済み列定義(snapshot)で事務修正の列を決める（講師フォーム・参照ビューと同一の列）。
+// kind(種別)は列定義に含まれないため日付の直後へ差し込む。無い旧データはフォールバック列を使う。
+function officeEditColumns(report) {
+  const cols = report?.form_data?.meta?.column_definition;
+  const src = Array.isArray(cols) && cols.length ? cols : OFFICE_EDIT_DEFAULT_COLUMNS;
+  const out = [];
+  for (const col of src) {
+    out.push(col);
+    if (col.key === 'date') out.push(OFFICE_EDIT_KIND);
+  }
+  return out;
+}
+// 事務修正テーブルの入力セル。種別=セレクト、採点等=回/分の2入力、日付/時刻/数値/文字は型に応じた input。
+function officeEditCellInput(col, index, line) {
   const id = `oe_${index}_${col.key}`;
   const cls = 'w-full rounded border border-slate-200 px-1 py-1 text-xs focus:border-emerald-500 focus:outline-none';
-  if (col.type === 'select') {
-    const current = line[col.key] || '';
-    const opts = (col.options || []).map(o => `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`).join('');
+  if (col.type === 'kind') {
+    const current = line.kind || '';
+    const opts = ATTENDANCE_KIND_OPTIONS.map(o => `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`).join('');
     return `<select id="${id}" class="${cls}">${opts}</select>`;
   }
-  return `<input id="${id}" type="${col.type}" value="${escapeHtml(line[col.key] ?? '')}" class="${cls}">`;
+  if (col.type === 'count_minutes') {
+    return `<div class="flex items-center gap-1">
+      <input id="${id}__c" type="number" min="0" step="1" value="${escapeHtml(line[col.count_key] ?? '')}" class="${cls}">
+      <span class="whitespace-nowrap text-[10px] text-slate-500">${escapeHtml(col.unit || '回')}/</span>
+      <input id="${id}__m" type="number" min="0" step="1" value="${escapeHtml(line[col.minutes_key] ?? '')}" class="${cls}">
+      <span class="text-[10px] text-slate-500">分</span>
+    </div>`;
+  }
+  const inputType = col.key === 'date' ? 'date'
+    : (col.key === 'start' || col.key === 'end') ? 'time'
+    : (col.type === 'number' && col.key !== 'subject_period') ? 'number' : 'text';
+  const numAttr = inputType === 'number' ? 'min="0" step="1"' : '';
+  return `<input id="${id}" type="${inputType}" ${numAttr} value="${escapeHtml(line[col.key] ?? '')}" class="${cls}">`;
 }
 function openOfficeEditModal(reportId) {
   const report = reportById(reportId);
   if (!report) return;
   officeEditReportId = reportId;
+  const cols = officeEditColumns(report);
   const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
   document.getElementById('officeEditHead').innerHTML =
-    OFFICE_EDIT_COLUMNS.map(col => `<th class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">${escapeHtml(col.label)}</th>`).join('');
+    cols.map(col => `<th class="border border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`).join('');
   document.getElementById('officeEditBody').innerHTML = lines.length
-    ? lines.map((line, i) => `<tr>${OFFICE_EDIT_COLUMNS.map(col => `
-        <td class="border border-slate-200 px-1 py-1">${officeEditInput(col, i, line)}</td>`).join('')}</tr>`).join('')
-    : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + OFFICE_EDIT_COLUMNS.length + '">編集可能な明細行がありません。</td></tr>';
+    ? lines.map((line, i) => `<tr>${cols.map(col => `
+        <td class="border border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`).join('')}</tr>`).join('')
+    : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + cols.length + '">編集可能な明細行がありません。</td></tr>';
   document.getElementById('officeEditComment').value = '';
   document.getElementById('officeEditError').classList.add('hidden');
   const modal = document.getElementById('officeEditModal');
@@ -640,18 +664,34 @@ async function submitOfficeEdit() {
   const report = reportById(officeEditReportId);
   if (!report) return;
   const err = document.getElementById('officeEditError');
+  const cols = officeEditColumns(report);
   const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
+  // 業務系キー（種別・日付・内容以外）。有給/欠勤に変更した行ではクリアする。
+  const workKeys = [];
+  cols.forEach(col => {
+    if (col.type === 'kind' || col.key === 'date' || col.key === 'note') return;
+    if (col.type === 'count_minutes') workKeys.push(col.count_key, col.minutes_key);
+    else workKeys.push(col.key);
+  });
   const newLines = lines.map((line, i) => {
     const updated = {...line};
-    OFFICE_EDIT_COLUMNS.forEach(col => {
+    cols.forEach(col => {
+      if (col.type === 'count_minutes') {
+        const cEl = document.getElementById(`oe_${i}_${col.key}__c`);
+        const mEl = document.getElementById(`oe_${i}_${col.key}__m`);
+        if (cEl) updated[col.count_key] = cEl.value === '' ? '' : Number(cEl.value);
+        if (mEl) updated[col.minutes_key] = mEl.value === '' ? '' : Number(mEl.value);
+        return;
+      }
       const el = document.getElementById(`oe_${i}_${col.key}`);
       if (!el) return;
       const raw = el.value;
-      updated[col.key] = col.type === 'number' ? (raw === '' ? 0 : Number(raw)) : raw;
+      const isNum = col.type === 'number' && col.key !== 'subject_period';
+      updated[col.key] = isNum ? (raw === '' ? 0 : Number(raw)) : raw;
     });
-    // 有給休暇・欠勤に変更した行は勤務時間等を持たないため、業務セルをクリアする（日付・内容・種別は残す）
+    // 有給休暇・欠勤に変更した行は業務セルをクリアする（日付・内容・種別は残す）
     if (updated.kind === 'paid_leave' || updated.kind === 'absent') {
-      OFFICE_EDIT_WORK_KEYS.forEach(key => { updated[key] = (typeof updated[key] === 'number') ? 0 : ''; });
+      workKeys.forEach(key => { updated[key] = (typeof updated[key] === 'number') ? 0 : ''; });
     }
     return updated;
   });
