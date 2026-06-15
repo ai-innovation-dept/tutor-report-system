@@ -56,6 +56,14 @@ class ContractBase(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    # 教室名（報告書の「事業所の名称」の隣に表示・講師読取専用）
+    classroom_name: str | None = None
+    # 報告書フォームの項目表示/非表示（既定は全て表示）。契約からライブ反映する。
+    show_dispatch_address: bool = True
+    show_work_content: bool = True
+    show_commuter_pass: bool = True
+    show_break_minutes: bool = True
+    show_schedule_note: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -117,6 +125,12 @@ class ContractForTutorOut(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    classroom_name: str | None = None
+    show_dispatch_address: bool = True
+    show_work_content: bool = True
+    show_commuter_pass: bool = True
+    show_break_minutes: bool = True
+    show_schedule_note: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -139,6 +153,12 @@ class ContractOut(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    classroom_name: str | None = None
+    show_dispatch_address: bool = True
+    show_work_content: bool = True
+    show_commuter_pass: bool = True
+    show_break_minutes: bool = True
+    show_schedule_note: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None

@@ -627,3 +627,58 @@ class TestChiefContractAccess:
         listed = client.get("/api/w/contracts", headers=_auth(client, "chief@x.example.com"))
         assert listed.status_code == 200
         assert len(listed.json()) == 1
+
+
+class TestClassroomAndDisplayFlags:
+    """教室名＋報告書の表示項目フラグ（既定は全て表示）。"""
+
+    def test_defaults_all_shown_and_no_classroom(self, client, db, setup):
+        res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["classroom_name"] is None
+        for flag in ("show_dispatch_address", "show_work_content", "show_commuter_pass",
+                     "show_break_minutes", "show_schedule_note"):
+            assert body[flag] is True
+
+    def test_create_with_classroom_and_flags(self, client, db, setup):
+        payload = _payload(
+            setup,
+            classroom_name="3年A組教室",
+            show_commuter_pass=False,
+            show_break_minutes=False,
+        )
+        res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["classroom_name"] == "3年A組教室"
+        assert body["show_commuter_pass"] is False
+        assert body["show_break_minutes"] is False
+        assert body["show_dispatch_address"] is True  # 指定外は既定の表示
+
+    def test_for_tutor_returns_classroom_and_flags(self, client, db, setup):
+        client.post(
+            "/api/w/contracts",
+            json=_payload(setup, classroom_name="渋谷教室", show_schedule_note=False),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
+        assert res.status_code == 200, res.text
+        items = res.json()
+        assert len(items) == 1
+        assert items[0]["classroom_name"] == "渋谷教室"
+        assert items[0]["show_schedule_note"] is False
+        assert items[0]["show_dispatch_address"] is True
+
+    def test_update_flags(self, client, db, setup):
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
+        cid = created.json()["id"]
+        res = client.patch(
+            f"/api/w/contracts/{cid}",
+            json={"show_work_content": False, "classroom_name": "新教室"},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["show_work_content"] is False
+        assert body["classroom_name"] == "新教室"

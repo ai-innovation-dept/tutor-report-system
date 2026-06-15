@@ -41,6 +41,14 @@ class WorkAssignmentProfile(Base):
     our_staff: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 派遣先事業所の所在地。報告書の同名欄へ自動反映（講師側は読取専用）
     dispatch_place_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 教室名。報告書の「事業所の名称」の隣に表示（契約由来・講師読取専用）。
+    classroom_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # 報告書フォームの項目表示/非表示フラグ（既定は全て表示）。契約からライブ反映する。
+    show_dispatch_address: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_work_content: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_commuter_pass: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_break_minutes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    show_schedule_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     monthly_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)

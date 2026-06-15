@@ -238,7 +238,10 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">派遣先事業所の所在地</span><input id="dispatchPlaceAddress" maxlength="255" placeholder="例：東京都渋谷区〇〇1-2-3" value="${escapeHtml(contract?.dispatch_place_address || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">事業所の所在地</span><input id="dispatchPlaceAddress" maxlength="255" placeholder="例：東京都渋谷区〇〇1-2-3" value="${escapeHtml(contract?.dispatch_place_address || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">教室名</span><input id="classroomName" maxlength="100" placeholder="例：〇〇教室" value="${escapeHtml(contract?.classroom_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"><span class="mt-1 block text-xs text-slate-500">報告書の「事業所の名称」の隣に表示されます。</span></label>
+      </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
@@ -280,6 +283,18 @@ function renderForm(contract) {
             <span class="mb-1 block text-slate-600">個別契約ID</span>
             <input id="scoringContractId" value="${escapeHtml(contract?.scoring_contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
           </label>
+        </div>
+      </div>
+
+      <div class="rounded-lg border border-slate-200 p-4">
+        <div class="text-sm font-medium text-slate-800">報告書フォームの表示項目</div>
+        <p class="mt-0.5 text-xs text-slate-500">チェックを外した項目は、この契約（講師×学校）の報告書フォームで非表示になります（既定は全て表示）。変更は既存の報告書にも反映されます。</p>
+        <div class="mt-3 grid gap-2 sm:grid-cols-2">
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showDispatchAddress" type="checkbox" ${contract?.show_dispatch_address === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">事業所の所在地</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showWorkContent" type="checkbox" ${contract?.show_work_content === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">従事業務内容</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showCommuterPass" type="checkbox" ${contract?.show_commuter_pass === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">定期代</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showBreakMinutes" type="checkbox" ${contract?.show_break_minutes === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">休憩時間</label>
+          <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showScheduleNote" type="checkbox" ${contract?.show_schedule_note === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">スケジュール欄</label>
         </div>
       </div>
 
@@ -365,6 +380,12 @@ function buildPayload() {
     customer_id: document.getElementById('customerId').value.trim() || null,
     our_staff: document.getElementById('ourStaff').value.trim() || null,
     dispatch_place_address: document.getElementById('dispatchPlaceAddress').value.trim() || null,
+    classroom_name: document.getElementById('classroomName').value.trim() || null,
+    show_dispatch_address: document.getElementById('showDispatchAddress').checked,
+    show_work_content: document.getElementById('showWorkContent').checked,
+    show_commuter_pass: document.getElementById('showCommuterPass').checked,
+    show_break_minutes: document.getElementById('showBreakMinutes').checked,
+    show_schedule_note: document.getElementById('showScheduleNote').checked,
     contract_start: document.getElementById('contractStart').value || null,
     contract_end: document.getElementById('contractEnd').value || null,
     workload_cases: main.cases,
