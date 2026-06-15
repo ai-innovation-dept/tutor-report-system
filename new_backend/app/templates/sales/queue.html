@@ -88,8 +88,12 @@
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
     </div>
     <div class="max-h-[70vh] overflow-y-auto p-5">
-      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。列が多い場合は表を左右にスクロールできます。</p>
-      <div class="overflow-x-auto rounded border border-slate-200">
+      <p class="mb-3 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。列が多い場合は表の上部・下部どちらの横スクロールバーでも左右にスクロールできます。</p>
+      <!-- 上部の横スクロールバー：下部の表とスクロール位置を双方向同期し、最下部まで送らなくても上部で左右にスクロールできる -->
+      <div id="officeEditScrollTop" class="overflow-x-auto overflow-y-hidden" aria-hidden="true">
+        <div id="officeEditScrollTopSpacer" class="h-px"></div>
+      </div>
+      <div id="officeEditScrollBody" class="mt-1 overflow-x-auto rounded border border-slate-200">
         <table class="w-full border-collapse text-sm">
           <thead><tr id="officeEditHead"></tr></thead>
           <tbody id="officeEditBody"></tbody>
@@ -713,6 +717,22 @@ function officeEditCellInput(col, index, line) {
   const numAttr = inputType === 'number' ? 'min="0" step="1"' : '';
   return `<input id="${id}" type="${inputType}" ${numAttr} value="${escapeHtml(line[col.key] ?? '')}" class="${cls}">`;
 }
+// 上部の横スクロールバーと表本体のスクロール位置を双方向同期する。
+// listener は一度だけ登録し、スペーサ幅は開くたびに表の実幅へ合わせる。
+function syncOfficeEditScroll() {
+  const top = document.getElementById('officeEditScrollTop');
+  const body = document.getElementById('officeEditScrollBody');
+  const spacer = document.getElementById('officeEditScrollTopSpacer');
+  if (!top || !body || !spacer) return;
+  if (!top.dataset.synced) {
+    top.dataset.synced = '1';
+    // 値が異なるときだけ書き戻すことで scroll イベントの無限ループを防ぐ。
+    top.addEventListener('scroll', () => { if (body.scrollLeft !== top.scrollLeft) body.scrollLeft = top.scrollLeft; });
+    body.addEventListener('scroll', () => { if (top.scrollLeft !== body.scrollLeft) top.scrollLeft = body.scrollLeft; });
+  }
+  // モーダル表示後に表の実描画幅へスペーサ幅を合わせ、上部バーのスクロール量を本体と一致させる。
+  spacer.style.width = body.scrollWidth + 'px';
+}
 function openOfficeEditModal(reportId) {
   const report = reportById(reportId);
   if (!report) return;
@@ -734,6 +754,7 @@ function openOfficeEditModal(reportId) {
   const modal = document.getElementById('officeEditModal');
   modal.classList.remove('hidden');
   modal.classList.add('flex');
+  syncOfficeEditScroll();
 }
 function closeOfficeEditModal() {
   officeEditReportId = '';
