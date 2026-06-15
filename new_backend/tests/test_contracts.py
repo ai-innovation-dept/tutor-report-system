@@ -515,6 +515,28 @@ class TestContractImport:
         db.refresh(profile)
         assert profile.our_staff == "新担当"
 
+    def test_parse_date_accepts_excel_variants(self):
+        # Excelが「2026/6/1」(スラッシュ・ゼロ詰めなし)等へ変換しても受理する
+        from datetime import date as _date
+        for text in ("2026-06-01", "2026/06/01", "2026/6/1", "2026-6-1", "2026.6.1"):
+            errs: list = []
+            assert cis._parse_date(text, "x", errs) == _date(2026, 6, 1), text
+            assert errs == [], text
+        bad: list = []
+        assert cis._parse_date("not-a-date", "x", bad) is None
+        assert bad  # 不正値はエラーを記録する
+
+    def test_import_accepts_excel_slash_dates(self, client, db, import_setup):
+        # CSVエクスポート→Excel編集で日付が「2026/6/1」化しても取り込める（バグ修正の回帰テスト）
+        from datetime import date as _date
+        row = _csv_row("T100", "S100", **{cis.CONTRACT_START: "2026/6/1", cis.CONTRACT_END: "2026/8/1"})
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        assert profile.contract_start == _date(2026, 6, 1)
+        assert profile.contract_end == _date(2026, 8, 1)
+
     def test_import_scoring_enabled(self, client, db, import_setup):
         res = self._upload(client, _csv_bytes([
             _csv_row("T100", "S100", **{cis.SCORING_ENABLED: "有", cis.SCORING_TASK_ID: "S1"})]))

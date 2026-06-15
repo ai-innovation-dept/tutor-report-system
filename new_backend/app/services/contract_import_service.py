@@ -8,7 +8,7 @@
 """
 import csv
 import io
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -202,11 +202,16 @@ def _find_school(db: Session, school_no: str) -> tuple[User | None, str | None]:
 def _parse_date(value: str, label: str, errors: list[str]) -> date | None:
     if not value:
         return None
-    try:
-        return date.fromisoformat(value.replace("/", "-"))
-    except ValueError:
-        errors.append(f"{label}「{value}」は日付(YYYY-MM-DD)で入力してください")
-        return None
+    text = value.strip()
+    # Excelは日付列を「2026/6/1」等（区切り「/」・ゼロ詰めなし）へ変換しがち。
+    # date.fromisoformat はゼロ詰め必須で「2026-6-1」を弾くため、strptime で区切り・ゼロ詰めの揺れを吸収する。
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    errors.append(f"{label}「{value}」は日付(YYYY-MM-DD)で入力してください")
+    return None
 
 
 def _parse_int(value: str, label: str, errors: list[str]) -> int | None:
