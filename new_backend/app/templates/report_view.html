@@ -26,18 +26,21 @@
     // 勤怠区分（種別）。講師フォーム・PDFと共有する不変キー。空＝勤務。
     const ATTENDANCE_LABELS = {'': '勤務', work: '勤務', paid_leave: '有給休暇', absent: '欠勤'};
     function isLeaveKind(value) { return value === 'paid_leave' || value === 'absent'; }
-    // monthly_dispatch のラインカラム定義（参照表示用）。日付の直後に種別列を併記する。
-    const COLUMNS = [
+
+    // 講師の報告書フォームと同じ列・値・集計で表示するため、保存済みの列定義スナップショット
+    // (form_data.meta.column_definition) を使う。無い旧データは従来の静的列にフォールバックする。
+    const DEFAULT_COLUMNS = [
       {key: 'date', label: '日付', type: 'date'},
-      {key: 'kind', label: '種別', type: 'text'},
-      {key: 'start', label: '開始', type: 'time'},
-      {key: 'end', label: '終了', type: 'time'},
+      {key: 'start', label: '業務開始時間', type: 'time'},
+      {key: 'end', label: '業務終了時間', type: 'time'},
       {key: 'subject_period', label: '担当時限', type: 'text'},
-      {key: 'teach_minutes', label: '数学科指導(分)', type: 'number', summable: true},
-      {key: 'break_minutes', label: '休憩(分)', type: 'number', summable: true},
-      {key: 'commute_fee', label: '往復交通費(円)', type: 'number', summable: true},
+      {key: 'teach_minutes', label: '数学科指導（分）', type: 'number', summable: true},
+      {key: 'break_minutes', label: '休憩時間（分）', type: 'number', summable: true},
+      {key: 'commute_fee', label: '往復交通費（円）', type: 'number', summable: true},
       {key: 'note', label: '内容', type: 'text'}
     ];
+    // 種別列は列定義(snapshot)には含まれず、講師フォーム同様に日付の直後へフロントで差し込む。
+    const KIND_COLUMN = {key: 'kind', label: '種別', type: 'kind'};
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -62,26 +65,62 @@
       const text = String(value || '').replace(/\s+/g, ' ').trim();
       return text.length > 10 ? text.slice(0, 10) + '…' : text;
     }
-    function cell(line, column) {
-      const value = line[column.key];
-      if (column.key === 'date') {
-        const wd = weekday(value);
-        return `${escapeHtml(value || '')}${wd ? `（${wd}）` : ''}`;
+
+    function snapshotColumns(report) {
+      const cols = report && report.form_data && report.form_data.meta && report.form_data.meta.column_definition;
+      return Array.isArray(cols) && cols.length ? cols : DEFAULT_COLUMNS;
+    }
+    // 表示列: 日付の直後に種別を差し込み、開始/終了は「業務開始〜終了時間」1列に結合（講師フォームと同様）。
+    function displayColumns(report) {
+      const src = snapshotColumns(report);
+      const out = [];
+      for (let i = 0; i < src.length; i += 1) {
+        const c = src[i];
+        if (c.key === 'start' && src[i + 1] && src[i + 1].key === 'end') {
+          out.push({key: '__timerange', label: '業務開始〜終了時間', type: 'timerange'});
+          i += 1;
+          continue;
+        }
+        out.push(c);
+        if (c.key === 'date') out.push(KIND_COLUMN);
       }
-      if (column.key === 'kind') {
+      return out;
+    }
+    function isNumericColumn(column) { return column.type === 'number' || column.type === 'count_minutes'; }
+
+    function cell(line, column) {
+      if (column.type === 'date') {
+        const v = line[column.key];
+        const wd = weekday(v);
+        return `${escapeHtml(v || '')}${wd ? `（${wd}）` : ''}`;
+      }
+      if (column.type === 'kind') {
         const k = line.kind || '';
         if (k === 'paid_leave') return '<span class="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">有給</span>';
         if (k === 'absent') return '<span class="inline-block rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-800">欠勤</span>';
         return '<span class="text-slate-400">勤務</span>';
       }
+      if (column.type === 'timerange') {
+        const s = line.start || '';
+        const e = line.end || '';
+        return (s || e) ? `${escapeHtml(s)}〜${escapeHtml(e)}` : '<span class="text-slate-400">-</span>';
+      }
+      if (column.type === 'count_minutes') {
+        const c = line[column.count_key];
+        const m = line[column.minutes_key];
+        if ((c === '' || c == null) && (m === '' || m == null)) return '<span class="text-slate-400">-</span>';
+        return `${num(c).toLocaleString()}${escapeHtml(column.unit || '回')} / ${num(m).toLocaleString()}分`;
+      }
       if (column.key === 'note') {
-        const text = String(value || '');
+        const text = String(line.note || '');
         if (!text.trim()) return '<span class="text-slate-400">-</span>';
         return `<button type="button" class="note-view-btn text-emerald-700 underline-offset-2 hover:underline" data-note="${escapeHtml(text)}"><span class="inline-block max-w-[12rem] truncate align-bottom">${escapeHtml(noteDigest(text))}</span></button>`;
       }
+      const value = line[column.key];
       if (column.type === 'number') return value === '' || value == null ? '' : escapeHtml(String(value));
       return escapeHtml(value || '');
     }
+
     function openNoteView(text) {
       document.getElementById('noteViewText').textContent = text;
       const ov = document.getElementById('noteViewOverlay');
@@ -106,23 +145,38 @@
       }
       const meta = (report.form_data && report.form_data.meta) || {};
       const lines = (report.form_data && Array.isArray(report.form_data.lines) ? report.form_data.lines : []).filter(hasData);
-      // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する
+      // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する（講師フォームと同一）
       const workLines = lines.filter(line => !isLeaveKind(line.kind));
       const paidLeaveCount = lines.filter(line => line.kind === 'paid_leave').length;
       const absentCount = lines.filter(line => line.kind === 'absent').length;
-      const totals = COLUMNS.filter(c => c.summable).reduce((acc, c) => {
-        acc[c.key] = workLines.reduce((sum, line) => sum + num(line[c.key]), 0);
-        return acc;
-      }, {});
+      const cols = displayColumns(report);
+      const summable = snapshotColumns(report).filter(c => c.summable);
 
       const headRow = `<tr class="bg-slate-50 text-xs font-medium text-slate-600">
-        <th class="border border-slate-300 px-2 py-1">回</th>
-        ${COLUMNS.map(c => `<th class="border border-slate-300 px-2 py-1 text-left">${escapeHtml(c.label)}</th>`).join('')}
+        <th class="border border-slate-300 px-2 py-1 whitespace-nowrap">回</th>
+        ${cols.map(c => `<th class="border border-slate-300 px-2 py-1 text-left whitespace-nowrap">${escapeHtml(c.label)}</th>`).join('')}
       </tr>`;
       const bodyRows = lines.length ? lines.map((line, index) => `<tr>
         <td class="border border-slate-200 px-2 py-1 text-center text-slate-500">${index + 1}</td>
-        ${COLUMNS.map(c => `<td class="border border-slate-200 px-2 py-1 ${c.type === 'number' ? 'text-right' : ''}">${cell(line, c)}</td>`).join('')}
-      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="${COLUMNS.length + 1}">入力された指導日はありません。</td></tr>`;
+        ${cols.map(c => `<td class="border border-slate-200 px-2 py-1 ${isNumericColumn(c) ? 'text-right' : ''}">${cell(line, c)}</td>`).join('')}
+      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="${cols.length + 1}">入力された指導日はありません。</td></tr>`;
+
+      const summaryParts = [
+        `<div>勤務日数：<span class="font-semibold">${workLines.length}</span>日</div>`,
+        `<div>有給休暇：<span class="font-semibold text-amber-700">${paidLeaveCount}</span>回</div>`,
+        `<div>欠勤：<span class="font-semibold text-rose-700">${absentCount}</span>回</div>`,
+      ];
+      summable.forEach(c => {
+        if (c.type === 'count_minutes') {
+          const cnt = workLines.reduce((sum, line) => sum + num(line[c.count_key]), 0);
+          const mn = workLines.reduce((sum, line) => sum + num(line[c.minutes_key]), 0);
+          summaryParts.push(`<div>${escapeHtml(c.label)}：<span class="font-semibold">${cnt.toLocaleString()}</span>${escapeHtml(c.unit || '回')} / <span class="font-semibold">${mn.toLocaleString()}</span>分</div>`);
+        } else {
+          const sum = workLines.reduce((acc, line) => acc + num(line[c.key]), 0);
+          summaryParts.push(`<div>${escapeHtml(c.label)}：<span class="font-semibold">${sum.toLocaleString()}</span></div>`);
+        }
+      });
+
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
       content.classList.remove('hidden');
@@ -137,7 +191,8 @@
           <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
             <div class="flex gap-2"><dt class="text-slate-500">学校名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}</dd></div>
             <div class="flex gap-2"><dt class="text-slate-500">講師名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.tutor_name || '-')}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">派遣先所在地</dt><dd class="text-slate-800">${escapeHtml(meta.dispatch_place_address || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">弊社担当</dt><dd class="text-slate-800">${escapeHtml(meta.our_staff || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">事業所の所在地</dt><dd class="text-slate-800">${escapeHtml(meta.dispatch_place_address || '-')}</dd></div>
             <div class="flex gap-2"><dt class="text-slate-500">従事業務内容</dt><dd class="text-slate-800">${escapeHtml(meta.work_content || '-')}</dd></div>
           </dl>
         </section>
@@ -146,14 +201,7 @@
             <thead>${headRow}</thead>
             <tbody>${bodyRows}</tbody>
           </table>
-          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">
-            <div>勤務日数：<span class="font-semibold">${workLines.length}</span>日</div>
-            <div>有給休暇：<span class="font-semibold text-amber-700">${paidLeaveCount}</span>回</div>
-            <div>欠勤：<span class="font-semibold text-rose-700">${absentCount}</span>回</div>
-            <div>数学科指導：<span class="font-semibold">${(totals.teach_minutes || 0).toLocaleString()}</span>分</div>
-            <div>休憩時間：<span class="font-semibold">${(totals.break_minutes || 0).toLocaleString()}</span>分</div>
-            <div>往復交通費：<span class="font-semibold">${(totals.commute_fee || 0).toLocaleString()}</span>円</div>
-          </div>
+          <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">${summaryParts.join('')}</div>
         </section>`;
       content.querySelectorAll('.note-view-btn').forEach(btn => {
         btn.addEventListener('click', () => openNoteView(btn.dataset.note || ''));
