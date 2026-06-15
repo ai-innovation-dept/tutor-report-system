@@ -42,6 +42,7 @@
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
   </label>
   <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-sm text-white hover:bg-emerald-700 sm:w-auto" href="#">完了分をすべてPDFダウンロード</a>
+  <a id="bulkExportCsv" class="inline-flex w-full items-center justify-center rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50 sm:w-auto" href="#">完了分をすべてCSVダウンロード</a>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -407,6 +408,10 @@ function renderBulkExportLinks() {
   bulkExportPdf.href = hasApprovedGroup ? `/api/w/reports/export?${params.toString()}` : '#';
   bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
   bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
+  const csvParams = new URLSearchParams({scope: 'approved_only', target_month: month, format: 'csv'});
+  bulkExportCsv.href = hasApprovedGroup ? `/api/w/reports/export?${csvParams.toString()}` : '#';
+  bulkExportCsv.classList.toggle('opacity-50', !hasApprovedGroup);
+  bulkExportCsv.classList.toggle('pointer-events-none', !hasApprovedGroup);
 }
 function separationLockReason(tutorId) {
   // 事務と営業を兼務するスタッフは、同一講師で事務承認と営業承認を兼務できない

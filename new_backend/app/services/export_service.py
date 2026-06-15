@@ -1,11 +1,13 @@
-"""PDFエクスポートサービス（monthly_dispatch フォーム対応）。"""
+"""PDF / CSV エクスポートサービス（monthly_dispatch フォーム対応）。"""
+import csv
 import io
 import os
-from datetime import datetime
+import re
+from datetime import date, datetime
 
 from app.forms.definitions import get_form
 from app.models.work import WorkReport
-from app.services.report_service import attendance_counts, is_leave_kind
+from app.services.report_service import ATTENDANCE_LABELS, attendance_counts, is_leave_kind
 
 _PDF_FONT_NAME = "WorkReportFont"
 _PDF_FONT_REGISTERED = False
@@ -240,3 +242,126 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
 
     doc.build(story)
     return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+# CSV エクスポート（全講師分・横持ち＝位置固定／業務名はデータ）
+# ---------------------------------------------------------------------------
+# 担当業務は最大3・副業務は最大5・採点は1（契約モデルの上限）。位置を固定列にし、
+# 業務名はセルの値として持つことで、講師ごとに業務がバラバラでも単一スキーマに収める。
+_CSV_MAIN_RANGE = range(1, 4)   # 担当業務①〜③
+_CSV_SUB_RANGE = range(1, 6)    # 副業務①〜⑤
+_CSV_WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"]  # date.weekday(): 月=0
+_TASK_LABEL_SUFFIX = re.compile(r"（[^（）]*）$")  # 「業務名（分）」「採点（回）」の末尾単位を除去
+
+
+def _csv_weekday(date_str) -> str:
+    try:
+        return _CSV_WEEKDAYS[date.fromisoformat(str(date_str)).weekday()]
+    except (TypeError, ValueError):
+        return ""
+
+
+def _clean_task_name(label) -> str:
+    """列ラベル「数学指導（分）」「採点（回）」→ 業務名「数学指導」「採点」。"""
+    return _TASK_LABEL_SUFFIX.sub("", str(label or "")).strip()
+
+
+def _task_name_map(report: WorkReport):
+    """報告書のスナップショット列定義から担当N/副N/採点の業務名を解決する。
+
+    戻り値: (names: {列キー: 業務名}, scoring: (業務名, 回キー, 分キー)|None)
+    """
+    columns = ((report.form_data or {}).get("meta") or {}).get("column_definition") or []
+    names: dict[str, str] = {}
+    scoring = None
+    for column in columns:
+        if not isinstance(column, dict):
+            continue
+        key = column.get("key") or ""
+        if key.startswith("task_minutes_") or key.startswith("sub_minutes_"):
+            names[key] = _clean_task_name(column.get("label"))
+        elif column.get("type") == "count_minutes" or key == "scoring":
+            scoring = (
+                _clean_task_name(column.get("label")),
+                column.get("count_key") or "scoring_count",
+                column.get("minutes_key") or "scoring_minutes",
+            )
+    return names, scoring
+
+
+def _csv_value(value) -> str:
+    return "" if value is None else str(value)
+
+
+def _csv_header() -> list[str]:
+    header = ["講師番号", "講師名", "派遣先", "お客様ID", "対象月",
+              "日付", "曜日", "種別", "業務開始", "業務終了", "担当時限"]
+    for i in _CSV_MAIN_RANGE:
+        header += [f"担当業務{i}_名称", f"担当業務{i}_分"]
+    for i in _CSV_SUB_RANGE:
+        header += [f"副業務{i}_名称", f"副業務{i}_分"]
+    header += ["採点_名称", "採点_回数", "採点_分", "休憩_分", "往復交通費_円", "内容"]
+    return header
+
+
+def build_reports_csv(reports: list[WorkReport], target_month: str) -> bytes:
+    """全講師分の業務連絡表を1つのCSV（横持ち・位置固定）にする。Excel向けに UTF-8(BOM)。
+
+    1行 = 講師 × 日 × 明細。担当①〜③/副①〜⑤/採点は固定列で、業務名はセルの値として持つ。
+    未記入行は除外し、有給休暇・欠勤日は種別付きで1行出力する。
+    """
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(_csv_header())
+
+    for report in reports:
+        meta = (report.form_data or {}).get("meta") or {}
+        names, scoring = _task_name_map(report)
+        main_names = [names.get(f"task_minutes_{i}", "") for i in _CSV_MAIN_RANGE]
+        sub_names = [names.get(f"sub_minutes_{i}", "") for i in _CSV_SUB_RANGE]
+        # 旧データ（動的列スナップショット無し）の救済: 静的 teach_minutes を担当①に寄せる
+        legacy = not any(main_names) and not any(sub_names) and scoring is None
+        if legacy:
+            main_names[0] = main_names[0] or "数学科指導"
+        base = [
+            _csv_value(report.tutor_no),
+            _csv_value(report.tutor_name),
+            _csv_value(report.school_name),
+            _csv_value(meta.get("customer_id")),
+            _csv_value(report.target_month),
+        ]
+        for line in (report.form_data or {}).get("lines") or []:
+            if not isinstance(line, dict):
+                continue
+            if not any(str(value).strip() for value in line.values()):
+                continue  # 未記入行は出力しない
+            row = list(base)
+            row += [
+                _csv_value(line.get("date")),
+                _csv_weekday(line.get("date")),
+                ATTENDANCE_LABELS.get(line.get("kind") or "", "勤務"),
+                _csv_value(line.get("start")),
+                _csv_value(line.get("end")),
+                _csv_value(line.get("subject_period")),
+            ]
+            for index, i in enumerate(_CSV_MAIN_RANGE):
+                value = line.get(f"task_minutes_{i}", "")
+                if index == 0 and legacy and (value == "" or value is None):
+                    value = line.get("teach_minutes", "")
+                row += [main_names[index], _csv_value(value)]
+            for index, i in enumerate(_CSV_SUB_RANGE):
+                row += [sub_names[index], _csv_value(line.get(f"sub_minutes_{i}", ""))]
+            if scoring:
+                name, count_key, minutes_key = scoring
+                row += [name, _csv_value(line.get(count_key, "")), _csv_value(line.get(minutes_key, ""))]
+            else:
+                row += ["", "", ""]
+            row += [
+                _csv_value(line.get("break_minutes")),
+                _csv_value(line.get("commute_fee")),
+                _csv_value(line.get("note")),
+            ]
+            writer.writerow(row)
+
+    return buf.getvalue().encode("utf-8-sig")

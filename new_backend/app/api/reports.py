@@ -42,7 +42,7 @@ from app.services.report_service import (
     update_report_data,
 )
 from app.services.notification_service import send_office_edit_notification, send_transition_notifications
-from app.services.export_service import build_report_pdf, build_reports_pdf
+from app.services.export_service import build_report_pdf, build_reports_csv, build_reports_pdf
 from app.services.workflow_service import execute_transition, separation_locks
 from app.workflow.definitions import WorkAction, WorkStatus
 from app.workflow.exceptions import CommentRequired, InvalidTransition, PermissionDenied
@@ -372,8 +372,8 @@ def export_reports(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if format != "pdf":
-        raise HTTPException(status_code=422, detail="format must be pdf")
+    if format not in {"pdf", "csv"}:
+        raise HTTPException(status_code=422, detail="format must be pdf or csv")
     if scope and scope not in {"all", "approved_only"}:
         raise HTTPException(status_code=422, detail="scope must be all or approved_only")
 
@@ -422,6 +422,25 @@ def export_reports(
 
     year, month_str = target_month.split("-")
     month_label = f"{year}年{int(month_str):02d}月"
+
+    # CSV出力（全講師分の業務連絡表・横持ち）。最終承認済み（approved）を対象月で出力する。
+    if format == "csv":
+        if assignment_id and assignment and assignment.parent:
+            scope_name = assignment.parent.display_name
+        elif assignment_id:
+            scope_name = _report_display_name(reports[0])
+        elif tutor_id:
+            tutor = db.get(User, tutor_id)
+            scope_name = tutor.display_name if tutor else "講師"
+        else:
+            scope_name = "全講師"
+        csv_name = f"業務連絡表_{scope_name}_{month_label}.csv"
+        return Response(
+            content=build_reports_csv(list(reports), target_month),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(csv_name)}"},
+        )
+
     if assignment_id:
         if assignment and assignment.parent:
             assignment_name = assignment.parent.display_name

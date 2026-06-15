@@ -492,6 +492,70 @@ class TestDiffReportLines:
 
 
 # ---------------------------------------------------------------------------
+# CSVエクスポート（全講師分・横持ち）
+# ---------------------------------------------------------------------------
+
+class TestCsvExport:
+    def _approved_report(self, client, users, month="2026-07"):
+        headers = _auth(client, "tutor@work.example.com")
+        payload = {
+            "assignment_id": str(users["assignment"].id),
+            "target_month": month,
+            "form_type": "monthly_dispatch",
+            "form_data": {
+                "meta": {
+                    "customer_id": "C9", "dispatch_place_name": "テスト校",
+                    "column_definition": [
+                        {"key": "task_minutes_1", "label": "数学指導（分）", "type": "number"},
+                    ],
+                },
+                "lines": [
+                    {"date": f"{month}-01", "kind": "", "task_minutes_1": 80, "note": "x"},
+                    {"date": f"{month}-02", "kind": "paid_leave"},
+                ],
+            },
+        }
+        rid = client.post("/api/w/reports", json=payload, headers=headers).json()["id"]
+        for email, action in [
+            ("tutor@work.example.com", "submit"),
+            ("school@work.example.com", "approve"),
+            ("office@work.example.com", "approve"),
+            ("sales@work.example.com", "approve"),
+        ]:
+            client.post(f"/api/w/reports/{rid}/action", json={"action": action}, headers=_auth(client, email))
+        return rid
+
+    def test_office_csv_export_all_tutors(self, client, users):
+        self._approved_report(client, users, "2026-07")
+        res = client.get(
+            "/api/w/reports/export?target_month=2026-07&scope=approved_only&format=csv",
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert "text/csv" in res.headers["content-type"]
+        body = res.content.decode("utf-8-sig")
+        assert "講師番号,講師名,派遣先,お客様ID,対象月,日付,曜日,種別" in body
+        assert "数学指導,80" in body
+        assert "有給休暇" in body
+
+    def test_sales_can_csv_export(self, client, users):
+        self._approved_report(client, users, "2026-07")
+        res = client.get(
+            "/api/w/reports/export?target_month=2026-07&scope=approved_only&format=csv",
+            headers=_auth(client, "sales@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        assert "text/csv" in res.headers["content-type"]
+
+    def test_invalid_export_format_rejected(self, client, users):
+        res = client.get(
+            "/api/w/reports/export?target_month=2026-07&format=xml",
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 422
+
+
+# ---------------------------------------------------------------------------
 # リマインド設定（運営スタッフ全ロール）
 # ---------------------------------------------------------------------------
 
