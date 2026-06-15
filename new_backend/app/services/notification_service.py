@@ -442,7 +442,7 @@ async def send_office_edit_notification(
     （既存システムの保護者通知条件と同じ）。
     """
     comment_text = (comment or "").strip()
-    comment_block = f"事務担当からの連絡：{comment_text}\n\n" if comment_text else ""
+    comment_block = f"{actor.display_name}からの連絡：{comment_text}\n\n" if comment_text else ""
     context = {
         "base_url": _base_url(),
         "target_month": report.target_month,

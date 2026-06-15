@@ -436,6 +436,23 @@ class TestOfficeEdit:
         assert res.status_code == 200, res.text
         assert not any(e["action"] == "office_edit" for e in res.json()["events"])
 
+    def test_sales_can_edit_kind_at_awaiting_sales(self, client, users):
+        # 営業も /office-edit で勤怠区分（有給/欠勤）を修正できる（Q2=閲覧＋編集）
+        report_id = self._advance_to_awaiting_office(client, users)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"},
+                    headers=_auth(client, "office@work.example.com"))
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "kind": "paid_leave", "teach_minutes": 0}]},
+                  "comment": "1日を有給休暇に修正"},
+            headers=_auth(client, "sales@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["status"] == WorkStatus.AWAITING_SALES
+        assert data["form_data"]["lines"][0]["kind"] == "paid_leave"
+        assert any(e["action"] == "office_edit" for e in data["events"])
+
 
 # ---------------------------------------------------------------------------
 # 事務修正の差分算出（修正前→修正後）
@@ -464,6 +481,14 @@ class TestDiffReportLines:
         from app.services.report_service import diff_report_lines
         same = {"lines": [{"date": "2026-06-01", "teach_minutes": 60}]}
         assert diff_report_lines("monthly_dispatch", same, same) == []
+
+    def test_detects_kind_change(self):
+        # 勤怠区分（種別）の変更は「種別」ラベル＋表示名（勤務/有給休暇）で差分検出される
+        from app.services.report_service import diff_report_lines
+        old = {"lines": [{"date": "2026-06-01", "teach_minutes": 60}]}
+        new = {"lines": [{"date": "2026-06-01", "kind": "paid_leave", "teach_minutes": 60}]}
+        changes = diff_report_lines("monthly_dispatch", old, new)
+        assert ("1行目 種別", "勤務", "有給休暇") in changes
 
 
 # ---------------------------------------------------------------------------

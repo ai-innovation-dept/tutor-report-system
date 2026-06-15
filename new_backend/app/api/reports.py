@@ -518,13 +518,14 @@ async def office_edit_report(
     report_id: uuid.UUID,
     payload: ReportPatch,
     db: Session = Depends(get_db),
-    user: User = Depends(require_role("office")),
+    user: User = Depends(require_role("office", "sales")),
 ):
-    """事務担当による報告書修正。
+    """事務担当・営業担当による報告書修正。
 
     既存システムの受付(admin_receiver)による報告書修正と同等の機能。
     事務確認待ち・営業確認待ち・事務差戻し中の報告書を修正でき、再承認は不要。
     修正内容を監査イベントに記録し、講師・学校へ通知する。
+    勤怠区分（有給休暇・欠勤）の取得回数・欠勤回数の管理にも用いる。
     """
     report = get_report_or_404(db, report_id)
     from_status = report.status

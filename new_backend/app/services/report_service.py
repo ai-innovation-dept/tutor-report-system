@@ -121,6 +121,11 @@ def _format_cell(value) -> str:
     return str(value)
 
 
+def _format_kind(value) -> str:
+    """勤怠区分（種別）の値を表示名（勤務/有給休暇/欠勤）に整形する。"""
+    return ATTENDANCE_LABELS.get(value or "", str(value))
+
+
 def diff_report_lines(
     form_type: str, old_data: dict | None, new_data: dict | None
 ) -> list[tuple[str, str, str]]:
@@ -136,7 +141,12 @@ def diff_report_lines(
     except KeyError:
         columns = ()
     labels = {c.key: c.label for c in columns}
+    labels["kind"] = "種別"
     keys_order = [c.key for c in columns]
+    # 勤怠区分（種別）は静的フォーム列に含まれないため、差分検出対象へ明示的に加える（日付の直後）。
+    if "kind" not in keys_order:
+        insert_at = keys_order.index("date") + 1 if "date" in keys_order else 0
+        keys_order.insert(insert_at, "kind")
 
     old_lines = list((old_data or {}).get("lines", []) or [])
     new_lines = list((new_data or {}).get("lines", []) or [])
@@ -154,8 +164,12 @@ def diff_report_lines(
             continue
         keys = keys_order or sorted(set(old_line) | set(new_line))
         for key in keys:
-            old_cell = _format_cell(old_line.get(key))
-            new_cell = _format_cell(new_line.get(key))
+            if key == "kind":
+                old_cell = _format_kind(old_line.get("kind"))
+                new_cell = _format_kind(new_line.get("kind"))
+            else:
+                old_cell = _format_cell(old_line.get(key))
+                new_cell = _format_cell(new_line.get(key))
             if old_cell == new_cell:
                 continue
             changes.append((f"{rownum}行目 {labels.get(key, key)}", old_cell, new_cell))
