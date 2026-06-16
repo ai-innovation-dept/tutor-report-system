@@ -8,7 +8,7 @@
 const { test } = require('@playwright/test');
 const { login, NEW, expect } = require('./helpers');
 
-const IMPORT_HEADERS = 'No,メールアドレス,氏名,ロール(参考),状態(参考),学校承認スキップ(参考),登録日(参考)';
+const IMPORT_HEADERS = 'No,メールアドレス,氏名,ロール,状態(参考),学校承認スキップ(参考),登録日(参考)';
 
 function csvBuffer(lines) {
   return Buffer.from('﻿' + [IMPORT_HEADERS, ...lines].join('\n') + '\n', 'utf-8');
@@ -37,14 +37,15 @@ test.describe('新システム ユーザー管理 CSV', () => {
       // 自分自身（new所属ユーザー）がエクスポートに含まれる
       expect(csv).toContain(role.email);
 
-      // (3) インポートのブラウザ動線：No空欄(=新規作成)行はエラーモーダルになる（フェーズ①）
+      // (3) インポートのブラウザ動線（file input → importCsv → fetch → 結果モーダル）。
+      // No空欄＝新規作成だが、ロール未指定はエラーになる（=全動線が繋がっていることを確認）。
       await page.setInputFiles('#csvFileInput', {
         name: 'users.csv',
         mimeType: 'text/csv',
-        buffer: csvBuffer([',new@e2e.example.com,新規ユーザー,,,,']),
+        buffer: csvBuffer([',new@e2e.example.com,新規ユーザー,,,,']),  // No空欄＋ロール空欄
       });
       await expect(page.locator('#importOverlay')).toBeVisible();
-      await expect(page.locator('#importResultBody')).toContainText('No');
+      await expect(page.locator('#importResultBody')).toContainText('ロール');
     });
   }
 });

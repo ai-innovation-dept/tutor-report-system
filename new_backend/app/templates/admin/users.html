@@ -82,7 +82,7 @@
       <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
       <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
     </div>
-    <p class="text-xs text-slate-500">CSV一括更新：「CSVエクスポート」で現在の登録状態を書き出して（バックアップ）、編集後に「CSVインポート」で取り込みます。<b>No</b>で照合し、一致した既存ユーザーの<b>メールアドレス・氏名のみ</b>を上書き更新します。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。<b>※新規作成（No空欄）は次フェーズで対応予定です。</b></p>
+    <p class="text-xs text-slate-500">CSV一括取込：「CSVエクスポート」で現在の登録状態を書き出して（バックアップ）、編集後に「CSVインポート」で取り込みます。<b>No</b>一致の既存ユーザーは<b>メールアドレス・氏名のみ</b>上書き更新します。<b>No空欄の行は新規作成</b>（<b>ロール</b>必須、Noは自動採番、初期パスワードは<b>Passw0rd!</b>で初回ログイン時に変更必須）。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。</p>
   </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
@@ -596,7 +596,7 @@ async function importCsv(file) {
   let body = {};
   try { body = await res.json(); } catch (_) {}
   if (res.ok) {
-    showToast(`${body.imported}件を取り込みました（更新${body.updated}）`, 'success');
+    showToast(`${body.imported}件を取り込みました（新規${body.created}／更新${body.updated}）`, 'success');
     await loadUsersPage();
     return;
   }

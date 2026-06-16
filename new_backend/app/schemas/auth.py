@@ -45,6 +45,11 @@ class ResetPasswordIn(BaseModel):
     new_password: str
 
 
+class ChangePasswordIn(BaseModel):
+    new_password: str
+    current_password: str | None = None  # 任意変更時のみ必須（初回強制変更時は不要）
+
+
 class ResetTokenInfoOut(BaseModel):
     valid: bool
     reason: str | None = None

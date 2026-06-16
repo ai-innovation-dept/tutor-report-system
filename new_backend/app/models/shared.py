@@ -34,6 +34,9 @@ class User(Base):
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     user_no: Mapped[str | None] = mapped_column(String(20), nullable=True)
     allowed_systems: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # 初回ログイン時のパスワード変更を必須にするフラグ（CSV一括作成ユーザー等の初期パスワード対策）。
+    # 物理カラムは既存システムのマイグレーション0015で追加した共有カラム。
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class Assignment(Base):

@@ -42,6 +42,11 @@ def _login_redirect() -> RedirectResponse:
     return RedirectResponse(url="/login", status_code=302)
 
 
+def _password_change_redirect() -> RedirectResponse:
+    """初回ログイン時パスワード変更が必須なユーザーを変更画面へ誘導する。"""
+    return RedirectResponse(url="/change-password", status_code=302)
+
+
 def _ctx(request: Request, user: User) -> dict:
     return {
         "request": request,
@@ -58,6 +63,8 @@ def _require_page_role(request: Request, role_or_roles: str | list[str], db: Ses
     user = _get_user_optional(request, db)
     if not user:
         return None, _login_redirect()
+    if user.must_change_password:
+        return None, _password_change_redirect()
     required = [role_or_roles] if isinstance(role_or_roles, str) else role_or_roles
     if not any(r in _roles(user) for r in required):
         return None, _login_redirect()
@@ -73,6 +80,8 @@ def root(request: Request, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
+    if user.must_change_password:
+        return _password_change_redirect()
     role = _active_role(request, user)
     destinations = {
         "tutor": "/tutor/reports",
@@ -98,7 +107,21 @@ def select_role_page(request: Request, db: Session = Depends(get_db)):
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
+    if user.must_change_password:
+        return _password_change_redirect()
     return templates.TemplateResponse(request, "select_role.html", _ctx(request, user))
+
+
+@router.get("/change-password", response_class=HTMLResponse)
+def change_password_page(request: Request, db: Session = Depends(get_db)):
+    """パスワード変更画面（初回強制変更の誘導先＋任意のセルフサービス変更）。
+
+    自身の変更画面のため、must_change_password でもここはゲートしない（リダイレクトループ防止）。
+    """
+    user = _get_user_optional(request, db)
+    if not user:
+        return _login_redirect()
+    return templates.TemplateResponse(request, "change_password.html", _ctx(request, user))
 
 
 @router.get("/tutor/reports", response_class=HTMLResponse)
@@ -146,6 +169,8 @@ def report_view(request: Request, report_id: str, db: Session = Depends(get_db))
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
+    if user.must_change_password:
+        return _password_change_redirect()
     context = _ctx(request, user)
     context["report_id"] = report_id
     return templates.TemplateResponse(request, "report_view.html", context)
@@ -200,6 +225,8 @@ def admin_report_detail(request: Request, report_id: str, db: Session = Depends(
     user = _get_user_optional(request, db)
     if not user:
         return _login_redirect()
+    if user.must_change_password:
+        return _password_change_redirect()
     if not {"sales", "office", "admin_master", "admin_chief"}.intersection(_roles(user)):
         return _login_redirect()
     context = _ctx(request, user)

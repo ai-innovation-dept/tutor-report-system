@@ -8,6 +8,7 @@ import io
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.core.security import hash_password
 from app.main import app
@@ -135,7 +136,7 @@ class TestImportUpdate:
         uid = _make_user("ref@new.example.com", "50011", name="名前", roles=("office",), is_active=True)
         res = _import(client, [{
             uis.NO: "50011", uis.EMAIL: "ref@new.example.com", uis.NAME: "更新名",
-            uis.ROLES_REF: "admin_master", uis.STATUS_REF: "無効", uis.SKIP_APPROVAL_REF: "有",
+            uis.ROLE: "admin_master", uis.STATUS_REF: "無効", uis.SKIP_APPROVAL_REF: "有",
         }], _auth(client))
         assert res.status_code == 200, res.text
         db = TestSession()
@@ -146,13 +147,6 @@ class TestImportUpdate:
         assert u.is_active is True              # 状態は不変
         assert u.skip_parent_approval is False  # 学校承認スキップは不変
         db.close()
-
-    def test_empty_no_is_error(self, client, master_user):
-        """No空欄(=新規作成)は現フェーズではエラー。"""
-        res = _import(client, [{uis.NO: "", uis.EMAIL: "x@new.example.com", uis.NAME: "新規"}], _auth(client))
-        assert res.status_code == 400
-        joined = " ".join(res.json()["detail"]["errors"])
-        assert "No" in joined
 
     def test_unknown_no_is_error(self, client, master_user):
         res = _import(client, [{uis.NO: "99999", uis.EMAIL: "x@new.example.com", uis.NAME: "誰か"}], _auth(client))
@@ -220,3 +214,65 @@ class TestImportUpdate:
     def test_import_requires_auth(self, client, master_user):
         res = client.post("/api/w/users/import", files={"file": ("u.csv", _csv_bytes([]), "text/csv")})
         assert res.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------- #
+# インポート（新規作成：No空欄）
+# --------------------------------------------------------------------------- #
+class TestImportCreate:
+    def test_creates_new_user_with_initial_password(self, client, master_user):
+        from app.core.security import verify_password
+        res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "newoffice@new.example.com", uis.NAME: "新人事務"}], _auth(client))
+        assert res.status_code == 200, res.text
+        assert res.json() == {"imported": 1, "created": 1, "updated": 0}
+        db = TestSession()
+        u = db.scalar(select(User).where(User.email == "newoffice@new.example.com"))
+        assert u is not None
+        assert u.display_name == "新人事務"
+        assert u.roles == ["office"]
+        assert u.must_change_password is True            # 初回ログイン時の変更が必須
+        assert verify_password("Passw0rd!", u.password_hash)  # 初期パスワード
+        assert "new" in (u.allowed_systems or [])
+        assert u.user_no and 50001 <= int(u.user_no) <= 59999  # 事務帯で自動採番
+        db.close()
+
+    def test_new_row_requires_role(self, client, master_user):
+        res = _import(client, [{uis.NO: "", uis.ROLE: "", uis.EMAIL: "x@new.example.com", uis.NAME: "新規"}], _auth(client))
+        assert res.status_code == 400
+        assert "ロール" in " ".join(res.json()["detail"]["errors"])
+
+    def test_new_row_invalid_role(self, client, master_user):
+        res = _import(client, [{uis.NO: "", uis.ROLE: "wizard", uis.EMAIL: "x@new.example.com", uis.NAME: "新規"}], _auth(client))
+        assert res.status_code == 400
+
+    def test_admin_chief_requires_chief_requester(self, client, master_user):
+        """admin_master(=master_user)は admin_chief を作成できない。"""
+        res = _import(client, [{uis.NO: "", uis.ROLE: "admin_chief", uis.EMAIL: "chief@new.example.com", uis.NAME: "責任者"}], _auth(client))
+        assert res.status_code == 400
+        assert "admin_chief" in " ".join(res.json()["detail"]["errors"])
+
+    def test_create_duplicate_email_existing(self, client, master_user):
+        _make_user("dup@new.example.com", "50070", name="既存")
+        res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "dup@new.example.com", uis.NAME: "新規"}], _auth(client))
+        assert res.status_code == 400
+        assert "dup@new.example.com" in " ".join(res.json()["detail"]["errors"])
+
+    def test_create_and_update_in_one_file(self, client, master_user):
+        uid = _make_user("upd@new.example.com", "50080", name="旧名")
+        res = _import(client, [
+            {uis.NO: "50080", uis.EMAIL: "upd2@new.example.com", uis.NAME: "新名"},          # 更新
+            {uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "brandnew@new.example.com", uis.NAME: "新営業"},  # 新規
+        ], _auth(client))
+        assert res.status_code == 200, res.text
+        assert res.json() == {"imported": 2, "created": 1, "updated": 1}
+        db = TestSession()
+        assert db.get(User, uid).email == "upd2@new.example.com"
+        assert db.scalar(select(User).where(User.email == "brandnew@new.example.com")) is not None
+        db.close()
+
+    def test_email_is_lowercased_on_create(self, client, master_user):
+        res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "Mixed@New.Example.com", uis.NAME: "大文字"}], _auth(client))
+        assert res.status_code == 200, res.text
+        db = TestSession()
+        assert db.scalar(select(User).where(User.email == "mixed@new.example.com")) is not None
+        db.close()

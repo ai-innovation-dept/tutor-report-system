@@ -69,6 +69,9 @@ class User(Base):
     # アクセス可能システムの配列（'legacy'=指導実績報告システム / 'new'=業務連絡表システム）。
     # 物理カラムは new_backend のマイグレーション 0002 で追加済み。所属判定の唯一の基準。
     allowed_systems: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    # 初回ログイン時のパスワード変更を必須にするフラグ。新システムのCSV一括作成ユーザー向け。
+    # 物理カラムはマイグレーション0015で追加。既存システムでは未使用（読み取りモデルの整合のため定義）。
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

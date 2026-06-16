@@ -7,10 +7,11 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import create_access_token, hash_password
+from app.core.security import create_access_token, hash_password, verify_password
 from app.dependencies.auth import get_current_user, get_active_role
 from app.models.shared import Invitation, PasswordResetToken, User
 from app.schemas.auth import (
+    ChangePasswordIn,
     ForgotPasswordIn,
     LoginRequest,
     RegisterIn,
@@ -24,6 +25,7 @@ from app.schemas.auth import (
 from app.schemas.users import UserOut
 from app.services.notification_service import send_email
 from app.services.user_service import (
+    INITIAL_PASSWORD,
     ROLE_LABELS,
     allowed_systems_for_role,
     authenticate,
@@ -84,6 +86,18 @@ def login(payload: LoginRequest, response: Response, db: Session = Depends(get_d
     # これにより別システムへ同一ブラウザでアクセスしても自動ログインされず、各システムで個別ログインが必要になる。
     response.set_cookie(key="w_access_token", value=token, httponly=True, samesite="lax")
 
+    # 初回ログイン時パスワード変更が必須なユーザー（CSV一括作成等）は、ロールに関わらず変更画面へ誘導する。
+    # 単一ロールなら選択済みにしておき、変更後すぐダッシュボードへ遷移できるようにする。
+    if user.must_change_password:
+        if len(roles) == 1:
+            response.set_cookie(key="w_selected_role", value=roles[0], httponly=True, samesite="lax")
+        return TokenResponse(
+            access_token=token,
+            role=roles[0] if len(roles) == 1 else None,
+            roles=roles,
+            redirect_url="/change-password",
+        )
+
     if len(roles) == 1:
         response.set_cookie(key="w_selected_role", value=roles[0], httponly=True, samesite="lax")
         return TokenResponse(
@@ -110,6 +124,41 @@ def select_role(
         role=payload.role,
         roles=roles,
         redirect_url=_dashboard(payload.role),
+    )
+
+
+@router.post("/change-password", response_model=TokenResponse)
+def change_password(
+    payload: ChangePasswordIn,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """ログイン中ユーザーのパスワードを変更する。
+
+    初回強制変更(must_change_password=True)では現在のパスワード照合は不要（直前のログインで認証済み）。
+    任意変更時は現在のパスワード照合を必須にする。変更すると must_change_password を解除する。
+    """
+    new_password = (payload.new_password or "").strip()
+    if len(new_password) < 8:
+        raise HTTPException(status_code=422, detail="パスワードは8文字以上で入力してください")
+    if new_password == INITIAL_PASSWORD:
+        raise HTTPException(status_code=422, detail="初期パスワードとは異なるパスワードを設定してください")
+
+    if not user.must_change_password:
+        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="現在のパスワードが正しくありません")
+
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+
+    roles = effective_roles(user)
+    redirect_url = _dashboard(roles[0]) if len(roles) == 1 else "/select-role"
+    return TokenResponse(
+        access_token="",
+        role=roles[0] if len(roles) == 1 else None,
+        roles=roles,
+        redirect_url=redirect_url,
     )
 
 

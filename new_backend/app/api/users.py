@@ -14,6 +14,7 @@ from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import user_import_service
+from app.services.user_service import create_initial_user
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
 
@@ -149,24 +150,35 @@ def export_users(
 def import_users(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
-    """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も更新しない）。
+    """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も登録しない）。
 
-    現フェーズ①は「既存ユーザーの更新のみ」。Noが一致した既存ユーザーのメール・氏名を上書きする。
-    （新規作成＝No空欄は次フェーズ②で対応。）メールは他ユーザーと重複しないことを検証する。
+    No一致の既存ユーザー → メール・氏名のみ上書き更新。
+    No空欄の行 → 新規作成（ロール必須、user_no自動採番、初期パスワード Passw0rd!、初回ログイン時変更必須）。
+    メールは他ユーザー／同一CSV内で重複しないことを検証する。
     """
     try:
         rows = user_import_service.parse_rows(file.file.read())
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    allow_admin_chief = has_role(current_user, "admin_chief")
     updates: list[dict] = []  # {"user", "email", "name", "line"}
+    creates: list[dict] = []  # {"role", "email", "name", "line"}
     errors: list[str] = []
     seen_user: dict[UUID, int] = {}
     for offset, row in enumerate(rows):
         line_no = offset + 2  # ヘッダー(1行目)の次から
         if user_import_service.is_skip_row(row):
+            continue
+        if user_import_service.is_new_row(row):
+            result, row_errors = user_import_service.row_to_create(row, allow_admin_chief)
+            if row_errors:
+                errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+                continue
+            result["line"] = line_no
+            creates.append(result)
             continue
         result, row_errors = user_import_service.row_to_update(db, row)
         if row_errors:
@@ -180,22 +192,24 @@ def import_users(
         result["line"] = line_no
         updates.append(result)
 
-    # メール重複チェック: 同一CSV内の重複と、他の既存ユーザー（自分自身を除く）との衝突を検出する。
+    # メール重複チェック: 同一CSV内の重複と、既存ユーザーとの衝突を検出する（更新行は自分自身を除外）。
     email_line: dict[str, int] = {}
-    for item in updates:
+    for item in (*updates, *creates):
         key = item["email"].lower()
         if key in email_line:
             errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」が{email_line[key]}行目と重複しています")
         else:
             email_line[key] = item["line"]
-    if updates:
-        lowered = list({item["email"].lower() for item in updates})
+    targets = [*updates, *creates]
+    if targets:
+        lowered = list({item["email"].lower() for item in targets})
         existing = db.scalars(select(User).where(func.lower(User.email).in_(lowered))).all()
         holders: dict[str, list[User]] = {}
         for u in existing:
             holders.setdefault(u.email.lower(), []).append(u)
-        for item in updates:
-            if any(h.id != item["user"].id for h in holders.get(item["email"].lower(), [])):
+        for item in targets:
+            self_id = item["user"].id if "user" in item else None  # 更新行は自分自身を許容
+            if any(h.id != self_id for h in holders.get(item["email"].lower(), [])):
                 errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
 
     if errors:
@@ -203,17 +217,19 @@ def import_users(
             "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
             "errors": errors,
         })
-    if not updates:
+    if not targets:
         raise HTTPException(status_code=400, detail={
-            "message": "取り込み対象の行がありません。Noで照合できる既存ユーザーの行を入力してください。",
+            "message": "取り込み対象の行がありません。No一致の既存ユーザー、またはNo空欄の新規作成行を入力してください。",
             "errors": [],
         })
 
     for item in updates:
         item["user"].email = item["email"]
         item["user"].display_name = item["name"]
+    for item in creates:
+        create_initial_user(db, item["role"], item["email"], item["name"])
     db.commit()
-    return {"imported": len(updates), "created": 0, "updated": len(updates)}
+    return {"imported": len(targets), "created": len(creates), "updated": len(updates)}
 
 
 @router.patch("/{user_id}", response_model=UserOut)

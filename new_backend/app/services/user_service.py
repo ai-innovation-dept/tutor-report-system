@@ -96,3 +96,32 @@ def allowed_systems_for_role(role: str) -> list[str]:
         return ["legacy", "new"]
     return ["new"]
 
+
+# CSV一括作成ユーザーの初期パスワード。初回ログイン時に変更を必須化する（must_change_password=True）。
+INITIAL_PASSWORD = "Passw0rd!"
+
+
+def create_initial_user(db: Session, role: str, email: str, display_name: str) -> User:
+    """初期パスワード付きでユーザーを新規作成する（CSV一括作成用）。
+
+    招待フローと同じ採番・所属・tutor_no規約に従い、初回ログイン時のパスワード変更を必須にする。
+    呼び出し側でメール重複・ロール妥当性を検証済みであること。
+    """
+    from app.core.security import hash_password
+
+    user_no = generate_user_no(db, role)
+    user = User(
+        email=email.strip().lower(),
+        role=role,
+        roles=[role],
+        display_name=display_name,
+        user_no=user_no,
+        tutor_no=user_no if role == "tutor" else None,  # legacy 互換
+        allowed_systems=allowed_systems_for_role(role),
+        password_hash=hash_password(INITIAL_PASSWORD),
+        is_active=True,
+        must_change_password=True,
+    )
+    db.add(user)
+    return user
+
