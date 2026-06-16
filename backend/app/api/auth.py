@@ -253,12 +253,8 @@ def register_parent(payload: RegisterIn, db: Session = Depends(get_db)):
         if invitation.role in {"admin_master", "admin_chief"} and "new" not in systems:
             systems.append("new")
         existing_user.allowed_systems = systems
-        roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
-        if invitation.role not in roles:
-            roles.append(invitation.role)
-        existing_user.roles = roles
-        if not existing_user.role:
-            existing_user.role = invitation.role
+        existing_user.roles = [invitation.role]
+        existing_user.role = invitation.role
         if invitation.role == "tutor" and invitation.tutor_no and not existing_user.tutor_no:
             existing_user.tutor_no = invitation.tutor_no
         if not existing_user.user_no:

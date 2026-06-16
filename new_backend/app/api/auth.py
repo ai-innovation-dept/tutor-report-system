@@ -252,12 +252,8 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
         if inv.role == "admin_master" and "legacy" not in systems:
             systems.append("legacy")
         existing_user.allowed_systems = systems
-        roles = list(existing_user.roles or []) or ([existing_user.role] if existing_user.role else [])
-        if inv.role not in roles:
-            roles.append(inv.role)
-        existing_user.roles = roles
-        if not existing_user.role:
-            existing_user.role = inv.role
+        existing_user.roles = [inv.role]
+        existing_user.role = inv.role
         if not existing_user.user_no:
             existing_user.user_no = user_no
         if inv.role == "tutor" and not existing_user.tutor_no:

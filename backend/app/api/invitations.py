@@ -137,7 +137,10 @@ def _assignment_for_parent_payload(payload: InvitationCreate, db: Session) -> As
     )
     if existing is not None:
         if existing.parent_id is not None:
-            raise HTTPException(status_code=409, detail="同じ講師・生徒名の担当が既に存在します")
+            linked_parent = db.get(User, existing.parent_id)
+            if linked_parent and linked_parent.deleted_at is None:
+                raise HTTPException(status_code=409, detail="同じ講師・生徒名の担当が既に存在します")
+            existing.parent_id = None  # 削除済み保護者の紐付けを解除して再利用
         return existing
     assignment = Assignment(tutor_id=payload.tutor_id, student_name=student_name, parent_id=None, is_active=True)
     db.add(assignment)
