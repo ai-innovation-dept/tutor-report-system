@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     smtp_username: str = ""
     smtp_password: str = ""
     smtp_from: str = "noreply@example.com"
+    # 送信時のTLS方式: none(開発/MailHog) / starttls(通常587番) / ssl(暗黙TLS・通常465番)
+    smtp_tls: str = "none"
     base_url: str = "http://localhost:8000"
     reminder_days_before_month_end: int = 3
     timezone: str = "Asia/Tokyo"

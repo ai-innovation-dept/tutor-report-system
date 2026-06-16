@@ -12,6 +12,25 @@ from app.config import settings
 from app.models import Notification, User
 
 
+def _smtp_send_kwargs() -> dict:
+    """settings から aiosmtplib.send への接続パラメータ（ホスト/ポート/認証/TLS）を組み立てる。
+
+    本番の外部SMTPサービス（認証＋TLS必須）と開発のMailHog（認証/TLSなし）を同じコードで扱う。
+    認証は SMTP_USERNAME が設定されている場合のみ付与する。
+    """
+    tls = (settings.smtp_tls or "none").lower()
+    kwargs: dict = {
+        "hostname": settings.smtp_host,
+        "port": settings.smtp_port,
+        "use_tls": tls == "ssl",         # 暗黙TLS（通常465番）
+        "start_tls": tls == "starttls",  # STARTTLS（通常587番）
+    }
+    if settings.smtp_username:
+        kwargs["username"] = settings.smtp_username
+        kwargs["password"] = settings.smtp_password
+    return kwargs
+
+
 class NotificationChannel(ABC):
     @abstractmethod
     async def send(self, to: str, subject: str, body: str) -> None:
@@ -25,7 +44,7 @@ class EmailChannel(NotificationChannel):
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
-        await aiosmtplib.send(message, hostname=settings.smtp_host, port=settings.smtp_port)
+        await aiosmtplib.send(message, **_smtp_send_kwargs())
 
 
 def _render_email_template(template_name: str, context: dict) -> str:

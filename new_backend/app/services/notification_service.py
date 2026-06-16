@@ -143,6 +143,25 @@ def _enqueue_notification(
     return notifications
 
 
+def _smtp_send_kwargs(host: str, port: int) -> dict:
+    """settings から aiosmtplib.send への接続パラメータ（ホスト/ポート/認証/TLS）を組み立てる。
+
+    本番の外部SMTPサービス（認証＋TLS必須）と開発のMailHog（認証/TLSなし）を同じコードで扱う。
+    認証は SMTP_USERNAME が設定されている場合のみ付与する。
+    """
+    tls = (settings.SMTP_TLS or "none").lower()
+    kwargs: dict = {
+        "hostname": host,
+        "port": port,
+        "use_tls": tls == "ssl",         # 暗黙TLS（通常465番）
+        "start_tls": tls == "starttls",  # STARTTLS（通常587番）
+    }
+    if settings.SMTP_USERNAME:
+        kwargs["username"] = settings.SMTP_USERNAME
+        kwargs["password"] = settings.SMTP_PASSWORD
+    return kwargs
+
+
 async def send_email(
     to: str,
     subject: str,
@@ -158,9 +177,9 @@ async def send_email(
         from email.mime.text import MIMEText
         msg = MIMEText(body, "plain", "utf-8")
         msg["Subject"] = subject
-        msg["From"] = "noreply@work-system.local"
+        msg["From"] = settings.NEW_SMTP_FROM
         msg["To"] = to
-        await aiosmtplib.send(msg, hostname=host, port=port)
+        await aiosmtplib.send(msg, **_smtp_send_kwargs(host, port))
     except Exception as exc:
         logger.warning("mail send failed to %s: %s", to, exc)
 
