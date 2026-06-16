@@ -160,6 +160,11 @@ def prepare_parent_invitation_for_assignment(
     # 削除済み（ソフトデリート）ユーザーは通常の招待として扱い、登録時に同一アカウントを復活させる
     if existing_user and existing_user.deleted_at:
         existing_user = None
+    # 担当に削除済み保護者が紐付いたままの場合は解除して再招待を可能にする
+    if assignment.parent_id:
+        current_parent = db.get(User, assignment.parent_id)
+        if current_parent and current_parent.deleted_at:
+            assignment.parent_id = None
     if existing_user and existing_user.role != "parent":
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
     if existing_user:

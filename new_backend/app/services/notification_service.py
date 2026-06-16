@@ -66,14 +66,14 @@ def record_notification(
 def _resolve_notification_recipients(db: Session, report: WorkReport, recipient_role: str) -> list[User]:
     if recipient_role == "tutor":
         user = db.get(User, report.tutor_id)
-        return [user] if user and user.is_active else []
+        return [user] if user and user.is_active and not user.deleted_at else []
 
     if recipient_role == "school":
         assignment = report.assignment or db.get(Assignment, report.assignment_id)
         if assignment is None or assignment.parent_id is None:
             return []
         user = db.get(User, assignment.parent_id)
-        return [user] if user and user.is_active else []
+        return [user] if user and user.is_active and not user.deleted_at else []
 
     if recipient_role in {"sales", "office", "admin_master", "admin_chief"}:
         return list(
@@ -264,7 +264,7 @@ def _staff_users(db: Session, role: str) -> list[User]:
 
 async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
     del db
-    if not to_user or not to_user.is_active:
+    if not to_user or not to_user.is_active or to_user.deleted_at:
         return
     try:
         await send_email_notification(to_user.email, subject, template_name, context)
@@ -274,7 +274,7 @@ async def _send_email(db: Session, to_user: User | None, subject: str, template_
 
 async def _send_email_to_users(db: Session, users: list[User], subject: str, template_name: str, context: dict) -> None:
     for user in users:
-        if user.is_active:
+        if user.is_active and not user.deleted_at:
             await _send_email(db, user, subject, template_name, context | {"name": user.display_name})
 
 
