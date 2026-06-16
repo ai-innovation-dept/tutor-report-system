@@ -55,6 +55,10 @@
       const json = await res.json();
       localStorage.setItem('access_token', json.access_token);
       localStorage.setItem('token', json.access_token);
+      if (json.must_change_password) {
+        location.href = '/change-password';
+        return;
+      }
       if (json.requires_role_selection) {
         location.href = '/select-role';
         return;

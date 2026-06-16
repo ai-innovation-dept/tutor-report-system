@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.rbac import normalize_roles, sync_user_roles, user_roles
-from app.core.security import authenticate_user, create_access_token, hash_password
+from app.core.security import authenticate_user, create_access_token, hash_password, verify_password
 from app.database import get_db
 from app.deps import get_current_user
 from app.config import settings
@@ -35,6 +35,11 @@ PASSWORD_RESET_SUBJECT = "【指導実績報告システム】パスワードリ
 
 class RoleSelectIn(BaseModel):
     role: str
+
+
+class ChangePasswordIn(BaseModel):
+    new_password: str
+    current_password: str | None = None  # 任意変更時のみ必須（初回強制変更時は不要）
 
 
 def _dashboard_for_role(role: str) -> str:
@@ -99,7 +104,11 @@ def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get
             "roles": roles,
             "requires_role_selection": len(roles) > 1,
             "display_name": user.display_name,
-            "redirect_url": _dashboard_for_role(user.role) if len(roles) == 1 else "/select-role",
+            "must_change_password": user.must_change_password,
+            # 初回ログイン時パスワード変更が必須なユーザー（CSV一括作成等）は、ロールに関わらず変更画面へ誘導する。
+            "redirect_url": "/change-password" if user.must_change_password else (
+                _dashboard_for_role(user.role) if len(roles) == 1 else "/select-role"
+            ),
         }
     )
     response.set_cookie(
@@ -123,6 +132,34 @@ def select_role(payload: RoleSelectIn, user: User = Depends(get_current_user)):
     response = JSONResponse(content={"role": payload.role, "redirect_url": _dashboard_for_role(payload.role)})
     response.set_cookie(key="selected_role", value=payload.role, httponly=True, samesite="lax")
     return response
+
+
+@router.post("/change-password")
+def change_password(payload: ChangePasswordIn, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """ログイン中ユーザーのパスワードを変更する。
+
+    初回強制変更(must_change_password=True)では現在のパスワード照合は不要（直前のログインで認証済み）。
+    任意変更時は現在のパスワード照合を必須にする。変更すると must_change_password を解除する。
+    """
+    from app.services.user_import_service import INITIAL_PASSWORD
+
+    new_password = (payload.new_password or "").strip()
+    if len(new_password) < 8:
+        raise HTTPException(status_code=422, detail="パスワードは8文字以上で入力してください")
+    if new_password == INITIAL_PASSWORD:
+        raise HTTPException(status_code=422, detail="初期パスワードとは異なるパスワードを設定してください")
+
+    if not user.must_change_password:
+        if not payload.current_password or not verify_password(payload.current_password, user.password_hash):
+            raise HTTPException(status_code=400, detail="現在のパスワードが正しくありません")
+
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = False
+    db.commit()
+
+    roles = user_roles(user)
+    redirect_url = _dashboard_for_role(user.role) if len(roles) == 1 else "/select-role"
+    return JSONResponse(content={"redirect_url": redirect_url})
 
 
 @router.post("/logout")
