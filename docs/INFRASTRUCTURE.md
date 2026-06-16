@@ -95,6 +95,27 @@ sudo docker compose exec -T db pg_dump -U postgres -d tutor > backup_$(date +%Y%
 sudo docker compose exec backend python -m app.scripts.normalize_allowed_systems
 ```
 
+### 5. 本番をクリーンにして検証用サンプルユーザーのみにする場合（初回セットアップ・1回限り・破壊的）
+
+通常デプロイ（`up -d --build`）では実行されない**手動ステップ**。`up -d --build` はコード反映と
+マイグレーションのみで、**ユーザー等のデータは消えない**。本番を空にしてサンプルユーザー
+（実在Gmail＋プラスエイリアスの6件）だけにするには、デプロイ後に下記を**1回だけ**実行する。
+
+> ⚠️ **全データ（ユーザー・報告書・契約・招待・通知 等）を削除します。** 実ユーザー運用開始後は
+> 実行しないこと。両システムは DB を共有するため、`backend` で1回実行すれば両系がクリーンになる。
+
+```bash
+# 必ずバックアップ
+sudo docker compose exec -T db pg_dump -U postgres -d tutor > backup_$(date +%Y%m%d_%H%M%S).sql
+# 全消去＋サンプルユーザー6件を投入（--yes が無いと実行されず使い方だけ表示）
+sudo docker compose exec backend python -m app.scripts.seed_production --yes
+# 確認（6件・@gmail.com のみになっていること）
+sudo docker compose exec -T db psql -U postgres -d tutor -c "SELECT user_no, email, role, roles FROM users ORDER BY user_no;"
+```
+
+`ENVIRONMENT=production` を本番 `.env` に設定しておくこと（マイグレーション0014が
+`supervisor@example.com` を投入しないガードが有効になる）。
+
 ### 開発用データリセット（開発環境のみ）
 
 ```bash
