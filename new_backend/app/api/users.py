@@ -1,9 +1,10 @@
 import math
 import secrets
 from datetime import datetime, timezone
+from urllib.parse import quote
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import or_, func, select
 from sqlalchemy.orm import Session
 
@@ -12,6 +13,7 @@ from app.core.security import hash_password
 from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
+from app.services import user_import_service
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
 
@@ -121,6 +123,97 @@ def list_users(
         active_admin_master_count=active_admin_master_count,
         active_admin_chief_count=active_admin_chief_count,
     )
+
+
+@router.get("/export")
+def export_users(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """現在の登録ユーザー（新システム）をCSV(UTF-8 BOM)でエクスポートする（バックアップ）。
+
+    編集して /import で再取込できる（Noで照合し、メール・氏名のみを上書き更新）。
+    一覧画面と同じ母集団（allowed_systems に "new" を含む未削除ユーザー）をNo昇順で出力する。
+    """
+    users = db.scalars(select(User).where(User.deleted_at.is_(None))).all()
+    users = [u for u in users if "new" in (u.allowed_systems or [])]
+    users = sorted(users, key=lambda u: int(u.user_no) if u.user_no and str(u.user_no).isdigit() else 999999)
+    return Response(
+        content=user_import_service.build_export_csv(users),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote("ユーザー一覧.csv")},
+    )
+
+
+@router.post("/import")
+def import_users(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も更新しない）。
+
+    現フェーズ①は「既存ユーザーの更新のみ」。Noが一致した既存ユーザーのメール・氏名を上書きする。
+    （新規作成＝No空欄は次フェーズ②で対応。）メールは他ユーザーと重複しないことを検証する。
+    """
+    try:
+        rows = user_import_service.parse_rows(file.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    updates: list[dict] = []  # {"user", "email", "name", "line"}
+    errors: list[str] = []
+    seen_user: dict[UUID, int] = {}
+    for offset, row in enumerate(rows):
+        line_no = offset + 2  # ヘッダー(1行目)の次から
+        if user_import_service.is_skip_row(row):
+            continue
+        result, row_errors = user_import_service.row_to_update(db, row)
+        if row_errors:
+            errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+            continue
+        uid = result["user"].id
+        if uid in seen_user:
+            errors.append(f"{line_no}行目: 同一CSV内でNoが{seen_user[uid]}行目と重複しています")
+            continue
+        seen_user[uid] = line_no
+        result["line"] = line_no
+        updates.append(result)
+
+    # メール重複チェック: 同一CSV内の重複と、他の既存ユーザー（自分自身を除く）との衝突を検出する。
+    email_line: dict[str, int] = {}
+    for item in updates:
+        key = item["email"].lower()
+        if key in email_line:
+            errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」が{email_line[key]}行目と重複しています")
+        else:
+            email_line[key] = item["line"]
+    if updates:
+        lowered = list({item["email"].lower() for item in updates})
+        existing = db.scalars(select(User).where(func.lower(User.email).in_(lowered))).all()
+        holders: dict[str, list[User]] = {}
+        for u in existing:
+            holders.setdefault(u.email.lower(), []).append(u)
+        for item in updates:
+            if any(h.id != item["user"].id for h in holders.get(item["email"].lower(), [])):
+                errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
+
+    if errors:
+        raise HTTPException(status_code=400, detail={
+            "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
+            "errors": errors,
+        })
+    if not updates:
+        raise HTTPException(status_code=400, detail={
+            "message": "取り込み対象の行がありません。Noで照合できる既存ユーザーの行を入力してください。",
+            "errors": [],
+        })
+
+    for item in updates:
+        item["user"].email = item["email"]
+        item["user"].display_name = item["name"]
+    db.commit()
+    return {"imported": len(updates), "created": 0, "updated": len(updates)}
 
 
 @router.patch("/{user_id}", response_model=UserOut)

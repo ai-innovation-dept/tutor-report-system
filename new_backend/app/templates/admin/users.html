@@ -76,6 +76,14 @@
       </label>
     </div>
   </div>
+  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3">
+    <div class="flex flex-wrap items-center gap-2">
+      <a href="/api/w/users/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
+      <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
+      <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
+    </div>
+    <p class="text-xs text-slate-500">CSV一括更新：「CSVエクスポート」で現在の登録状態を書き出して（バックアップ）、編集後に「CSVインポート」で取り込みます。<b>No</b>で照合し、一致した既存ユーザーの<b>メールアドレス・氏名のみ</b>を上書き更新します。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。<b>※新規作成（No空欄）は次フェーズで対応予定です。</b></p>
+  </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -111,6 +119,19 @@
         <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeDeleteConfirm()">キャンセル</button>
         <button id="confirmDeleteButton" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="deleteSelectedUser()" disabled>削除する</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="importOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" onclick="closeImportResult()">
+  <div class="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 id="importResultTitle" class="font-semibold text-slate-800">取り込み結果</h2>
+      <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeImportResult()">閉じる</button>
+    </div>
+    <div id="importResultBody" class="overflow-y-auto px-5 py-4 text-sm text-slate-700"></div>
+    <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeImportResult()">OK</button>
     </div>
   </div>
 </div>
@@ -548,6 +569,52 @@ async function deleteInvitation(id) {
   showInviteMessage('招待を取り消しました。');
   await loadUsersPage();
 }
+// ---- CSVインポート（既存ユーザーの更新。Noで照合しメール・氏名のみ上書き） ----
+function showImportResult(title, html) {
+  importResultTitle.textContent = title;
+  importResultBody.innerHTML = html;
+  importOverlay.classList.remove('hidden');
+  importOverlay.classList.add('flex');
+}
+function closeImportResult() {
+  importOverlay.classList.add('hidden');
+  importOverlay.classList.remove('flex');
+}
+function importErrorList(errors) {
+  return `<ul class="list-disc space-y-1 pl-5">${errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`;
+}
+async function importCsv(file) {
+  const form = new FormData();
+  form.append('file', file);
+  let res;
+  try {
+    res = await fetch('/api/w/users/import', {method: 'POST', credentials: 'same-origin', body: form});
+  } catch (_) {
+    showImportResult('取り込みに失敗しました', '<p class="text-rose-700">通信エラーが発生しました。</p>');
+    return;
+  }
+  let body = {};
+  try { body = await res.json(); } catch (_) {}
+  if (res.ok) {
+    showToast(`${body.imported}件を取り込みました（更新${body.updated}）`, 'success');
+    await loadUsersPage();
+    return;
+  }
+  const detail = body.detail;
+  if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
+    const head = `<p class="mb-2 font-medium text-rose-700">${escapeHtml(detail.message || '取り込みできませんでした。')}</p>`;
+    showImportResult('取り込みエラー', head + (detail.errors.length ? importErrorList(detail.errors) : ''));
+  } else {
+    showImportResult('取り込みエラー', `<p class="text-rose-700">${escapeHtml(typeof detail === 'string' ? detail : '取り込みできませんでした。')}</p>`);
+  }
+}
+csvImportBtn.addEventListener('click', () => csvFileInput.click());
+csvFileInput.addEventListener('change', async () => {
+  const file = csvFileInput.files?.[0];
+  csvFileInput.value = '';  // 同じファイルを連続選択しても change が発火するように
+  if (file) await importCsv(file);
+});
+
 roleSelect.addEventListener('change', syncRoleFields);
 userSearch.addEventListener('input', () => {
   clearTimeout(searchTimer);
