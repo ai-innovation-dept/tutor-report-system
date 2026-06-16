@@ -65,6 +65,90 @@ def test_build_report_pdf_includes_attendance_rows():
     assert len(pdf) > 1000
 
 
+def _dynamic_report():
+    """動的列（担当業務・副業務・採点）の列定義スナップショットを持つ報告書。"""
+    from app.models.work import WorkReport
+
+    return WorkReport(
+        target_month="2026-06", form_type="monthly_dispatch", status="approved",
+        form_data={
+            "meta": {
+                "our_staff": "山田", "dispatch_place_address": "渋谷区1-1",
+                "work_content": "数学指導",
+                "column_definition": [
+                    {"key": "date", "label": "日付", "type": "date", "summable": False},
+                    {"key": "start", "label": "業務開始時間", "type": "time", "summable": False},
+                    {"key": "end", "label": "業務終了時間", "type": "time", "summable": False},
+                    {"key": "subject_period", "label": "担当時限", "type": "number", "summable": False},
+                    {"key": "task_minutes_1", "label": "数学指導（分）", "type": "number", "summable": True},
+                    {"key": "sub_minutes_1", "label": "英語補習（分）", "type": "number", "summable": True},
+                    {"key": "scoring", "label": "採点（回）", "type": "count_minutes", "summable": True,
+                     "unit": "回", "count_key": "scoring_count", "minutes_key": "scoring_minutes"},
+                    {"key": "break_minutes", "label": "休憩時間（分）", "type": "number", "summable": True},
+                    {"key": "commute_fee", "label": "往復交通費（円）", "type": "number", "summable": True},
+                    {"key": "note", "label": "内容", "type": "text", "summable": False},
+                ],
+            },
+            "lines": [
+                {"date": "2026-06-01", "kind": "", "start": "09:00", "end": "10:30",
+                 "subject_period": "1・2", "task_minutes_1": 90, "sub_minutes_1": 30,
+                 "scoring_count": 5, "scoring_minutes": 30, "break_minutes": 10,
+                 "commute_fee": 500, "note": "メモ"},
+                {"date": "2026-06-02", "kind": "", "start": "09:00", "end": "10:00",
+                 "task_minutes_1": 60, "sub_minutes_1": 0, "scoring_count": 0,
+                 "scoring_minutes": 0, "break_minutes": 0, "commute_fee": 500, "note": ""},
+                {"date": "2026-06-03", "kind": "paid_leave"},
+                {"date": "", "kind": ""},  # 未記入行 → 除外
+            ],
+        },
+    )
+
+
+def test_pdf_display_columns_follow_snapshot():
+    """PDFの表示列が静的フォームではなく保存済みスナップショット列定義に従う（②修正）。"""
+    from app.services.export_service import _display_columns
+
+    cols = _display_columns(_dynamic_report())
+    keys = [c.get("key") for c in cols]
+    # 動的列（担当業務・副業務・採点）が出力に含まれる。静的の teach_minutes は含まれない。
+    assert "task_minutes_1" in keys
+    assert "sub_minutes_1" in keys
+    assert "scoring" in keys
+    assert "teach_minutes" not in keys
+    # 種別は日付の直後、開始/終了は1列(業務開始〜終了時間)へ結合される（参照ビューと同一）。
+    assert keys[0] == "date" and keys[1] == "kind"
+    assert "__timerange" in keys and "start" not in keys and "end" not in keys
+
+
+def test_pdf_summary_sums_dynamic_columns():
+    """サマリが勤務行のみで動的な集計可能列を合計する（参照ビューと同一）。"""
+    from app.services.export_service import _summary_parts
+
+    report = _dynamic_report()
+    parts = _summary_parts(report, report.form_data["lines"])
+    joined = "　".join(parts)
+    assert "勤務日数：2日" in joined  # 有給1日・未記入1行は勤務日数に含めない
+    assert "有給休暇：1回" in joined
+    assert "数学指導（分）：150" in joined  # 90 + 60
+    assert "英語補習（分）：30" in joined   # 30 + 0
+    assert "採点（回）：5回 / 30分" in joined
+    assert "往復交通費（円）：1,000" in joined  # 500 + 500
+
+
+def test_build_report_pdf_dynamic_columns_smoke():
+    """動的列を持つ報告書のPDFがエラーなく生成できる（フォント未導入環境はスキップ）。"""
+    from app.services.export_service import build_report_pdf
+
+    try:
+        pdf = build_report_pdf(_dynamic_report(), "渋谷高校", "テスト講師")
+    except RuntimeError as exc:
+        if "font" in str(exc).lower():
+            pytest.skip("Japanese PDF font not available in this environment")
+        raise
+    assert pdf[:4] == b"%PDF"
+    assert len(pdf) > 1000
+
+
 def test_build_reports_csv_positional_wide():
     """全講師分CSV（横持ち・位置固定）: 列固定・業務名はセル値・有給日も1行・未記入行は除外。"""
     from app.models.shared import User

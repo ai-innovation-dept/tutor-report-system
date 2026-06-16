@@ -436,22 +436,19 @@ class TestOfficeEdit:
         assert res.status_code == 200, res.text
         assert not any(e["action"] == "office_edit" for e in res.json()["events"])
 
-    def test_sales_can_edit_kind_at_awaiting_sales(self, client, users):
-        # 営業も /office-edit で勤怠区分（有給/欠勤）を修正できる（Q2=閲覧＋編集）
+    def test_sales_cannot_office_edit(self, client, users):
+        # 報告書の編集は担当者（講師）本人と事務のみ可能。営業は編集不可（承認/差戻しのみ）。
         report_id = self._advance_to_awaiting_office(client, users)
         client.post(f"/api/w/reports/{report_id}/action", json={"action": "approve"},
                     headers=_auth(client, "office@work.example.com"))
+        # 営業確認待ち（awaiting_sales）でも営業は office-edit できない
         res = client.patch(
             f"/api/w/reports/{report_id}/office-edit",
             json={"form_data": {"lines": [{"date": "2026-06-01", "kind": "paid_leave", "teach_minutes": 0}]},
                   "comment": "1日を有給休暇に修正"},
             headers=_auth(client, "sales@work.example.com"),
         )
-        assert res.status_code == 200, res.text
-        data = res.json()
-        assert data["status"] == WorkStatus.AWAITING_SALES
-        assert data["form_data"]["lines"][0]["kind"] == "paid_leave"
-        assert any(e["action"] == "office_edit" for e in data["events"])
+        assert res.status_code == 403, res.text
 
 
 # ---------------------------------------------------------------------------

@@ -81,36 +81,6 @@
   </div>
 </div>
 
-<div id="officeEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeOfficeEditModal()">
-  <div class="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex shrink-0 items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">報告書の修正（営業）</h2>
-      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
-    </div>
-    <div class="flex min-h-0 flex-auto flex-col p-5">
-      <p class="mb-3 shrink-0 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。見出し行と日付列は固定したまま、表内を上下・左右にスクロールできます（横スクロールは上部・下部どちらのバーも利用可）。</p>
-      <!-- 上部の横スクロールバー：下部の表とスクロール位置を双方向同期し、最下部まで送らなくても上部で左右にスクロールできる -->
-      <div id="officeEditScrollTop" class="shrink-0 overflow-x-auto overflow-y-hidden" aria-hidden="true">
-        <div id="officeEditScrollTopSpacer" class="h-px"></div>
-      </div>
-      <!-- 表本体：唯一の縦横スクロール領域。thead を sticky top で、先頭=日付列を sticky left で固定する -->
-      <div id="officeEditScrollBody" class="mt-1 min-h-0 flex-auto overflow-auto rounded border border-slate-200">
-        <table class="w-full border-separate border-spacing-0 text-sm">
-          <thead><tr id="officeEditHead"></tr></thead>
-          <tbody id="officeEditBody"></tbody>
-        </table>
-      </div>
-      <label class="mt-4 block shrink-0 text-sm text-slate-700">修正内容のコメント（任意・通知に含まれます）
-        <textarea id="officeEditComment" class="mt-1 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="例：3日を有給休暇に修正しました"></textarea>
-      </label>
-      <div id="officeEditError" class="mt-2 hidden shrink-0 text-sm text-red-700"></div>
-    </div>
-    <div class="flex shrink-0 justify-end gap-2 border-t border-slate-200 px-5 py-4">
-      <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeOfficeEditModal()">キャンセル</button>
-      <button type="button" id="officeEditSubmit" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="submitOfficeEdit()">保存して通知</button>
-    </div>
-  </div>
-</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -140,28 +110,6 @@ const ACTION_LABELS = {
   return: '差戻し',
   office_edit: '報告書修正'
 };
-// 勤怠区分（種別）。明細行の kind キー。空＝勤務。講師フォーム・report_view・PDFと共有する不変キー。
-const ATTENDANCE_KIND_OPTIONS = [
-  {value: '', label: '勤務'},
-  {value: 'paid_leave', label: '有給'},
-  {value: 'absent', label: '欠勤'}
-];
-// 営業が報告書を修正できるステータス（事務と同条件。営業確認待ちが主対象）。
-const OFFICE_EDIT_STATUSES = new Set(['awaiting_office', 'awaiting_sales', 'returned_to_office']);
-// 報告書の保存済み列定義(snapshot)が無い旧データ用のフォールバック列。
-const OFFICE_EDIT_DEFAULT_COLUMNS = [
-  {key: 'date', label: '日付', type: 'date'},
-  {key: 'start', label: '業務開始時間', type: 'time'},
-  {key: 'end', label: '業務終了時間', type: 'time'},
-  {key: 'subject_period', label: '担当時限', type: 'text'},
-  {key: 'teach_minutes', label: '数学科指導（分）', type: 'number'},
-  {key: 'break_minutes', label: '休憩時間（分）', type: 'number'},
-  {key: 'commute_fee', label: '往復交通費（円）', type: 'number'},
-  {key: 'note', label: '内容', type: 'text'}
-];
-// 種別列は列定義に含まれないため、講師フォーム・参照ビュー同様に日付の直後へ差し込む。
-const OFFICE_EDIT_KIND = {key: 'kind', label: '種別', type: 'kind'};
-let officeEditReportId = '';
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 const PIPELINE_COLUMNS = [
@@ -634,7 +582,6 @@ function reportCard(report) {
         ${statusBadge(report.status)}
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        ${OFFICE_EDIT_STATUSES.has(report.status) ? `<button class="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100" onclick="openOfficeEditModal('${report.id}')">編集</button>` : ''}
         <button class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50" onclick="openReportWindow('${report.id}')">報告書を確認</button>
       </div>
     </div>
@@ -666,164 +613,6 @@ function attendanceSummaryHtml(reports) {
     <div>有給休暇：<span class="font-semibold text-amber-700">${c.paid}</span>回</div>
     <div>欠勤：<span class="font-semibold text-rose-700">${c.absent}</span>回</div>
   </div>`;
-}
-// 営業による報告書修正（事務修正と同じ /office-edit フロー。再承認不要・通知のみ）。
-function reportById(reportId) {
-  return allReports.find(report => report.id === reportId);
-}
-// 報告書の保存済み列定義(snapshot)で事務修正の列を決める（講師フォーム・参照ビューと同一の列）。
-// kind(種別)は列定義に含まれないため日付の直後へ差し込む。無い旧データはフォールバック列を使う。
-function officeEditColumns(report) {
-  const cols = report?.form_data?.meta?.column_definition;
-  const src = Array.isArray(cols) && cols.length ? cols : OFFICE_EDIT_DEFAULT_COLUMNS;
-  const out = [];
-  for (const col of src) {
-    out.push(col);
-    if (col.key === 'date') out.push(OFFICE_EDIT_KIND);
-  }
-  return out;
-}
-// 列ごとの幅(px)。table-layout:auto では td の min-width が無視されるため、
-// 各セルに width を、表自体に合計幅の min-width を与えて横スクロール(overflow-x-auto)を効かせる。
-function officeEditColWidth(col) {
-  if (col.type === 'kind') return 84;
-  if (col.type === 'count_minutes') return 132;
-  if (col.key === 'date') return 124;
-  if (col.key === 'start' || col.key === 'end') return 96;
-  if (col.key === 'subject_period') return 96;
-  if (col.key === 'note') return 160;
-  if (col.type === 'number') return 80;
-  return 112;
-}
-// 事務修正テーブルの入力セル。種別=セレクト、採点等=回/分の2入力、日付/時刻/数値/文字は型に応じた input。
-function officeEditCellInput(col, index, line) {
-  const id = `oe_${index}_${col.key}`;
-  const cls = 'w-full rounded border border-slate-200 px-1 py-1 text-xs focus:border-emerald-500 focus:outline-none';
-  if (col.type === 'kind') {
-    const current = line.kind || '';
-    const opts = ATTENDANCE_KIND_OPTIONS.map(o => `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`).join('');
-    return `<select id="${id}" class="${cls}">${opts}</select>`;
-  }
-  if (col.type === 'count_minutes') {
-    return `<div class="flex items-center gap-1">
-      <input id="${id}__c" type="number" min="0" step="1" value="${escapeHtml(line[col.count_key] ?? '')}" class="${cls}">
-      <span class="whitespace-nowrap text-[10px] text-slate-500">${escapeHtml(col.unit || '回')}/</span>
-      <input id="${id}__m" type="number" min="0" step="1" value="${escapeHtml(line[col.minutes_key] ?? '')}" class="${cls}">
-      <span class="text-[10px] text-slate-500">分</span>
-    </div>`;
-  }
-  const inputType = col.key === 'date' ? 'date'
-    : (col.key === 'start' || col.key === 'end') ? 'time'
-    : (col.type === 'number' && col.key !== 'subject_period') ? 'number' : 'text';
-  const numAttr = inputType === 'number' ? 'min="0" step="1"' : '';
-  return `<input id="${id}" type="${inputType}" ${numAttr} value="${escapeHtml(line[col.key] ?? '')}" class="${cls}">`;
-}
-// 上部の横スクロールバーと表本体のスクロール位置を双方向同期する。
-// listener は一度だけ登録し、スペーサ幅は開くたびに表の実幅へ合わせる。
-function syncOfficeEditScroll() {
-  const top = document.getElementById('officeEditScrollTop');
-  const body = document.getElementById('officeEditScrollBody');
-  const spacer = document.getElementById('officeEditScrollTopSpacer');
-  if (!top || !body || !spacer) return;
-  if (!top.dataset.synced) {
-    top.dataset.synced = '1';
-    // 値が異なるときだけ書き戻すことで scroll イベントの無限ループを防ぐ。
-    top.addEventListener('scroll', () => { if (body.scrollLeft !== top.scrollLeft) body.scrollLeft = top.scrollLeft; });
-    body.addEventListener('scroll', () => { if (top.scrollLeft !== body.scrollLeft) top.scrollLeft = body.scrollLeft; });
-  }
-  // モーダル表示後にスペーサ幅を更新。表本体は縦スクロールバー分だけ可視幅が狭いため、
-  // その差(top.clientWidth - body.clientWidth)を加味して上部バーと本体の横スクロール量を一致させる。
-  spacer.style.width = (body.scrollWidth + top.clientWidth - body.clientWidth) + 'px';
-}
-function openOfficeEditModal(reportId) {
-  const report = reportById(reportId);
-  if (!report) return;
-  officeEditReportId = reportId;
-  const cols = officeEditColumns(report);
-  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
-  const headTr = document.getElementById('officeEditHead');
-  const widths = cols.map(col => officeEditColWidth(col));
-  const table = headTr.closest('table');
-  if (table) table.style.minWidth = widths.reduce((sum, w) => sum + w, 0) + 'px';
-  // 見出し行は縦スクロールで固定(sticky top)。先頭=日付列は横スクロールでも固定(sticky left)。角セルは最前面(z-30)。
-  headTr.innerHTML =
-    cols.map((col, ci) => {
-      const pos = ci === 0 ? 'sticky left-0 top-0 z-30' : 'sticky top-0 z-20';
-      return `<th style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`;
-    }).join('');
-  // 先頭=日付列は横スクロールで固定(sticky left)。固定セルは下層が透けないよう不透明背景(bg-white)にする。
-  document.getElementById('officeEditBody').innerHTML = lines.length
-    ? lines.map((line, i) => `<tr>${cols.map((col, ci) => {
-        const pos = ci === 0 ? 'sticky left-0 z-10 bg-white' : '';
-        return `<td style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`;
-      }).join('')}</tr>`).join('')
-    : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + cols.length + '">編集可能な明細行がありません。</td></tr>';
-  document.getElementById('officeEditComment').value = '';
-  document.getElementById('officeEditError').classList.add('hidden');
-  const modal = document.getElementById('officeEditModal');
-  modal.classList.remove('hidden');
-  modal.classList.add('flex');
-  syncOfficeEditScroll();
-}
-function closeOfficeEditModal() {
-  officeEditReportId = '';
-  const modal = document.getElementById('officeEditModal');
-  modal.classList.add('hidden');
-  modal.classList.remove('flex');
-}
-async function submitOfficeEdit() {
-  const report = reportById(officeEditReportId);
-  if (!report) return;
-  const err = document.getElementById('officeEditError');
-  const cols = officeEditColumns(report);
-  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
-  // 業務系キー（種別・日付・内容以外）。有給/欠勤に変更した行ではクリアする。
-  const workKeys = [];
-  cols.forEach(col => {
-    if (col.type === 'kind' || col.key === 'date' || col.key === 'note') return;
-    if (col.type === 'count_minutes') workKeys.push(col.count_key, col.minutes_key);
-    else workKeys.push(col.key);
-  });
-  const newLines = lines.map((line, i) => {
-    const updated = {...line};
-    cols.forEach(col => {
-      if (col.type === 'count_minutes') {
-        const cEl = document.getElementById(`oe_${i}_${col.key}__c`);
-        const mEl = document.getElementById(`oe_${i}_${col.key}__m`);
-        if (cEl) updated[col.count_key] = cEl.value === '' ? '' : Number(cEl.value);
-        if (mEl) updated[col.minutes_key] = mEl.value === '' ? '' : Number(mEl.value);
-        return;
-      }
-      const el = document.getElementById(`oe_${i}_${col.key}`);
-      if (!el) return;
-      const raw = el.value;
-      const isNum = col.type === 'number' && col.key !== 'subject_period';
-      updated[col.key] = isNum ? (raw === '' ? 0 : Number(raw)) : raw;
-    });
-    // 有給休暇・欠勤に変更した行は業務セルをクリアする（日付・内容・種別は残す）
-    if (updated.kind === 'paid_leave' || updated.kind === 'absent') {
-      workKeys.forEach(key => { updated[key] = (typeof updated[key] === 'number') ? 0 : ''; });
-    }
-    return updated;
-  });
-  const formData = {...(report.form_data || {}), lines: newLines};
-  const comment = document.getElementById('officeEditComment').value.trim();
-  const btn = document.getElementById('officeEditSubmit');
-  btn.disabled = true;
-  try {
-    await api(`/api/w/reports/${officeEditReportId}/office-edit`, {
-      method: 'PATCH',
-      body: JSON.stringify({form_data: formData, comment: comment || null})
-    });
-    showToast('報告書を修正し、講師・学校へ通知しました', 'success');
-    closeOfficeEditModal();
-    await loadAdmin();
-  } catch (error) {
-    err.textContent = error.message || '修正できませんでした';
-    err.classList.remove('hidden');
-  } finally {
-    btn.disabled = false;
-  }
 }
 function showDetails(key) {
   openCardKey = key;

@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from app.forms.definitions import get_form
 from app.models.work import WorkReport
-from app.services.report_service import ATTENDANCE_LABELS, attendance_counts, is_leave_kind
+from app.services.report_service import ATTENDANCE_LABELS, is_leave_kind
 
 _PDF_FONT_NAME = "WorkReportFont"
 _PDF_FONT_REGISTERED = False
@@ -48,26 +48,80 @@ def _register_font() -> str:
 # 長文・複数値で横にはみ出し得る列は Paragraph で折り返す（内容・担当時限）。
 _PDF_WRAP_KEYS = ("note", "subject_period")
 
+# 種別列。スナップショット列定義(form_data.meta.column_definition)には含まれないため、
+# 講師フォーム・参照ビュー(report_view)・PDF で共通して日付の直後へ差し込む。
+_KIND_COLUMN = {"key": "kind", "label": "種別", "type": "kind"}
+# date.weekday() は月=0。参照ビューと同じ曜日表記にするための並び。
+_PDF_WEEKDAYS = ["月", "火", "水", "木", "金", "土", "日"]
 
-def _pdf_cell(column_key: str, value, cell_style):
+
+def _weekday(date_str) -> str:
+    try:
+        return _PDF_WEEKDAYS[date.fromisoformat(str(date_str)).weekday()]
+    except (TypeError, ValueError):
+        return ""
+
+
+def _int(value) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _has_data(line: dict) -> bool:
+    """記入のある行か（参照ビューの hasData と同条件。種別のみの行も対象に含む）。"""
+    return isinstance(line, dict) and any(str(value).strip() for value in line.values())
+
+
+def _snapshot_columns(report: WorkReport) -> list[dict]:
+    """報告書に保存された列定義スナップショット(form_data.meta.column_definition)を返す。
+
+    参照ビュー(report_view)・CSV と同じ列・値・集計で出力するための唯一の情報源。
+    動的列（担当業務①〜③・副業務①〜⑤・採点）はここに保存されている。
+    スナップショットの無い旧データは静的フォーム定義へフォールバックする。
+    """
+    meta = (report.form_data or {}).get("meta") or {}
+    cols = meta.get("column_definition")
+    if isinstance(cols, list) and cols:
+        return cols
+    form = get_form(report.form_type)
+    return [
+        {"key": c.key, "label": c.label, "type": c.type, "summable": c.summable}
+        for c in form.columns
+    ]
+
+
+def _pdf_cell(column: dict, text, cell_style):
     """セル値を返す。折り返し対象列は Paragraph（XMLエスケープ＋改行→<br/>）にして枠内に収める。"""
     from xml.sax.saxutils import escape
     from reportlab.platypus import Paragraph
 
-    text = str(value if value is not None else "")
-    if column_key in _PDF_WRAP_KEYS and text.strip():
+    text = str(text if text is not None else "")
+    if column.get("key") in _PDF_WRAP_KEYS and text.strip():
         return Paragraph(escape(text).replace("\n", "<br/>"), cell_style)
     return text
 
 
-def _display_columns(form) -> list[tuple[str, str]]:
-    """フォーム列に勤怠区分（種別）を日付の直後へ差し込んだ表示列 [(key, label), ...] を返す。"""
-    columns: list[tuple[str, str]] = []
-    for column in form.columns:
-        columns.append((column.key, column.label))
-        if column.key == "date":
-            columns.append(("kind", "種別"))
-    return columns
+def _display_columns(report: WorkReport) -> list[dict]:
+    """表示列。日付の直後に種別を差し込み、開始/終了を1列(業務開始〜終了時間)へ結合する。
+
+    参照ビュー(report_view.html)の displayColumns と同一の並び・列にする。
+    """
+    src = _snapshot_columns(report)
+    out: list[dict] = []
+    i = 0
+    while i < len(src):
+        col = src[i]
+        if col.get("key") == "start" and i + 1 < len(src) and src[i + 1].get("key") == "end":
+            out.append({"key": "__timerange", "label": "業務開始〜終了時間", "type": "timerange"})
+            i += 2
+            continue
+        out.append(col)
+        if col.get("key") == "date":
+            out.append(_KIND_COLUMN)
+        i += 1
+    return out
 
 
 def _kind_cell_value(line: dict) -> str:
@@ -81,75 +135,162 @@ def _kind_cell_value(line: dict) -> str:
     return "勤務" if has_data else ""
 
 
-def _col_widths(display_cols: list[tuple[str, str]], mm, avail_width):
-    """表示列に応じた列幅。内容(note)列を伸縮列とし、残り幅を割り当てる。"""
-    widths = []
-    for key, _ in display_cols:
+def _cell_text(line: dict, column: dict) -> str:
+    """1セルの表示文字列。参照ビュー(report_view)の cell() と同じ表記にする。"""
+    ctype = column.get("type")
+    key = column.get("key")
+    if ctype == "date":
+        value = line.get(key) or ""
+        wd = _weekday(value)
+        return f"{value}（{wd}）" if value and wd else str(value)
+    if ctype == "kind":
+        return _kind_cell_value(line)
+    if ctype == "timerange":
+        start = line.get("start") or ""
+        end = line.get("end") or ""
+        return f"{start}〜{end}" if (start or end) else ""
+    if ctype == "count_minutes":
+        count = line.get(column.get("count_key"))
+        minutes = line.get(column.get("minutes_key"))
+        if count in (None, "") and minutes in (None, ""):
+            return ""
+        unit = column.get("unit") or "回"
+        return f"{_int(count):,}{unit} / {_int(minutes):,}分"
+    value = line.get(key)
+    if ctype == "number":
+        return "" if value in (None, "") else str(value)
+    return str(value) if value is not None else ""
+
+
+def _is_numeric_column(column: dict) -> bool:
+    return column.get("type") in ("number", "count_minutes")
+
+
+def _col_widths(display_cols: list[dict], mm, avail_width):
+    """表示列(+先頭「回」列)の列幅。内容(note)を伸縮列とし、列が多い場合は比例縮小して収める。"""
+    min_note = 28 * mm
+    widths: list = [9 * mm]  # 先頭「回」列
+    note_index = None
+    for col in display_cols:
+        key, ctype = col.get("key"), col.get("type")
         if key == "note":
             widths.append(None)
-        elif key == "kind":
+            note_index = len(widths) - 1
+        elif ctype == "kind":
             widths.append(14 * mm)
+        elif ctype == "timerange":
+            widths.append(28 * mm)
+        elif ctype == "count_minutes":
+            widths.append(28 * mm)
         elif key == "date":
-            widths.append(20 * mm)
+            widths.append(22 * mm)
+        elif key == "subject_period":
+            widths.append(16 * mm)
+        elif ctype == "number":
+            widths.append(16 * mm)
         else:
-            widths.append(17 * mm)
-    if None in widths:
-        filled = sum(w for w in widths if w is not None)
-        widths[widths.index(None)] = max(20 * mm, avail_width - filled)
+            widths.append(20 * mm)
+    fixed_sum = sum(w for w in widths if w is not None)
+    if note_index is not None:
+        note_w = avail_width - fixed_sum
+        if note_w < min_note:
+            # 列が多すぎて入りきらない場合は固定列を比例縮小し、内容列を最小幅で確保する
+            scale = max(0.5, (avail_width - min_note) / fixed_sum)
+            widths = [(w * scale if w is not None else None) for w in widths]
+            note_w = min_note
+        widths[note_index] = note_w
+    else:
+        total = sum(widths)
+        if total > avail_width:
+            scale = avail_width / total
+            widths = [w * scale for w in widths]
     return widths
 
 
-def _attendance_summary_text(lines: list[dict]) -> str:
-    counts = attendance_counts(lines)
-    return (
-        f"勤務日数：{counts['work_days']}日　"
-        f"有給休暇：{counts['paid_leave']}回　欠勤：{counts['absent']}回"
-    )
+def _summary_parts(report: WorkReport, lines: list[dict]) -> list[str]:
+    """勤怠サマリ（勤務日数/有給/欠勤）＋集計可能列の合計。参照ビューの summary と同一。"""
+    filtered = [line for line in lines if _has_data(line)]
+    work_lines = [line for line in filtered if not is_leave_kind(line.get("kind"))]
+    paid = sum(1 for line in filtered if line.get("kind") == "paid_leave")
+    absent = sum(1 for line in filtered if line.get("kind") == "absent")
+    parts = [
+        f"勤務日数：{len(work_lines)}日",
+        f"有給休暇：{paid}回",
+        f"欠勤：{absent}回",
+    ]
+    # 集計はスナップショット列の summable 列のみ。勤務行（有給/欠勤を除く）で合計する。
+    for col in _snapshot_columns(report):
+        if not col.get("summable"):
+            continue
+        if col.get("type") == "count_minutes":
+            cnt = sum(_int(line.get(col.get("count_key"))) for line in work_lines)
+            mn = sum(_int(line.get(col.get("minutes_key"))) for line in work_lines)
+            unit = col.get("unit") or "回"
+            parts.append(f"{col.get('label')}：{cnt:,}{unit} / {mn:,}分")
+        else:
+            total = sum(_int(line.get(col.get("key"))) for line in work_lines)
+            parts.append(f"{col.get('label')}：{total:,}")
+    return parts
 
 
 def _report_table_story(report: WorkReport, font_name: str, styles, cell_style, header_style) -> list:
-    """1報告書分の明細テーブル＋勤怠サマリ行（種別・取得回数・欠勤回数）を返す。"""
+    """1報告書分の明細テーブル＋勤怠サマリを返す（参照ビューと同一の列・値・集計）。"""
     from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
-    form = get_form(report.form_type)
     lines: list[dict] = list((report.form_data or {}).get("lines", []))
-    display_cols = _display_columns(form)
+    filtered = [line for line in lines if _has_data(line)]
+    display_cols = _display_columns(report)
 
-    rows = [[Paragraph(label, header_style) for _, label in display_cols]]
-    for line in lines:
-        rows.append([
-            _pdf_cell(key, _kind_cell_value(line) if key == "kind" else line.get(key, ""), cell_style)
-            for key, _ in display_cols
-        ])
+    header_cells = [Paragraph("回", header_style)]
+    header_cells += [Paragraph(col.get("label", ""), header_style) for col in display_cols]
+    rows = [header_cells]
+    for index, line in enumerate(filtered, start=1):
+        row = [str(index)]
+        row += [_pdf_cell(col, _cell_text(line, col), cell_style) for col in display_cols]
+        rows.append(row)
 
-    # 合計行（勤務行のみ集計。有給/欠勤行は勤務時間を持たない）
-    totals = [""] * len(display_cols)
-    totals[0] = "合計"
-    for key in form.summable_keys:
-        col_index = next((i for i, (k, _) in enumerate(display_cols) if k == key), None)
-        if col_index is not None:
-            try:
-                totals[col_index] = str(
-                    sum(int(line.get(key, 0) or 0) for line in lines if not is_leave_kind(line.get("kind")))
-                )
-            except (ValueError, TypeError):
-                pass
-    rows.append(totals)
-
-    avail_width = A4[0] - 32 * mm
-    table = Table(rows, colWidths=_col_widths(display_cols, mm, avail_width), repeatRows=1)
-    table.setStyle(TableStyle([
+    style = [
         ("FONTNAME", (0, 0), (-1, -1), font_name),
         ("FONTSIZE", (0, 0), (-1, -1), 8),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eeeeee")),
         ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#777777")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#f7f7f7")),
-    ]))
-    return [table, Spacer(1, 2 * mm), Paragraph(_attendance_summary_text(lines), styles["Normal"])]
+        ("ALIGN", (0, 1), (0, -1), "CENTER"),  # 「回」列は中央寄せ
+    ]
+    if filtered:
+        # 数値列（数値・採点）は右寄せ。先頭の「回」列ぶん +1 する。
+        for col_index, col in enumerate(display_cols, start=1):
+            if _is_numeric_column(col):
+                style.append(("ALIGN", (col_index, 1), (col_index, -1), "RIGHT"))
+    else:
+        empty_row = [""] * (len(display_cols) + 1)
+        empty_row[1 if display_cols else 0] = Paragraph("入力された指導日はありません。", cell_style)
+        rows.append(empty_row)
+        style.append(("SPAN", (1, 1), (-1, 1)))
+
+    avail_width = landscape(A4)[0] - 24 * mm
+    table = Table(rows, colWidths=_col_widths(display_cols, mm, avail_width), repeatRows=1)
+    table.setStyle(TableStyle(style))
+    summary = "　".join(_summary_parts(report, lines))
+    return [table, Spacer(1, 2 * mm), Paragraph(summary, styles["Normal"])]
+
+
+def _meta_line(report: WorkReport) -> str:
+    """参照ビュー上部の補足情報（弊社担当・事業所の所在地・従事業務内容）を1行にまとめる。"""
+    meta = (report.form_data or {}).get("meta") or {}
+    parts = []
+    for label, key in (
+        ("弊社担当", "our_staff"),
+        ("事業所の所在地", "dispatch_place_address"),
+        ("従事業務内容", "work_content"),
+    ):
+        value = meta.get(key)
+        if value not in (None, ""):
+            parts.append(f"{label}：{value}")
+    return "　".join(parts)
 
 
 def _make_styles(font_name: str):
@@ -173,25 +314,25 @@ def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> 
     month_label = f"{year}年{int(month_str):02d}月"
 
     try:
-        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import mm
         from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
     except ModuleNotFoundError as exc:
         raise RuntimeError("reportlab is not installed") from exc
 
     styles, cell_style, header_style = _make_styles(font_name)
-    header: dict = report.form_data.get("header", {})
+    meta_line = _meta_line(report)
 
+    # 動的列（担当業務・副業務・採点）で横に広くなるため横向きで出力する。
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=A4, rightMargin=16 * mm, leftMargin=16 * mm,
-                            topMargin=20 * mm, bottomMargin=20 * mm, title="指導実績")
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), rightMargin=12 * mm, leftMargin=12 * mm,
+                            topMargin=16 * mm, bottomMargin=16 * mm, title="指導実績")
     story = [
         Paragraph(f"指導実績　{student_name}　{tutor_name}　{month_label}", styles["Title"]),
         Spacer(1, 4 * mm),
     ]
-    if header:
-        header_text = "　".join(f"{k}：{v}" for k, v in header.items())
-        story.append(Paragraph(header_text, styles["Normal"]))
+    if meta_line:
+        story.append(Paragraph(meta_line, styles["Normal"]))
         story.append(Spacer(1, 3 * mm))
     story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
     doc.build(story)
@@ -206,7 +347,7 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
     month_label = f"{year}年{int(month_str):02d}月"
 
     try:
-        from reportlab.lib.pagesizes import A4
+        from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import mm
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
     except ModuleNotFoundError as exc:
@@ -214,14 +355,15 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
 
     styles, cell_style, header_style = _make_styles(font_name)
 
+    # 動的列（担当業務・副業務・採点）で横に広くなるため横向きで出力する。
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
         buf,
-        pagesize=A4,
-        rightMargin=16 * mm,
-        leftMargin=16 * mm,
-        topMargin=20 * mm,
-        bottomMargin=20 * mm,
+        pagesize=landscape(A4),
+        rightMargin=12 * mm,
+        leftMargin=12 * mm,
+        topMargin=16 * mm,
+        bottomMargin=16 * mm,
         title="指導実績",
     )
     story = []
@@ -229,14 +371,13 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
     for index, (report, student_name, tutor_name) in enumerate(reports):
         if index:
             story.append(PageBreak())
-        header: dict = (report.form_data or {}).get("header", {})
+        meta_line = _meta_line(report)
         story.extend([
             Paragraph(f"指導実績　{student_name}　{tutor_name}　{month_label}", styles["Title"]),
             Spacer(1, 4 * mm),
         ])
-        if header:
-            header_text = "　".join(f"{k}：{v}" for k, v in header.items())
-            story.append(Paragraph(header_text, styles["Normal"]))
+        if meta_line:
+            story.append(Paragraph(meta_line, styles["Normal"]))
             story.append(Spacer(1, 3 * mm))
         story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
 
