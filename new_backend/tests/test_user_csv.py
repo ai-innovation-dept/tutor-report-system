@@ -124,7 +124,7 @@ class TestImportUpdate:
         uid = _make_user("old@new.example.com", "50010", name="旧名")
         res = _import(client, [{uis.NO: "50010", uis.EMAIL: "new@new.example.com", uis.NAME: "新名"}], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 1, "created": 0, "updated": 1}
+        assert res.json() == {"imported": 1, "created": 0, "revived": 0, "updated": 1}
         db = TestSession()
         u = db.get(User, uid)
         assert u.email == "new@new.example.com"
@@ -224,7 +224,7 @@ class TestImportCreate:
         from app.core.security import verify_password
         res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "newoffice@new.example.com", uis.NAME: "新人事務"}], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 1, "created": 1, "updated": 0}
+        assert res.json() == {"imported": 1, "created": 1, "revived": 0, "updated": 0}
         db = TestSession()
         u = db.scalar(select(User).where(User.email == "newoffice@new.example.com"))
         assert u is not None
@@ -264,7 +264,7 @@ class TestImportCreate:
             {uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "brandnew@new.example.com", uis.NAME: "新営業"},  # 新規
         ], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 2, "created": 1, "updated": 1}
+        assert res.json() == {"imported": 2, "created": 1, "revived": 0, "updated": 1}
         db = TestSession()
         assert db.get(User, uid).email == "upd2@new.example.com"
         assert db.scalar(select(User).where(User.email == "brandnew@new.example.com")) is not None
@@ -275,4 +275,96 @@ class TestImportCreate:
         assert res.status_code == 200, res.text
         db = TestSession()
         assert db.scalar(select(User).where(User.email == "mixed@new.example.com")) is not None
+        db.close()
+
+
+# --------------------------------------------------------------------------- #
+# ① 削除済みメールの再利用（同一アカウントの復活）
+# --------------------------------------------------------------------------- #
+class TestDeletedEmailReuse:
+    def test_new_row_with_deleted_email_revives_account(self, client, master_user):
+        """削除済みユーザーのメールを新規作成行(No空欄)で取り込むと同一アカウントを復活させる。"""
+        from app.core.security import verify_password
+        uid = _make_user("gone@new.example.com", "50005", name="旧人", roles=("office",), deleted=True)
+        res = _import(client, [{
+            uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "gone@new.example.com", uis.NAME: "復活太郎",
+        }], _auth(client))
+        assert res.status_code == 200, res.text
+        assert res.json() == {"imported": 1, "created": 0, "revived": 1, "updated": 0}
+        db = TestSession()
+        # 同一アカウント(id不変)が復活し、ロール・氏名はCSVの内容に更新される。
+        u = db.get(User, uid)
+        assert u.deleted_at is None
+        assert u.is_active is True
+        assert u.roles == ["sales"] and u.role == "sales"
+        assert u.display_name == "復活太郎"
+        assert u.must_change_password is True
+        assert verify_password("Passw0rd!", u.password_hash)
+        assert "new" in (u.allowed_systems or [])
+        assert u.user_no and 50001 <= int(u.user_no) <= 59999
+        # メールアドレスの行は重複せず1件のまま（別行を作らない）。
+        holders = db.scalars(select(User).where(User.email == "gone@new.example.com")).all()
+        assert len(holders) == 1 and holders[0].id == uid
+        db.close()
+
+    def test_new_row_with_active_email_still_errors(self, client, master_user):
+        """有効ユーザーのメールは新規作成行でも再利用できない（衝突エラー）。"""
+        _make_user("live@new.example.com", "50005", name="現役", roles=("office",))
+        res = _import(client, [{
+            uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "live@new.example.com", uis.NAME: "別人",
+        }], _auth(client))
+        assert res.status_code == 400
+        assert "live@new.example.com" in " ".join(res.json()["detail"]["errors"])
+
+    def test_update_row_to_deleted_email_is_guided_error(self, client, master_user):
+        """更新行が削除済みメールを要求した場合は、新規作成行での再利用を案内するエラー。"""
+        _make_user("dgone@new.example.com", "50006", name="削除済み", roles=("office",), deleted=True)
+        _make_user("u@new.example.com", "50007", name="現役U", roles=("office",))
+        res = _import(client, [{uis.NO: "50007", uis.EMAIL: "dgone@new.example.com", uis.NAME: "現役U"}], _auth(client))
+        assert res.status_code == 400
+        joined = " ".join(res.json()["detail"]["errors"])
+        assert "削除済み" in joined and "新規作成行" in joined
+
+
+# --------------------------------------------------------------------------- #
+# ② No自動採番：未使用の最小番号を埋める／削除済みのNoを再利用する
+# --------------------------------------------------------------------------- #
+class TestNumberingGapFill:
+    def test_new_number_fills_smallest_gap(self, client, master_user):
+        """歯抜けの若いNoを優先採番する（max+1ではない）。"""
+        # master_user=50001。50002・50004を使用済みにすると最小の空きは50003。
+        _make_user("a@new.example.com", "50002", roles=("office",))
+        _make_user("b@new.example.com", "50004", roles=("office",))
+        res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "gap@new.example.com", uis.NAME: "穴埋め"}], _auth(client))
+        assert res.status_code == 200, res.text
+        db = TestSession()
+        u = db.scalar(select(User).where(User.email == "gap@new.example.com"))
+        assert u.user_no == "50003"
+        db.close()
+
+    def test_new_number_reuses_deleted_no(self, client, master_user):
+        """削除済みユーザーのNoは解放され、次の新規作成で再利用される。"""
+        # master_user=50001。50002は削除済み→解放。最小の空きは50002。
+        _make_user("del@new.example.com", "50002", roles=("office",), deleted=True)
+        res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "fresh@new.example.com", uis.NAME: "新人"}], _auth(client))
+        assert res.status_code == 200, res.text
+        db = TestSession()
+        u = db.scalar(select(User).where(User.email == "fresh@new.example.com"))
+        assert u.user_no == "50002"
+        db.close()
+
+    def test_consecutive_creates_get_distinct_numbers(self, client, master_user):
+        """同一CSV内の複数新規作成が連番で別々のNoになる（採番の二重付与なし）。"""
+        res = _import(client, [
+            {uis.NO: "", uis.ROLE: "office", uis.EMAIL: "n1@new.example.com", uis.NAME: "一"},
+            {uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "n2@new.example.com", uis.NAME: "二"},
+        ], _auth(client))
+        assert res.status_code == 200, res.text
+        assert res.json()["created"] == 2
+        db = TestSession()
+        nos = {
+            db.scalar(select(User).where(User.email == "n1@new.example.com")).user_no,
+            db.scalar(select(User).where(User.email == "n2@new.example.com")).user_no,
+        }
+        assert nos == {"50002", "50003"}  # master_user=50001 の次から連番
         db.close()

@@ -30,15 +30,29 @@ _NO_RANGE: dict[str, tuple[int, str]] = {
 
 
 def generate_user_no(db: Session, role: str) -> str:
-    """ロール別番号帯でuser_noを採番する。既存user_noと未受諾招待を参照して重複を防ぐ。"""
+    """ロール別番号帯で「未使用の最小番号」を採番する。
+
+    既存（未削除）user_noと未受諾招待を参照して重複を防ぐ。帯内で歯抜けになっている
+    若い番号があればそれを優先して埋める（max+1ではない）。
+    削除済み（ソフトデリート）ユーザーのNoは解放済みとして扱い、再利用の対象に含める。
+    """
     start, prefix = _NO_RANGE.get(role, (10001, ""))
 
-    existing: list[str | None] = list(db.scalars(select(User.user_no).where(User.user_no.is_not(None))).all())
+    # 削除済みユーザーのNoは予約しない（再利用可能にする）。
+    existing: list[str | None] = list(
+        db.scalars(
+            select(User.user_no).where(User.user_no.is_not(None), User.deleted_at.is_(None))
+        ).all()
+    )
     # tutor は legacy の tutor_no も参照して衝突を防ぐ
     if role == "tutor":
-        existing += list(db.scalars(select(User.tutor_no).where(User.tutor_no.is_not(None))).all())
+        existing += list(
+            db.scalars(
+                select(User.tutor_no).where(User.tutor_no.is_not(None), User.deleted_at.is_(None))
+            ).all()
+        )
 
-    # 未受諾招待のtutor_noカラム（user_noを格納済み）
+    # 未受諾招待のtutor_noカラム（user_noを格納済み）。採番済みの予約として扱う。
     pending: list[str | None] = list(
         db.scalars(
             select(Invitation.tutor_no).where(
@@ -48,7 +62,7 @@ def generate_user_no(db: Session, role: str) -> str:
         ).all()
     )
 
-    max_no = start - 1
+    used: set[int] = set()
     for no in [*existing, *pending]:
         s = str(no) if no else ""
         if prefix:
@@ -61,12 +75,16 @@ def generate_user_no(db: Session, role: str) -> str:
             value = s
         try:
             num = int(value)
-            if start <= num <= start + 9999:
-                max_no = max(max_no, num)
         except ValueError:
             continue
+        if start <= num <= start + 9999:
+            used.add(num)
 
-    return f"{prefix}{max_no + 1}"
+    # 帯の先頭から走査し、未使用の最小番号を返す。
+    candidate = start
+    while candidate in used:
+        candidate += 1
+    return f"{prefix}{candidate}"
 
 
 def get_user_by_email(db: Session, email: str) -> User | None:
@@ -123,5 +141,32 @@ def create_initial_user(db: Session, role: str, email: str, display_name: str) -
         must_change_password=True,
     )
     db.add(user)
+    return user
+
+
+def revive_user(db: Session, user: User, role: str, email: str, display_name: str) -> User:
+    """ソフトデリート済みユーザーを同一アカウントのまま復活させる（CSV新規作成行でメール再利用時）。
+
+    email は一意制約のため別アカウントとして作り直せない。既存の招待再登録フローと同様に、
+    同一アカウントを復活させ、過去の報告書履歴を同一人物のものとして引き継ぐ。
+    ロール・氏名はCSVの内容で初期化し、初期パスワード(Passw0rd!)＋初回ログイン時の変更必須を設定する。
+    user_no は採番し直す（旧Noが既に他ユーザーに再利用されている場合の衝突を避ける。
+    旧Noが空いていればそのまま再取得される）。呼び出し側でメール・ロールを検証済みであること。
+    """
+    from app.core.security import hash_password
+
+    # まだ deleted_at が立っているうちに採番すると、旧Noが空いていれば再取得・埋まっていれば別の空き番号になる。
+    user_no = generate_user_no(db, role)
+    user.user_no = user_no
+    user.tutor_no = user_no if role == "tutor" else None  # legacy 互換
+    user.deleted_at = None
+    user.is_active = True
+    user.role = role
+    user.roles = [role]
+    user.allowed_systems = allowed_systems_for_role(role)
+    user.display_name = display_name
+    user.email = email.strip().lower()
+    user.password_hash = hash_password(INITIAL_PASSWORD)
+    user.must_change_password = True
     return user
 

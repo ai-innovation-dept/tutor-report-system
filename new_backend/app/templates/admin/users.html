@@ -596,7 +596,8 @@ async function importCsv(file) {
   let body = {};
   try { body = await res.json(); } catch (_) {}
   if (res.ok) {
-    showToast(`${body.imported}件を取り込みました（新規${body.created}／更新${body.updated}）`, 'success');
+    const revivedText = body.revived ? `／復活${body.revived}` : '';
+    showToast(`${body.imported}件を取り込みました（新規${body.created}／更新${body.updated}${revivedText}）`, 'success');
     await loadUsersPage();
     return;
   }

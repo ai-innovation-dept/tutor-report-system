@@ -14,7 +14,7 @@ from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import user_import_service
-from app.services.user_service import create_initial_user
+from app.services.user_service import create_initial_user, revive_user
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
 
@@ -156,7 +156,8 @@ def import_users(
 
     No一致の既存ユーザー → メール・氏名のみ上書き更新。
     No空欄の行 → 新規作成（ロール必須、user_no自動採番、初期パスワード Passw0rd!、初回ログイン時変更必須）。
-    メールは他ユーザー／同一CSV内で重複しないことを検証する。
+    　ただしメールが削除済みユーザーのものなら、その同一アカウントを復活させる（履歴を引き継ぐ）。
+    メールは他の有効ユーザー／同一CSV内で重複しないことを検証する。
     """
     try:
         rows = user_import_service.parse_rows(file.file.read())
@@ -202,15 +203,28 @@ def import_users(
             email_line[key] = item["line"]
     targets = [*updates, *creates]
     if targets:
+        # email は一意制約のため、1メールにつき最大1ユーザー（削除済みを含む）しか保持しない。
         lowered = list({item["email"].lower() for item in targets})
         existing = db.scalars(select(User).where(func.lower(User.email).in_(lowered))).all()
-        holders: dict[str, list[User]] = {}
-        for u in existing:
-            holders.setdefault(u.email.lower(), []).append(u)
+        holder_by_email: dict[str, User] = {u.email.lower(): u for u in existing}
         for item in targets:
+            holder = holder_by_email.get(item["email"].lower())
+            if holder is None:
+                continue
             self_id = item["user"].id if "user" in item else None  # 更新行は自分自身を許容
-            if any(h.id != self_id for h in holders.get(item["email"].lower(), [])):
+            if holder.id == self_id:
+                continue
+            if holder.deleted_at is None:
                 errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
+            elif "user" in item:
+                # 更新行が削除済みユーザーのメールを要求：復活は新規作成行（No空欄）でのみ対応する。
+                errors.append(
+                    f"{item['line']}行目: メールアドレス「{item['email']}」は削除済みユーザーが使用しています。"
+                    "再利用するにはNo欄を空にして新規作成行として取り込んでください"
+                )
+            else:
+                # 新規作成行のメールが削除済みユーザーのもの：同一アカウントを復活させる。
+                item["revive"] = holder
 
     if errors:
         raise HTTPException(status_code=400, detail={
@@ -226,10 +240,19 @@ def import_users(
     for item in updates:
         item["user"].email = item["email"]
         item["user"].display_name = item["name"]
+    created = 0
+    revived = 0
     for item in creates:
-        create_initial_user(db, item["role"], item["email"], item["name"])
+        holder = item.get("revive")
+        if holder is not None:
+            revive_user(db, holder, item["role"], item["email"], item["name"])
+            revived += 1
+        else:
+            create_initial_user(db, item["role"], item["email"], item["name"])
+            created += 1
+        db.flush()  # 連続採番が直前に確定したNoを未使用判定に反映できるようにする
     db.commit()
-    return {"imported": len(targets), "created": len(creates), "updated": len(updates)}
+    return {"imported": len(targets), "created": created, "revived": revived, "updated": len(updates)}
 
 
 @router.patch("/{user_id}", response_model=UserOut)
