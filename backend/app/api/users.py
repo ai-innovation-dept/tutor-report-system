@@ -2,8 +2,9 @@
 import secrets
 import math
 from datetime import datetime, timezone
+from urllib.parse import quote
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, HTTPException, Request, Response, UploadFile
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,6 +15,8 @@ from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, User
 from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
 from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
+from app.services import user_import_service
+from app.services.user_import_service import create_initial_user, revive_user
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -29,6 +32,141 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db), _: User = De
     db.commit()
     db.refresh(user)
     return {"user": UserOut.model_validate(user), "initial_password": password}
+
+
+# 受付担当ロール以上で利用できるCSV一括エクスポート/取り込み。
+# 注意: ルーティングの都合上、`/users/{user_id}` より前に定義すること（`export` が user_id として
+# 解釈されるのを避けるため）。
+_CSV_ROLES = ("admin_receiver", "admin_reviewer", "admin_master", "admin_chief")
+
+
+@router.get("/users/export")
+def export_users(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*_CSV_ROLES)),
+):
+    """現在の登録ユーザー（既存システム）をCSV(UTF-8 BOM)でエクスポートする（バックアップ）。
+
+    編集して /users/import で再取込できる（Noで照合し、メール・氏名のみを上書き更新）。
+    一覧画面と同じ母集団（allowed_systems に "legacy" を含む未削除ユーザー）をNo昇順で出力する。
+    """
+    users = db.scalars(select(User).where(User.deleted_at.is_(None))).all()
+    users = [u for u in users if "legacy" in (u.allowed_systems or [])]
+    users = sorted(users, key=lambda u: int(u.user_no) if u.user_no and str(u.user_no).isdigit() else 999999)
+    return Response(
+        content=user_import_service.build_export_csv(users),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote("ユーザー一覧.csv")},
+    )
+
+
+@router.post("/users/import")
+def import_users(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(*_CSV_ROLES)),
+):
+    """CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も登録しない）。
+
+    No一致の既存ユーザー → メール・氏名のみ上書き更新。
+    No空欄の行 → 新規作成（ロール必須、user_no自動採番、初期パスワード Passw0rd!、初回ログイン時変更必須）。
+    　ただしメールが削除済みユーザーのものなら、その同一アカウントを復活させる（履歴を引き継ぐ）。
+    メールは他の有効ユーザー／同一CSV内で重複しないことを検証する。
+    """
+    try:
+        rows = user_import_service.parse_rows(file.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    allow_admin_chief = has_role(current_user, "admin_chief")
+    updates: list[dict] = []  # {"user", "email", "name", "line"}
+    creates: list[dict] = []  # {"role", "email", "name", "line"}
+    errors: list[str] = []
+    seen_user: dict[UUID, int] = {}
+    for offset, row in enumerate(rows):
+        line_no = offset + 2  # ヘッダー(1行目)の次から
+        if user_import_service.is_skip_row(row):
+            continue
+        if user_import_service.is_new_row(row):
+            result, row_errors = user_import_service.row_to_create(row, allow_admin_chief)
+            if row_errors:
+                errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+                continue
+            result["line"] = line_no
+            creates.append(result)
+            continue
+        result, row_errors = user_import_service.row_to_update(db, row)
+        if row_errors:
+            errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+            continue
+        uid = result["user"].id
+        if uid in seen_user:
+            errors.append(f"{line_no}行目: 同一CSV内でNoが{seen_user[uid]}行目と重複しています")
+            continue
+        seen_user[uid] = line_no
+        result["line"] = line_no
+        updates.append(result)
+
+    # メール重複チェック: 同一CSV内の重複と、既存ユーザーとの衝突を検出する（更新行は自分自身を除外）。
+    email_line: dict[str, int] = {}
+    for item in (*updates, *creates):
+        key = item["email"].lower()
+        if key in email_line:
+            errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」が{email_line[key]}行目と重複しています")
+        else:
+            email_line[key] = item["line"]
+    targets = [*updates, *creates]
+    if targets:
+        # email は一意制約のため、1メールにつき最大1ユーザー（削除済みを含む）しか保持しない。
+        lowered = list({item["email"].lower() for item in targets})
+        existing = db.scalars(select(User).where(func.lower(User.email).in_(lowered))).all()
+        holder_by_email: dict[str, User] = {u.email.lower(): u for u in existing}
+        for item in targets:
+            holder = holder_by_email.get(item["email"].lower())
+            if holder is None:
+                continue
+            self_id = item["user"].id if "user" in item else None  # 更新行は自分自身を許容
+            if holder.id == self_id:
+                continue
+            if holder.deleted_at is None:
+                errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
+            elif "user" in item:
+                # 更新行が削除済みユーザーのメールを要求：復活は新規作成行（No空欄）でのみ対応する。
+                errors.append(
+                    f"{item['line']}行目: メールアドレス「{item['email']}」は削除済みユーザーが使用しています。"
+                    "再利用するにはNo欄を空にして新規作成行として取り込んでください"
+                )
+            else:
+                # 新規作成行のメールが削除済みユーザーのもの：同一アカウントを復活させる。
+                item["revive"] = holder
+
+    if errors:
+        raise HTTPException(status_code=400, detail={
+            "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
+            "errors": errors,
+        })
+    if not targets:
+        raise HTTPException(status_code=400, detail={
+            "message": "取り込み対象の行がありません。No一致の既存ユーザー、またはNo空欄の新規作成行を入力してください。",
+            "errors": [],
+        })
+
+    for item in updates:
+        item["user"].email = item["email"]
+        item["user"].display_name = item["name"]
+    created = 0
+    revived = 0
+    for item in creates:
+        holder = item.get("revive")
+        if holder is not None:
+            revive_user(db, holder, item["role"], item["email"], item["name"])
+            revived += 1
+        else:
+            create_initial_user(db, item["role"], item["email"], item["name"])
+            created += 1
+        db.flush()  # 連続採番が直前に確定したNoを未使用判定に反映できるようにする
+    db.commit()
+    return {"imported": len(targets), "created": created, "revived": revived, "updated": len(updates)}
 
 
 def _parse_roles(roles: str | None, role: str | None) -> set[str]:
