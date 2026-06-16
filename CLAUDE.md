@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 引継ぎ・現在の作業状況（新しく入った担当者・別アカウントはまず読む）
+
+進行中の作業の引継ぎ、未対応の最優先事項（**本番メールの実配信に向けた SMTP 設定**＝Gmail/AWS SES、本番クリーン投入の実行、検証用サンプルユーザー など）は **`docs/HANDOFF.md`** に集約している。作業を引き継ぐ場合はまず `docs/HANDOFF.md` を読むこと。
+
 ## Project Overview
 
 Japanese home tutoring lesson report management system (家庭教師 指導実績報告システム). Tutors record monthly lesson reports, which go through a multi-stage approval workflow: tutor → parent → admin_receiver → admin_reviewer (reviewer approval is final). admin_master / admin_chief are outside the approval flow (view, PDF, user/assignment management, stale-report close). Built as a FastAPI + PostgreSQL full-stack web app with server-rendered Jinja2 templates.
