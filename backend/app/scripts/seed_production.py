@@ -4,10 +4,12 @@
 検証用のサンプルユーザーだけの状態にする。スキーマ（テーブル）と Alembic の
 バージョン管理テーブル（alembic_version / work_alembic_version）は保持する。
 
-両システム（指導実績=legacy / 業務連絡表=new）は users テーブルを共有し email は一意のため、
-1メール=1ユーザー行として、両系で使えるロールを併せ持たせる（例: +school1 は legacy=保護者 /
-new=学校）。宛先はすべて実在の Gmail 受信箱（kintaikanri.tutor1@gmail.com）に届く
-プラスエイリアスのため、バウンスが発生せず送信者評価を傷つけない。
+両システム（指導実績=legacy / 業務連絡表=new）は users テーブルを共有し email は一意。
+各アカウントは元のシードと同じく **単一ロール** にする（school/office/sales は業務連絡表の
+staff＝new のみ、tutor/admin_master/admin_chief は両システム共通）。複数ロールを持たせると
+ログイン時にロール選択画面が出て、他システムのロールが選べずエラーになるため単一にしている。
+宛先はすべて実在の Gmail 受信箱（kintaikanri.tutor1@gmail.com）に届くプラスエイリアスのため、
+バウンスが発生せず送信者評価を傷つけない。
 
 使い方（本番でのマイグレーション適用後に実行。**全データが消えます**）:
     docker compose exec backend python -m app.scripts.seed_production --yes
@@ -28,15 +30,16 @@ _KEEP_TABLES = {"alembic_version", "work_alembic_version"}
 _BASE = "kintaikanri.tutor1"
 _DOMAIN = "gmail.com"
 
-# (email, 表示名, roles[新系→旧系の順], primary role, user_no, tutor_no)
-# allowed_systems は全員 ["legacy", "new"]（両システムで利用可能）。
+# (email, 表示名, roles, primary role, allowed_systems, user_no, tutor_no)
+# 1アカウント=単一ロール。元のシードと同じ構成（school/office/sales=業務連絡表のstaff＝new のみ、
+# tutor/admin_master/admin_chief=両システム共通）に揃え、メールだけを本番用に変更する。
 _SAMPLE_USERS = [
-    (f"{_BASE}@{_DOMAIN}",            "講師太郎",   ["tutor"],                    "tutor",        "10001", "10001"),
-    (f"{_BASE}+school1@{_DOMAIN}",    "保護者花子", ["school", "parent"],         "school",       "40001", None),
-    (f"{_BASE}+office1@{_DOMAIN}",    "受付太郎",   ["office", "admin_receiver"], "office",       "50001", None),
-    (f"{_BASE}+sales1@{_DOMAIN}",     "再鑑花子",   ["sales", "admin_reviewer"],  "sales",        "50002", None),
-    (f"{_BASE}+master1@{_DOMAIN}",    "管理太郎",   ["admin_master"],             "admin_master", "50003", None),
-    (f"{_BASE}+supervisor@{_DOMAIN}", "管責花子",   ["admin_chief"],              "admin_chief",  "90001", None),
+    (f"{_BASE}@{_DOMAIN}",            "講師太郎",   ["tutor"],        "tutor",        ["legacy", "new"], "10001", "10001"),
+    (f"{_BASE}+school1@{_DOMAIN}",    "保護者花子", ["school"],       "school",       ["new"],           "40001", None),
+    (f"{_BASE}+office1@{_DOMAIN}",    "受付太郎",   ["office"],       "office",       ["new"],           "50001", None),
+    (f"{_BASE}+sales1@{_DOMAIN}",     "再鑑花子",   ["sales"],        "sales",        ["new"],           "50002", None),
+    (f"{_BASE}+master1@{_DOMAIN}",    "管理太郎",   ["admin_master"], "admin_master", ["legacy", "new"], "50003", None),
+    (f"{_BASE}+supervisor@{_DOMAIN}", "管責花子",   ["admin_chief"],  "admin_chief",  ["legacy", "new"], "90001", None),
 ]
 
 
@@ -54,7 +57,7 @@ def _wipe_all_data(db) -> list[str]:
 
 def _create_sample_users(db) -> None:
     password_hash = hash_password(PASSWORD)
-    for email, name, roles, role, user_no, tutor_no in _SAMPLE_USERS:
+    for email, name, roles, role, allowed_systems, user_no, tutor_no in _SAMPLE_USERS:
         db.add(
             User(
                 email=email,
@@ -63,7 +66,7 @@ def _create_sample_users(db) -> None:
                 roles=roles,
                 user_no=user_no,
                 tutor_no=tutor_no,
-                allowed_systems=["legacy", "new"],
+                allowed_systems=allowed_systems,
                 password_hash=password_hash,
                 is_active=True,
                 must_change_password=False,
