@@ -20,6 +20,14 @@ depends_on = None
 
 
 def upgrade() -> None:
+    import os
+
+    # 本番では検証用の固定ユーザー(supervisor@example.com・既知パスワード)を投入しない。
+    # 既存環境は適用済みのため再実行されず無影響。新規の本番DBにテストユーザーが入るのを防ぐ。
+    # 本番のクリーン構築は app.scripts.seed_production を使用する。
+    if os.getenv("ENVIRONMENT", "development").lower() == "production":
+        return
+
     from passlib.context import CryptContext
 
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
