@@ -15,7 +15,7 @@ from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, User
 from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
 from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
-from app.services import user_import_service
+from app.services import assignment_import_service, user_import_service
 from app.services.user_import_service import create_initial_user, revive_user
 
 router = APIRouter(prefix="/api", tags=["users"])
@@ -443,6 +443,94 @@ def delete_assignment(assignment_id: UUID, db: Session = Depends(get_db), _: Use
     db.delete(assignment)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/assignments/export")
+def export_assignments(db: Session = Depends(get_db), _: User = Depends(require_role(*_CSV_ROLES))):
+    """現在の担当（既存システム）をCSV(UTF-8 BOM)でエクスポートする（バックアップ）。
+
+    編集して /assignments/import で再取込できる（講師No＋生徒名で照合し、保護者の紐づけを更新）。
+    新システム(system_type='new')の学校紐付けは除外し、講師No・生徒名の昇順で出力する。
+    """
+    assignments = db.scalars(
+        select(Assignment)
+        .options(selectinload(Assignment.tutor), selectinload(Assignment.parent))
+        .where(or_(Assignment.system_type != "new", Assignment.system_type.is_(None)))
+    ).all()
+    assignments = sorted(assignments, key=lambda a: (
+        int(a.tutor.user_no) if a.tutor and a.tutor.user_no and str(a.tutor.user_no).isdigit() else 999999,
+        a.student_name or "",
+    ))
+    return Response(
+        content=assignment_import_service.build_export_csv(assignments),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote("担当一覧.csv")},
+    )
+
+
+@router.post("/assignments/import")
+def import_assignments(file: UploadFile = File(...), db: Session = Depends(get_db), _: User = Depends(require_role(*_CSV_ROLES))):
+    """担当CSVを一括取り込みする。1件でも検証エラーがあれば全件中止（何も登録しない）。
+
+    照合キー=(講師No, 生徒名)。一致する担当があれば保護者の紐づけを上書き更新、無ければ新規作成。
+    保護者No 空欄=保護者未設定／記入かつ該当する保護者が居ない=エラー。講師Noは既存講師が必須。
+    """
+    try:
+        rows = assignment_import_service.parse_rows(file.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    resolved: list[dict] = []  # {"tutor","student_name","parent","line"}
+    errors: list[str] = []
+    seen: dict[tuple, int] = {}
+    for offset, row in enumerate(rows):
+        line_no = offset + 2  # ヘッダー(1行目)の次から
+        if assignment_import_service.is_skip_row(row):
+            continue
+        res, row_errors = assignment_import_service.resolve_row(db, row)
+        if row_errors:
+            errors.extend(f"{line_no}行目: {message}" for message in row_errors)
+            continue
+        key = (res["tutor"].id, res["student_name"])
+        if key in seen:
+            errors.append(f"{line_no}行目: 同一CSV内で講師No＋生徒名が{seen[key]}行目と重複しています")
+            continue
+        seen[key] = line_no
+        res["line"] = line_no
+        resolved.append(res)
+
+    if errors:
+        raise HTTPException(status_code=400, detail={
+            "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
+            "errors": errors,
+        })
+    if not resolved:
+        raise HTTPException(status_code=400, detail={
+            "message": "取り込み対象の行がありません。講師No・生徒名（必要に応じて保護者No）を入力してください。",
+            "errors": [],
+        })
+
+    created = 0
+    updated = 0
+    for res in resolved:
+        parent_id = res["parent"].id if res["parent"] else None
+        existing = db.scalar(
+            select(Assignment).where(
+                Assignment.tutor_id == res["tutor"].id,
+                Assignment.student_name == res["student_name"],
+                or_(Assignment.system_type != "new", Assignment.system_type.is_(None)),
+            )
+        )
+        if existing:
+            existing.parent_id = parent_id
+            # 承認先を一致させるため、紐づく報告書の parent_id も更新する（PATCHと同じ挙動）。
+            db.query(LessonReport).filter(LessonReport.assignment_id == existing.id).update({"parent_id": parent_id}, synchronize_session=False)
+            updated += 1
+        else:
+            db.add(Assignment(tutor_id=res["tutor"].id, parent_id=parent_id, student_name=res["student_name"], is_active=True))
+            created += 1
+    db.commit()
+    return {"imported": len(resolved), "created": created, "updated": updated}
 
 
 @router.get("/assignments", response_model=list[AssignmentOut])

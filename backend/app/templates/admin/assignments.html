@@ -18,6 +18,16 @@
       <input id="activeOnly" type="checkbox" checked class="h-4 w-4 rounded border-slate-300"> 有効のみ表示
     </label>
   </div>
+  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <p class="max-w-3xl text-xs leading-relaxed text-slate-500">
+      CSV一括取込：「CSVエクスポート」で現在の担当を書き出し、編集後に「CSVインポート」で取り込みます。<strong>講師No＋生徒名</strong>が一致する担当は保護者の紐づけを更新、無ければ新規作成します。保護者Noは空欄で「未設定」、記入する場合はその保護者Noの登録が必要です。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。
+    </p>
+    <div class="flex shrink-0 items-center gap-2">
+      <a href="/api/assignments/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
+      <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
+      <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
+    </div>
+  </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -66,6 +76,19 @@
           <button id="saveBtn" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="saveEdit()">保存</button>
         </div>
       </div>
+    </div>
+  </div>
+</div>
+
+<div id="importOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" onclick="closeImportResult()">
+  <div class="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 id="importResultTitle" class="font-semibold text-slate-800">取り込み結果</h2>
+      <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeImportResult()">閉じる</button>
+    </div>
+    <div id="importResultBody" class="overflow-y-auto px-5 py-4 text-sm text-slate-700"></div>
+    <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeImportResult()">OK</button>
     </div>
   </div>
 </div>
@@ -196,6 +219,59 @@ async function saveEdit() {
 document.getElementById('addBtn').addEventListener('click', openAdd);
 document.getElementById('searchInput').addEventListener('input', render);
 document.getElementById('activeOnly').addEventListener('change', render);
+
+// === CSV一括取込 ===
+function showImportResult(title, html) {
+  document.getElementById('importResultTitle').textContent = title;
+  document.getElementById('importResultBody').innerHTML = html;
+  const overlay = document.getElementById('importOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+}
+function closeImportResult() {
+  const overlay = document.getElementById('importOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+}
+function importErrorList(errors) {
+  return `<ul class="list-disc space-y-1 pl-5">${errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}</ul>`;
+}
+async function importCsv(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const token = localStorage.getItem('access_token') || localStorage.getItem('token');
+  const headers = token ? {Authorization: `Bearer ${token}`} : {};
+  let res;
+  try {
+    res = await fetch('/api/assignments/import', {method: 'POST', credentials: 'same-origin', headers, body: form});
+  } catch (_) {
+    showImportResult('取り込みに失敗しました', '<p class="text-rose-700">通信エラーが発生しました。</p>');
+    return;
+  }
+  if (res.status === 401) { location.href = '/login'; return; }
+  let body = null;
+  try { body = await res.json(); } catch (_) { body = null; }
+  if (res.ok) {
+    const r = body || {};
+    showToast(`${r.imported ?? 0}件を取り込みました（新規${r.created ?? 0}／更新${r.updated ?? 0}）`, 'success');
+    await load();
+    return;
+  }
+  const detail = body && body.detail;
+  if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
+    const head = `<p class="mb-2 font-medium text-rose-700">${escapeHtml(detail.message || '取り込みできませんでした。')}</p>`;
+    showImportResult('取り込みエラー', head + (detail.errors.length ? importErrorList(detail.errors) : ''));
+  } else {
+    const msg = (detail && typeof detail === 'string') ? detail : '取り込みできませんでした。';
+    showImportResult('取り込みエラー', `<p class="text-rose-700">${escapeHtml(msg)}</p>`);
+  }
+}
+document.getElementById('csvImportBtn').addEventListener('click', () => document.getElementById('csvFileInput').click());
+document.getElementById('csvFileInput').addEventListener('change', async (event) => {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';  // 同じファイルを連続選択しても change が発火するように
+  if (file) await importCsv(file);
+});
 async function load() {
   const [asg, tut, par] = await Promise.all([
     api('/api/assignments'),
