@@ -4,31 +4,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
 
-import aiosmtplib
-from email.message import EmailMessage
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models import Notification, User
-
-
-def _smtp_send_kwargs() -> dict:
-    """settings から aiosmtplib.send への接続パラメータ（ホスト/ポート/認証/TLS）を組み立てる。
-
-    本番の外部SMTPサービス（認証＋TLS必須）と開発のMailHog（認証/TLSなし）を同じコードで扱う。
-    認証は SMTP_USERNAME が設定されている場合のみ付与する。
-    """
-    tls = (settings.smtp_tls or "none").lower()
-    kwargs: dict = {
-        "hostname": settings.smtp_host,
-        "port": settings.smtp_port,
-        "use_tls": tls == "ssl",         # 暗黙TLS（通常465番）
-        "start_tls": tls == "starttls",  # STARTTLS（通常587番）
-    }
-    if settings.smtp_username:
-        kwargs["username"] = settings.smtp_username
-        kwargs["password"] = settings.smtp_password
-    return kwargs
+from app.services.mailer import enqueue_mail
 
 
 class NotificationChannel(ABC):
@@ -39,12 +19,9 @@ class NotificationChannel(ABC):
 
 class EmailChannel(NotificationChannel):
     async def send(self, to: str, subject: str, body: str) -> None:
-        message = EmailMessage()
-        message["From"] = settings.smtp_from
-        message["To"] = to
-        message["Subject"] = subject
-        message.set_content(body)
-        await aiosmtplib.send(message, **_smtp_send_kwargs())
+        # 即時送信せず送信キュー(mail_outbox)へ投函する。実送信はドレイナ(services/mailer.
+        # drain_outbox)が1通ずつ間隔をあけて行う。同時送信・短時間連打を防ぐ。
+        enqueue_mail(to, subject, body)
 
 
 def _render_email_template(template_name: str, context: dict) -> str:

@@ -228,4 +228,26 @@ class Notification(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class MailOutbox(Base):
+    """送信待ちメールのキュー（アウトボックス）。
+
+    メールは即時送信せず、まずこのテーブルへ投函(enqueue)する。バックグラウンドの
+    ドレイナ(services/mailer.drain_outbox)が「1通ずつ・送信間隔をあけて」順次送信する。
+    これにより一括操作・月末ラッシュ等での同時送信／短時間連打を防ぎ、SMTPアカウントの
+    スパム判定・ロックを回避する。Notification（アプリ内通知ログ）とは別物で、本テーブルは
+    実メール配信の待ち行列のみを担う。新システム(new_backend)の work_mail_outbox と対。
+    """
+    __tablename__ = "mail_outbox"
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    to_email: Mapped[str] = mapped_column(String(255), index=True)
+    subject: Mapped[str] = mapped_column(String(255))
+    body: Mapped[str] = mapped_column(Text)
+    # pending=未送信 / sent=送信済み / failed=試行上限に達して打ち切り
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 # === Phase 1 END ===

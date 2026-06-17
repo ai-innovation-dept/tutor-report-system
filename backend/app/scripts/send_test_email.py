@@ -8,11 +8,10 @@
 例:
     docker compose exec backend python -m app.scripts.send_test_email kintaikanri.tutor1@gmail.com
 """
-import asyncio
 import sys
 
 from app.config import settings
-from app.services.notification_service import EmailChannel
+from app.services.mailer import _send_via_smtp
 
 
 def main(argv=None) -> None:
@@ -33,12 +32,11 @@ def main(argv=None) -> None:
             " SMTP_HOST/PORT/USERNAME/PASSWORD/SMTP_TLS と SMTP_FROM/NEW_SMTP_FROM）が必要です。"
         )
     try:
-        asyncio.run(
-            EmailChannel().send(
-                to,
-                "【テスト】SMTP送信確認",
-                "これはSMTP設定の疎通確認用テストメールです。\nこのメールが届けば送信設定は正常です。",
-            )
+        # 疎通確認のため送信キューを介さず即時送信する（MAIL_BACKEND に関わらず実SMTP送信）。
+        _send_via_smtp(
+            to,
+            "【テスト】SMTP送信確認",
+            "これはSMTP設定の疎通確認用テストメールです。\nこのメールが届けば送信設定は正常です。",
         )
         print(f"OK: {to} への送信処理が完了しました（SMTPサーバーが受理）。受信箱/迷惑メールを確認してください。")
     except Exception as exc:  # noqa: BLE001 - 失敗内容を表示するのが目的
