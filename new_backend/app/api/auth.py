@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -23,7 +23,7 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.schemas.users import UserOut
-from app.services.notification_service import send_email
+from app.services.mailer import enqueue_mail
 from app.services.user_service import (
     INITIAL_PASSWORD,
     ROLE_LABELS,
@@ -285,7 +285,6 @@ def register(payload: RegisterIn, response: Response, db: Session = Depends(get_
 @router.post("/forgot-password")
 async def forgot_password(
     payload: ForgotPasswordIn,
-    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ):
     email = str(payload.email).strip().lower()
@@ -310,12 +309,8 @@ async def forgot_password(
         f"このURLの有効期限は1時間です\n"
         f"このメールに心当たりがない場合は無視してください\n"
     )
-    background_tasks.add_task(
-        send_email,
-        user.email,
-        "【業務連絡表システム】パスワードリセットのご案内",
-        body,
-    )
+    # 即時送信せず送信キューへ投函（実送信はドレイナが順次・間隔をあけて行う）
+    enqueue_mail(db, user.email, "【業務連絡表システム】パスワードリセットのご案内", body)
     return {"message": "パスワードリセットメールを送信しました"}
 
 

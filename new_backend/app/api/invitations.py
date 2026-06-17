@@ -12,7 +12,7 @@ from app.core.database import get_db
 from app.dependencies.auth import has_role, require_role
 from app.models.shared import Invitation, User
 from app.schemas.invitations import InvitationCreate, InvitationOut
-from app.services.notification_service import send_email
+from app.services.mailer import enqueue_mail
 from app.services.user_service import (
     ALLOWED_INVITATION_ROLES,
     ROLE_LABELS,
@@ -124,7 +124,8 @@ async def create_invitation(
     db.refresh(inv)
 
     base_url = settings.NEW_BASE_URL.rstrip("/")
-    await send_email(inv.email, _SUBJECTS.get(inv.role, _SUBJECTS["school"]), _email_body(inv, base_url))
+    # 即時送信せず送信キューへ投函（実送信はドレイナが順次・間隔をあけて行う）
+    enqueue_mail(db, inv.email, _SUBJECTS.get(inv.role, _SUBJECTS["school"]), _email_body(inv, base_url))
     return _invitation_out(inv)
 
 

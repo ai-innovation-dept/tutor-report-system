@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.shared import Assignment, User
 from app.models.work import WorkNotification, WorkReport
+from app.services.mailer import enqueue_mail
 from app.workflow.definitions import WorkAction, WorkStatus
 
 logger = logging.getLogger(__name__)
@@ -143,56 +144,20 @@ def _enqueue_notification(
     return notifications
 
 
-def _smtp_send_kwargs(host: str, port: int) -> dict:
-    """settings から aiosmtplib.send への接続パラメータ（ホスト/ポート/認証/TLS）を組み立てる。
-
-    本番の外部SMTPサービス（認証＋TLS必須）と開発のMailHog（認証/TLSなし）を同じコードで扱う。
-    認証は SMTP_USERNAME が設定されている場合のみ付与する。
-    """
-    tls = (settings.SMTP_TLS or "none").lower()
-    kwargs: dict = {
-        "hostname": host,
-        "port": port,
-        "use_tls": tls == "ssl",         # 暗黙TLS（通常465番）
-        "start_tls": tls == "starttls",  # STARTTLS（通常587番）
-    }
-    if settings.SMTP_USERNAME:
-        kwargs["username"] = settings.SMTP_USERNAME
-        kwargs["password"] = settings.SMTP_PASSWORD
-    return kwargs
-
-
-async def send_email(
-    to: str,
-    subject: str,
-    body: str,
-    smtp_host: str | None = None,
-    smtp_port: int | None = None,
-) -> None:
-    """DBへの記録なしで単体メールを送信する（招待・パスワードリセット用）。"""
-    host = smtp_host or settings.SMTP_HOST
-    port = smtp_port or settings.SMTP_PORT
-    try:
-        import aiosmtplib
-        from email.mime.text import MIMEText
-        msg = MIMEText(body, "plain", "utf-8")
-        msg["Subject"] = subject
-        msg["From"] = settings.NEW_SMTP_FROM
-        msg["To"] = to
-        await aiosmtplib.send(msg, **_smtp_send_kwargs(host, port))
-    except Exception as exc:
-        logger.warning("mail send failed to %s: %s", to, exc)
-
-
 def _render_email_template(template_name: str, context: dict) -> str:
     template_path = Path(__file__).resolve().parents[1] / "templates" / "email" / template_name
     template = template_path.read_text(encoding="utf-8")
     return template.format(**context)
 
 
-async def send_email_notification(to_email: str, subject: str, template_name: str, context: dict) -> None:
+def enqueue_email_template(db: Session, to_email: str, subject: str, template_name: str, context: dict) -> None:
+    """テンプレートを描画し、メール送信キュー（アウトボックス）へ投函する。
+
+    即時送信はしない。実送信はバックグラウンドのドレイナ(mailer.drain_outbox)が
+    1通ずつ間隔をあけて行う。
+    """
     body = _render_email_template(template_name, context)
-    await send_email(to_email, subject, body)
+    enqueue_mail(db, to_email, subject, body)
 
 
 def _group_reports(reports: list[WorkReport]) -> dict[tuple[str, str], list[WorkReport]]:
@@ -263,13 +228,13 @@ def _staff_users(db: Session, role: str) -> list[User]:
 
 
 async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
-    del db
     if not to_user or not to_user.is_active or to_user.deleted_at:
         return
     try:
-        await send_email_notification(to_user.email, subject, template_name, context)
-    except Exception as exc:
-        logger.warning("failed to send workflow notification to %s: %s", to_user.email, exc)
+        # 即時送信せず送信キューへ投函する（実送信はドレイナが順次・間隔をあけて行う）
+        enqueue_email_template(db, to_user.email, subject, template_name, context)
+    except Exception as exc:  # noqa: BLE001 - 通知の失敗は主処理（承認等）を止めない
+        logger.warning("failed to enqueue workflow notification to %s: %s", to_user.email, exc)
 
 
 async def _send_email_to_users(db: Session, users: list[User], subject: str, template_name: str, context: dict) -> None:

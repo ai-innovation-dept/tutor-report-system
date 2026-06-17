@@ -240,5 +240,19 @@ def start_scheduler() -> BackgroundScheduler:
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.TIMEZONE))
     scheduler.add_job(run_reminder_job, "cron", hour=9, minute=0, id="month_end_reminders", replace_existing=True)
     scheduler.add_job(_run_stale_job, "cron", hour=6, minute=0, id="stale_report_check", replace_existing=True)
+    # メール送信キューのドレイナ（実送信する smtp 時のみ起動）。送信間隔ごとに起動し、
+    # 1通ずつ間隔をあけて順次送信する。max_instances=1+coalesce で多重実行を防ぐ。
+    if (settings.MAIL_BACKEND or "console").lower() == "smtp":
+        from app.services.mailer import drain_outbox
+
+        scheduler.add_job(
+            drain_outbox,
+            "interval",
+            seconds=max(1, int(settings.MAIL_SEND_INTERVAL_SECONDS)),
+            id="mail_drainer",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
     scheduler.start()
     return scheduler

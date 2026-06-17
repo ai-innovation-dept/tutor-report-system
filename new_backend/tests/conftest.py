@@ -3,6 +3,9 @@ import sys
 from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite+pysqlite:///:memory:"
+# テストでは実メールを一切送らない（ログ出力のみ）。送信キューのドレイナも smtp 時のみ起動するため
+# これで「自動テストでの実メール送信」を構造的に禁止する。
+os.environ["MAIL_BACKEND"] = "console"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

@@ -20,6 +20,16 @@ class Settings(BaseSettings):
     SMTP_TLS: str = "none"
     # 送信元アドレス（仮）。旧システムと .env を共有するため SMTP_FROM とは別名にして衝突を防ぐ
     NEW_SMTP_FROM: str = "noreply@work-system.local"
+    # メール配信方式: "smtp"(実送信) / "console"(ログ出力のみ・テスト/CI既定)。
+    # テストや自動検証で実メールを大量送信しないよう既定は console。本番/開発は .env で smtp に設定する。
+    MAIL_BACKEND: str = "console"
+    # メールキュー（アウトボックス）のドレイナが「1通ごとにあける送信間隔（秒）」。
+    # 同時送信・短時間連打によるスパム判定/ロックを防ぐためのレート制御。
+    MAIL_SEND_INTERVAL_SECONDS: int = 4
+    # 1回のドレイン実行で送る最大通数（これを超えたら次回の実行に回す）。
+    MAIL_OUTBOX_BATCH_MAX: int = 20
+    # 送信失敗時の最大試行回数（これに達したら failed として打ち切る）。
+    MAIL_MAX_ATTEMPTS: int = 5
     REMINDER_DAYS_BEFORE_MONTH_END: int = 3
 
     model_config = {"env_file": "../.env", "extra": "ignore"}

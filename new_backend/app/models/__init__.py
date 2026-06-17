@@ -6,6 +6,7 @@ from .work import (
     WorkChatMessage,
     WorkChatRead,
     WorkNotification,
+    WorkMailOutbox,
 )
 
 __all__ = [
@@ -19,4 +20,5 @@ __all__ = [
     "WorkChatMessage",
     "WorkChatRead",
     "WorkNotification",
+    "WorkMailOutbox",
 ]

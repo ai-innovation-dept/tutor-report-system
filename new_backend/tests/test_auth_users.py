@@ -16,12 +16,14 @@ from tests.conftest import TestSession
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def mock_send_email(monkeypatch):
-    """メール送信をスタブ化"""
-    async def _noop(*args, **kwargs):
-        pass
-    monkeypatch.setattr("app.services.notification_service.send_email", _noop)
-    monkeypatch.setattr("app.api.auth.send_email", _noop)
+def mock_send_email():
+    """メール送信のスタブ（現在は不要なので no-op）。
+
+    メールは即時送信せず送信キュー(work_mail_outbox)へ投函するだけになり、テストは
+    MAIL_BACKEND=console かつドレイナ未起動のため実送信は発生しない。よって特別な
+    スタブは不要。互換のためフィクスチャ自体は残す。
+    """
+    yield
 
 
 @pytest.fixture()
