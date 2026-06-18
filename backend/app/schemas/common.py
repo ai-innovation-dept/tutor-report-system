@@ -203,6 +203,35 @@ class ReportPatch(BaseModel):
     content: str | None = Field(default=None, min_length=1, max_length=2000)
 
 
+class AdminEditLineIn(BaseModel):
+    """受付による月内一括編集の1行（＝1指導日の報告書）。"""
+    id: UUID
+    lesson_date: date
+    start_time: time
+    end_time: time
+    break_minutes: int = Field(default=0, ge=0)
+    subject: str | None = None
+    content: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("end_time")
+    @classmethod
+    def validate_times(cls, end_time, info):
+        start_time = info.data.get("start_time")
+        if start_time and start_time >= end_time:
+            raise ValueError("終了時刻は開始時刻より後の時刻を指定してください")
+        return end_time
+
+
+class GroupAdminEditIn(BaseModel):
+    """受付による報告（生徒×講師×対象月）単位の一括編集リクエスト。
+    その月の全指導日を1画面で同時に編集し、まとめて1通の通知を送る。"""
+    assignment_id: UUID
+    tutor_id: UUID
+    target_month: str
+    lines: list[AdminEditLineIn]
+    comment: str | None = Field(default=None, max_length=2000)
+
+
 class ReportEventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     action: str

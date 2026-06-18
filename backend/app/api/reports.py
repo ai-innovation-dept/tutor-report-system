@@ -15,7 +15,7 @@ from app.core.time import get_current_jst_month, month_string
 from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
-from app.schemas import ReportCreate, ReportEventOut, ReportOut, ReportPatch
+from app.schemas import GroupAdminEditIn, ReportCreate, ReportEventOut, ReportOut, ReportPatch
 from app.services.workflow_service import notify_report_modified, separation_locks
 
 STATUS_RANK = {
@@ -787,38 +787,79 @@ def _collect_changes(report: LessonReport, data: dict) -> list[tuple[str, str, s
     return changes
 
 
-@router.patch("/{report_id}/admin-edit", response_model=ReportOut)
-async def admin_edit_report(
-    report_id: UUID,
-    payload: ReportPatch,
+# 受付による報告（生徒×講師×対象月）単位の一括修正。既存の一括操作（admin-receive-bulk 等）と
+# 同じく POST・単一セグメントのパスにすることで PATCH /{report_id} とのルート衝突を避ける。
+@router.post("/admin-edit-bulk", response_model=list[ReportOut])
+async def admin_edit_bulk(
+    payload: GroupAdminEditIn,
     db: Session = Depends(get_db),
     user: User = Depends(require_role("admin_receiver")),
 ):
-    # 受付担当による報告書修正。講師の編集フロー(patch_report)とは別系統で、再承認は不要・通知のみ。
-    report = get_report_for_user(report_id, user, db)
-    if report.status not in ADMIN_EDIT_STATUSES:
-        raise HTTPException(status_code=409, detail="受付が修正できるのは、承認依頼中・受領済み・差戻し中の報告書のみです")
-    data = payload.model_dump(exclude_unset=True)
-    changes = _collect_changes(report, data)
-    for key, value in data.items():
-        setattr(report, key, value)
-    if report.start_time >= report.end_time:
-        raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
-    if "lesson_date" in data:
-        # 受付は過去月の訂正もあり得るため当月制限は課さない。対象月のみ追従させる。
+    """受付担当による報告（生徒×講師×対象月）単位の一括修正。
+    その月の全指導日を1画面でまとめて編集する。講師の編集フロー(patch_report)とは別系統で、
+    再承認は不要・ステータスは不変。変更/コメントがあれば履歴1件＋講師・保護者へ通知1通。"""
+    if not payload.lines:
+        raise HTTPException(status_code=422, detail="編集対象がありません")
+    reports = db.scalars(
+        select(LessonReport).where(
+            LessonReport.assignment_id == payload.assignment_id,
+            LessonReport.tutor_id == payload.tutor_id,
+            LessonReport.target_month == payload.target_month,
+        )
+    ).all()
+    by_id = {report.id: report for report in reports}
+
+    all_changes: list[tuple[str, str, str]] = []   # 通知メール用（日付つき差分）
+    changed_labels: list[str] = []                  # 履歴コメント用（項目名のユニーク集合）
+    changed_reports: list[LessonReport] = []
+    for line in payload.lines:
+        report = by_id.get(line.id)
+        if report is None:
+            raise HTTPException(status_code=404, detail="対象の報告書が見つかりません")
+        if report.status not in ADMIN_EDIT_STATUSES:
+            raise HTTPException(status_code=409, detail="受付が修正できるのは、承認依頼中・受領済み・差戻し中の報告書のみです")
+        data = {
+            "lesson_date": line.lesson_date,
+            "start_time": line.start_time,
+            "end_time": line.end_time,
+            "break_minutes": line.break_minutes,
+            "subject": line.subject,
+            "content": line.content,
+        }
+        changes = _collect_changes(report, data)
+        if not changes:
+            continue
+        for key, value in data.items():
+            setattr(report, key, value)
+        # 受付は過去月の訂正もあり得るため当月制限は課さない。対象月のみ指導日に追従させる。
         report.target_month = month_string(report.lesson_date)
-    if changes:
-        # 進捗履歴に残す。コメントに修正項目を列挙（差分の前後はメールで通知）。
+        date_label = f"{line.lesson_date.month}/{line.lesson_date.day}"
+        for label, old, new in changes:
+            all_changes.append((f"{date_label} {label}", old, new))
+            if label not in changed_labels:
+                changed_labels.append(label)
+        changed_reports.append(report)
+
+    has_comment = bool(payload.comment and payload.comment.strip())
+    if not changed_reports and not has_comment:
+        # 変更もコメントも無ければ履歴・通知を残さない（新システムの事務編集と同挙動）。
+        return [_report_out(db, report, user) for report in reports]
+
+    event_comment = "修正項目：" + "、".join(changed_labels) if changed_labels else "修正コメントを追加"
+    # 履歴イベントは「変更のあった報告書」（コメントのみなら編集可能な全報告書）に同一コメントで残す。
+    # ダッシュボードの統合タイムラインは同一(action/操作者/時刻/コメント)を1件に集約表示する。
+    event_targets = changed_reports or [r for r in reports if r.status in ADMIN_EDIT_STATUSES]
+    for report in event_targets:
         db.add(ReportEvent(
             report_id=report.id, actor_id=user.id, action=ReportAction.receiver_edit.value,
-            from_status=report.status, to_status=report.status,
-            comment="修正項目：" + "、".join(label for label, _, _ in changes),
+            from_status=report.status, to_status=report.status, comment=event_comment,
         ))
     db.commit()
-    db.refresh(report)
-    if changes:
-        await notify_report_modified(db, report, changes, user)
-    return _report_out(db, report, user)
+    for report in reports:
+        db.refresh(report)
+    sample = (changed_reports or event_targets or reports)[0]
+    await notify_report_modified(db, sample, all_changes, user, payload.comment)
+    return [_report_out(db, report, user) for report in reports]
 
 
 @router.delete("/{report_id}")

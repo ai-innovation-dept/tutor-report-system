@@ -266,24 +266,39 @@ def _format_changes(changes: list[tuple[str, str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _format_edit_comment(comment: str | None) -> str:
+    """任意コメントを本文用ブロックに整形（無ければ空文字）。波括弧は str.format 対策でエスケープ。"""
+    if not comment or not comment.strip():
+        return ""
+    escaped = comment.strip().replace("{", "{{").replace("}", "}}")
+    return f"\n【コメント】\n{escaped}\n"
+
+
 async def notify_report_modified(
-    db: Session, report: LessonReport, changes: list[tuple[str, str, str]], actor: User
+    db: Session,
+    sample_report: LessonReport,
+    changes: list[tuple[str, str, str]],
+    actor: User,
+    comment: str | None = None,
 ) -> None:
-    """受付による報告書修正を講師・保護者へ通知する。保護者は未設定/承認スキップなら送らない。"""
+    """受付による報告（生徒×講師×対象月）単位の修正を、講師・保護者へまとめて1通通知する。
+    保護者は未設定/承認スキップなら送らない。sample_report はグループ内の任意の1件
+    （生徒名・対象月・講師・保護者はグループ内で共通のため代表として使う）。
+    changes は日付を含めた差分（例: 「6/15 開始時刻」）のリスト。"""
     context = {
         "base_url": _base_url(),
-        "student_name": _student_name(report),
-        "target_month": report.target_month,
-        "lesson_date": _format_lesson_date(report),
+        "student_name": _student_name(sample_report),
+        "target_month": sample_report.target_month,
         "actor_name": actor.display_name,
-        "changes": _format_changes(changes),
+        "changes": _format_changes(changes) if changes else "（明細の変更はありません）",
+        "comment_section": _format_edit_comment(comment),
     }
-    tutor = _tutor(report)
+    tutor = _tutor(sample_report)
     await _send_email(
         db, tutor, REPORT_MODIFIED_SUBJECT, "notify_report_modified.txt",
         context | {"name": tutor.display_name if tutor else "講師"},
     )
-    parent = _parent(report)
+    parent = _parent(sample_report)
     if parent and not parent.skip_parent_approval:
         await _send_email(
             db, parent, REPORT_MODIFIED_SUBJECT, "notify_report_modified.txt",
