@@ -31,7 +31,7 @@
     awaiting_office: '事務確認待ち', awaiting_finance: '経理確認待ち', approved: '承認済み',
     returned_to_tutor: '差戻し（講師へ）', returned_to_office: '差戻し（事務へ）', closed: '終了'
   };
-  const ACTION_LABELS = {submit:'提出', approve:'承認', return:'差戻し', skip_school:'学校承認スキップ', office_edit:'報告書修正', close:'終了'};
+  const ACTION_LABELS = {submit:'提出', approve:'承認', return:'差戻し', skip_school:'学校承認スキップ', office_edit:'報告書修正', tutor_edit:'講師修正', close:'終了'};
 
   function formatDateTime(value) {
     const d = new Date(value);
@@ -64,7 +64,7 @@
           <span class="text-slate-500">${navEscape(e.from_status || '-')} → ${navEscape(e.to_status || '-')}</span>
           <span class="text-slate-500">${navEscape(formatDateTime(e.created_at))}</span>
         </div>
-        ${e.comment ? `<div class="mt-2 whitespace-pre-wrap text-rose-800">差戻しコメント：${navEscape(e.comment)}</div>` : ''}
+        ${e.comment ? `<div class="mt-2 whitespace-pre-wrap ${e.action === 'return' ? 'text-rose-800' : 'text-slate-700'}">${e.action === 'return' ? '差戻しコメント：' : ''}${navEscape(e.comment)}</div>` : ''}
       </div>`).join('') : '<div class="text-sm text-slate-500">履歴はありません。</div>';
   }
 

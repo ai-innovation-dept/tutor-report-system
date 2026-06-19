@@ -75,6 +75,14 @@ def test_tutor_edit_returned_notifies_returner(client, db, monkeypatch):
     assert "修正内容" in body
     assert "開始時刻" in body  # 差分項目名
 
+    # 「何を何に変えたか」が監査履歴(tutor_edit イベントの comment)に保存されている
+    events = db.query(ReportEvent).filter(
+        ReportEvent.report_id == report.id, ReportEvent.action == "tutor_edit"
+    ).all()
+    assert len(events) == 1
+    assert "開始時刻" in (events[0].comment or "")
+    assert "18:00" in events[0].comment and "17:30" in events[0].comment
+
 
 def test_tutor_edit_returned_no_change_no_notify(client, db, monkeypatch):
     sent = _patch_email(monkeypatch)
@@ -84,6 +92,10 @@ def test_tutor_edit_returned_no_change_no_notify(client, db, monkeypatch):
     res = client.patch(f"/api/reports/{report.id}", headers=headers, json={"subject": "数学"})
     assert res.status_code == 200, res.text
     assert sent == []
+    # 変更がなければ tutor_edit イベントも残さない
+    assert db.query(ReportEvent).filter(
+        ReportEvent.report_id == report.id, ReportEvent.action == "tutor_edit"
+    ).count() == 0
 
 
 def test_tutor_edit_draft_does_not_notify(client, db, monkeypatch):

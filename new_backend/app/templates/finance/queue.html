@@ -106,7 +106,8 @@ const ACTION_LABELS = {
   submit: '提出',
   approve: '承認',
   return: '差戻し',
-  office_edit: '報告書修正'
+  office_edit: '報告書修正',
+  tutor_edit: '講師修正'
 };
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
@@ -463,6 +464,7 @@ function timelineRow(event) {
       ${actionBadge(event.action)}
     </div>
     ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+    ${event.action === 'tutor_edit' && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#EFF6FF] px-3 py-2 text-sm text-slate-700" style="border-color:#2563EB;">${escapeHtml(event.comment)}</div>` : ''}
   </div>`;
 }
 function currentTimelineRow(status) {

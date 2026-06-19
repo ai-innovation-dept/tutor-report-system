@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
-from app.models.work import WorkAssignmentProfile, WorkMailOutbox, WorkReport
+from app.models.work import WorkAssignmentProfile, WorkMailOutbox, WorkReport, WorkReportEvent
 from app.services.notification_service import _TUTOR_EDITED_SUBJECT
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
@@ -477,6 +477,14 @@ class TestTutorEditNotifiesReturner:
         )
         assert len(rows) == 1, [(r.to_email, r.subject) for r in db.query(WorkMailOutbox).all()]
         assert "修正内容" in rows[0].body
+        # 「何を何に変えたか」が監査履歴(tutor_edit イベントの comment)に保存されている
+        evs = (
+            db.query(WorkReportEvent)
+            .filter(WorkReportEvent.report_id == uuid.UUID(report_id), WorkReportEvent.action == "tutor_edit")
+            .all()
+        )
+        assert len(evs) == 1
+        assert "修正内容" in (evs[0].comment or "")
         tutor_rows = (
             db.query(WorkMailOutbox)
             .filter(WorkMailOutbox.to_email == "tutor@x.example.com", WorkMailOutbox.subject == _TUTOR_EDITED_SUBJECT)

@@ -533,12 +533,18 @@ async def patch_report(
     was_returned = report.status == WorkStatus.RETURNED_TO_TUTOR
     old_form_data = copy.deepcopy(report.form_data or {}) if was_returned else None
     update_report_data(db, report, payload.form_data)
+    changes = diff_report_lines(report.form_type, old_form_data, payload.form_data) if was_returned else []
+    if changes:
+        # 「何を何に変えたか」を監査履歴(comment)として保存する（事務修正 office_edit と対の tutor_edit）
+        edit_comment = "【修正内容】\n" + "\n".join(f"・{label}：{old} → {new}" for label, old, new in changes)
+        db.add(WorkReportEvent(
+            report_id=report.id, actor_id=user.id, action="tutor_edit",
+            from_status=WorkStatus.RETURNED_TO_TUTOR, to_status=report.status, comment=edit_comment,
+        ))
     db.commit()
     db.refresh(report)
-    if was_returned:
-        changes = diff_report_lines(report.form_type, old_form_data, payload.form_data)
-        if changes:
-            await send_tutor_edit_notification(db, report, user, changes)
+    if changes:
+        await send_tutor_edit_notification(db, report, user, changes)
     return report
 
 

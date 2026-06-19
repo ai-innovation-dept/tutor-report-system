@@ -742,7 +742,16 @@ async def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depe
             raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
         if _duplicate_lesson_date_exists(db, report.tutor_id, report.assignment_id, report.lesson_date, exclude_report_id=report.id):
             raise HTTPException(status_code=409, detail="同じ指導日の報告書がすでに登録されています")
-    db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))
+    # 差戻し中の修正は「何を何に変えたか」を監査履歴(comment)として保存する（action=tutor_edit）。
+    # それ以外（下書き編集・変更なし）は従来どおり action=update（差分なし）で記録する。
+    if was_returned and changes:
+        edit_comment = "【修正内容】\n" + "\n".join(f"・{label}：{old} → {new}" for label, old, new in changes)
+        db.add(ReportEvent(
+            report_id=report.id, actor_id=user.id, action="tutor_edit",
+            from_status=ReportStatus.returned_to_tutor.value, to_status=report.status, comment=edit_comment,
+        ))
+    else:
+        db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))
     db.commit()
     db.refresh(report)
     # 差戻し中の報告書を講師が修正・保存したら、差戻した操作者へ通知（受付編集通知 notify_report_modified の対）。

@@ -147,11 +147,12 @@ const ACTION_LABELS = {
   return_from_reviewer: '差戻し',
   admin_approve: '承認',
   return_from_master: '差戻し',
-  receiver_edit: '受付修正'
+  receiver_edit: '受付修正',
+  tutor_edit: '講師修正'
 };
 const RETURN_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
 const APPROVAL_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
-const EDIT_ACTIONS = new Set(['receiver_edit']);
+const EDIT_ACTIONS = new Set(['receiver_edit', 'tutor_edit']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_parent_approval', label: '保護者承認待ち', statuses: ['awaiting_parent_approval', 'parent_approved']},
