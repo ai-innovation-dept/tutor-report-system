@@ -399,14 +399,24 @@ def test_scenario_parent_list_shows_correct_statuses(scenario, scenario_db, monk
     }
     response = client.get("/api/reports", headers=auth(tokens["parent_a"]))
     returned_statuses = {item["status"] for item in response.json()}
-    assert {ReportStatus.awaiting_parent_approval.value, ReportStatus.returned_to_tutor.value, ReportStatus.parent_approved.value, ReportStatus.admin_approved.value}.issubset(returned_statuses)
+    # 承認後に運営へ自動提出された報告（運営確認中＝submitted_to_admin〜returned_to_receiver）も
+    # 保護者の一覧に表示し続ける（操作履歴を消さないため）。下書き・クローズのみ非表示。
+    expected_visible = {
+        ReportStatus.awaiting_parent_approval.value,
+        ReportStatus.returned_to_tutor.value,
+        ReportStatus.parent_approved.value,
+        ReportStatus.submitted_to_admin.value,
+        ReportStatus.received.value,
+        ReportStatus.re_reviewed.value,
+        ReportStatus.returned_to_receiver.value,
+        ReportStatus.admin_approved.value,
+    }
+    assert expected_visible.issubset(returned_statuses)
     assert ReportStatus.draft.value not in returned_statuses
-    assert ReportStatus.submitted_to_admin.value not in returned_statuses
-    assert ReportStatus.received.value not in returned_statuses
-    assert ReportStatus.re_reviewed.value not in returned_statuses
-    assert ReportStatus.returned_to_receiver.value not in returned_statuses
     assert ReportStatus.closed.value not in returned_statuses
-    assert ids_by_status[ReportStatus.closed.value] not in {item["id"] for item in response.json()}
+    returned_ids = {item["id"] for item in response.json()}
+    assert ids_by_status[ReportStatus.closed.value] not in returned_ids
+    assert ids_by_status[ReportStatus.draft.value] not in returned_ids
 
 
 def test_scenario_parent_operation_history(scenario, scenario_db, monkeypatch):

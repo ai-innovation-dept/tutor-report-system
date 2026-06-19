@@ -61,10 +61,13 @@ function durationLabel(minutes) {
   if (hours) return `${hours}時間`;
   return `${mins}分`;
 }
+// 運営確認中の各状態（受付待ち〜最終承認待ち・運営内差戻し）は保護者には「運営確認中」とまとめて表示する。
+const ADMIN_PIPELINE_STATUSES = ['submitted_to_admin', 'received', 're_reviewed', 'returned_to_receiver'];
 function statusBadge(status) {
   if (status === 'awaiting_parent_approval') return '<span class="inline-flex rounded-full bg-yellow-100 px-2.5 py-1 text-xs font-medium text-yellow-800">確認待ち</span>';
   if (status === 'returned_to_tutor') return '<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">差戻し済み</span>';
   if (status === 'parent_approved') return '<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">承認済み</span>';
+  if (ADMIN_PIPELINE_STATUSES.includes(status)) return '<span class="inline-flex rounded-full bg-indigo-100 px-2.5 py-1 text-xs font-medium text-indigo-700">運営確認中</span>';
   if (status === 'admin_approved') return '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">最終承認済み</span>';
   return '';
 }
@@ -164,6 +167,8 @@ function groupStatus(reports) {
   if (statuses.has('returned_to_tutor')) return 'returned_to_tutor';
   if (statuses.has('awaiting_parent_approval')) return 'awaiting_parent_approval';
   if ([...statuses].every(status => status === 'admin_approved')) return 'admin_approved';
+  // 運営確認中の状態が含まれる場合は「運営確認中」を代表表示にする（承認後の自動提出後など）。
+  if ([...statuses].some(status => ADMIN_PIPELINE_STATUSES.includes(status))) return 'submitted_to_admin';
   return 'parent_approved';
 }
 function openReportWindow(month) {
@@ -185,6 +190,12 @@ function renderActionArea(month, reports) {
   }
   if (pending.length) {
     return '<div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">「報告書を確認」を開き、内容をご確認のうえ承認・差戻しを行ってください。</div>';
+  }
+  if (reports.every(report => report.status === 'admin_approved')) {
+    return '<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">最終承認済みです。</div>';
+  }
+  if (reports.some(report => ADMIN_PIPELINE_STATUSES.includes(report.status))) {
+    return '<div class="mt-3 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm text-indigo-700">承認済みです。運営が確認しています。</div>';
   }
   return '<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>';
 }

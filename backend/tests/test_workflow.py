@@ -180,8 +180,10 @@ def test_parent_approve_bulk_auto_submits_to_admin(client, db):
         assert report.status == ReportStatus.submitted_to_admin.value
         assert report.parent_approved_at is not None
         assert report.submitted_to_admin_at is not None
+    # 承認後に運営へ自動提出されても、保護者の一覧には「運営確認中」として表示し続ける（操作履歴を保持するため）。
     reports = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"}).json()
-    assert all(report["id"] not in report_ids for report in reports)
+    visible_ids = {report["id"] for report in reports}
+    assert all(report_id in visible_ids for report_id in report_ids)
 
 
 def test_return_requires_comment(client, db):
@@ -485,7 +487,9 @@ def test_parent_reports_can_filter_by_tutor(client, db):
     assert filtered.json()[0]["tutor_name"] == "講師 二郎"
 
 
-def test_list_reports_parent_excludes_submitted_to_admin(client, db):
+def test_list_reports_parent_includes_admin_pipeline(client, db):
+    # 承認後に運営へ自動提出された報告（運営確認中＝submitted_to_admin 等）も、保護者の一覧に
+    # 表示し続ける（承認・差戻し後に操作履歴が消えないようにするため）。スキップ保護者は対象外。
     parent_token = token(client, "parent@example.com")
     assignment = db.query(Assignment).first()
     today = get_current_jst_date()
@@ -507,7 +511,7 @@ def test_list_reports_parent_excludes_submitted_to_admin(client, db):
     res = client.get("/api/reports", headers={"Authorization": f"Bearer {parent_token}"})
 
     assert res.status_code == 200
-    assert all(item["status"] != ReportStatus.submitted_to_admin.value for item in res.json())
+    assert any(item["status"] == ReportStatus.submitted_to_admin.value for item in res.json())
 
 
 def test_list_reports_parent_excludes_closed(client, db):
