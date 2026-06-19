@@ -16,7 +16,7 @@ from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import GroupAdminEditIn, ReportCreate, ReportEventOut, ReportOut, ReportPatch
-from app.services.workflow_service import notify_report_modified, separation_locks
+from app.services.workflow_service import notify_report_modified, notify_tutor_report_edited, separation_locks
 
 STATUS_RANK = {
     ReportStatus.draft.value: 0,
@@ -720,7 +720,7 @@ def get_report(report_id: UUID, db: Session = Depends(get_db), user: User = Depe
 
 
 @router.patch("/{report_id}", response_model=ReportOut)
-def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report = get_report_for_user(report_id, user, db)
     if user.role != "tutor" or report.tutor_id != user.id:
         raise HTTPException(status_code=403, detail="report cannot be edited")
@@ -729,6 +729,9 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
     if report.status not in {ReportStatus.draft.value, ReportStatus.returned_to_tutor.value}:
         raise HTTPException(status_code=409, detail="only draft or returned reports can be edited")
     data = payload.model_dump(exclude_unset=True)
+    # 差戻し中の報告書の修正は、差戻した運営担当へ通知する。適用すると旧値が失われるため、変更前に差分を取得する。
+    was_returned = report.status == ReportStatus.returned_to_tutor.value
+    changes = _collect_changes(report, data) if was_returned else []
     for key, value in data.items():
         setattr(report, key, value)
     if report.start_time >= report.end_time:
@@ -742,6 +745,10 @@ def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depends(ge
     db.add(ReportEvent(report_id=report.id, actor_id=user.id, action="update", from_status=report.status, to_status=report.status))
     db.commit()
     db.refresh(report)
+    # 差戻し中の報告書を講師が修正・保存したら、差戻した操作者へ通知（受付編集通知 notify_report_modified の対）。
+    # 変更が無い保存（コメントのみ等）では送らない。再提出時の通知は従来どおり別途行われる。
+    if was_returned and changes:
+        await notify_tutor_report_edited(db, report, changes, user)
     return _report_out(db, report, user)
 
 

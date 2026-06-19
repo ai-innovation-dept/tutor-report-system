@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.shared import Assignment, User
-from app.models.work import WorkNotification, WorkReport
+from app.models.work import WorkNotification, WorkReport, WorkReportEvent
 from app.services.mailer import enqueue_mail
 from app.workflow.definitions import WorkAction, WorkStatus
 
@@ -453,3 +453,43 @@ async def send_office_edit_notification(
             "notify_office_edited.txt",
             context | {"name": school.display_name},
         )
+
+
+_TUTOR_EDITED_SUBJECT = "【業務連絡表】差戻し中の報告書が講師により修正されました"
+
+
+def _last_return_actor(db: Session, report: WorkReport) -> User | None:
+    """報告書を直近で講師へ差戻した操作者（学校／事務など）を返す。差戻し履歴が無ければ None。"""
+    event = db.scalars(
+        select(WorkReportEvent)
+        .where(
+            WorkReportEvent.report_id == report.id,
+            WorkReportEvent.action == WorkAction.RETURN,
+            WorkReportEvent.to_status == WorkStatus.RETURNED_TO_TUTOR,
+        )
+        .order_by(WorkReportEvent.created_at.desc())
+    ).first()
+    return event.actor if event and event.actor else None
+
+
+async def send_tutor_edit_notification(
+    db: Session,
+    report: WorkReport,
+    actor: User,
+    changes: list[tuple[str, str, str]] | None = None,
+) -> None:
+    """差戻し中の報告書を講師が修正・保存した際に、差戻した操作者へ差分を1通通知する。
+    事務修正通知(send_office_edit_notification)と対になる、講師→運営方向の通知。
+    差戻した操作者が特定できない（履歴なし／退会済み）場合は送らない。"""
+    recipient = _last_return_actor(db, report)
+    if not recipient:
+        return
+    context = {
+        "base_url": _base_url(),
+        "target_month": report.target_month,
+        "student_name": _student_name(report),
+        "actor_name": actor.display_name,
+        "changes": _format_office_changes(changes),
+        "name": recipient.display_name,
+    }
+    await _send_email(db, recipient, _TUTOR_EDITED_SUBJECT, "notify_tutor_edited.txt", context)

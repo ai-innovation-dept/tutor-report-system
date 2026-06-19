@@ -41,7 +41,7 @@ from app.services.report_service import (
     office_update_report_data,
     update_report_data,
 )
-from app.services.notification_service import send_office_edit_notification, send_transition_notifications
+from app.services.notification_service import send_office_edit_notification, send_transition_notifications, send_tutor_edit_notification
 from app.services.export_service import build_report_pdf, build_reports_csv, build_reports_pdf
 from app.services.workflow_service import execute_transition, separation_locks
 from app.workflow.definitions import WorkAction, WorkStatus
@@ -515,21 +515,30 @@ def _preserve_locked_meta(report: WorkReport, form_data: dict) -> None:
 
 
 @router.patch("/{report_id}", response_model=ReportOut)
-def patch_report(
+async def patch_report(
     report_id: uuid.UUID,
     payload: ReportPatch,
     db: Session = Depends(get_db),
     user: User = Depends(require_role("tutor")),
 ):
-    """講師本人による報告書編集（下書き・差戻し中のみ）。"""
+    """講師本人による報告書編集（下書き・差戻し中のみ）。
+    差戻し中の報告書を修正・保存した場合は、差戻した操作者へ差分を通知する
+    （事務修正通知 send_office_edit_notification と対になる講師→運営方向の通知）。"""
     report = get_report_or_404(db, report_id)
     assert_tutor_owns(report, user)
     _assert_no_duplicate_line_dates(payload.form_data)
     # 契約管理で登録した内容は講師側で変更させない（保存済みの値を保持）
     _preserve_locked_meta(report, payload.form_data)
+    # 差戻し中の保存は通知のため、適用前に差分（修正前→修正後）を算出できるよう旧内容を退避する
+    was_returned = report.status == WorkStatus.RETURNED_TO_TUTOR
+    old_form_data = copy.deepcopy(report.form_data or {}) if was_returned else None
     update_report_data(db, report, payload.form_data)
     db.commit()
     db.refresh(report)
+    if was_returned:
+        changes = diff_report_lines(report.form_type, old_form_data, payload.form_data)
+        if changes:
+            await send_tutor_edit_notification(db, report, user, changes)
     return report
 
 

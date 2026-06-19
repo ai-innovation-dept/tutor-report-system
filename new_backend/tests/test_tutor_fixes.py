@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import Assignment, User
-from app.models.work import WorkAssignmentProfile, WorkReport
+from app.models.work import WorkAssignmentProfile, WorkMailOutbox, WorkReport
+from app.services.notification_service import _TUTOR_EDITED_SUBJECT
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -433,3 +434,68 @@ class TestSchoolVisibility:
         listed = client.get("/api/w/reports", headers=school_headers).json()
         assert report_id in [r["id"] for r in listed]
         assert listed[0]["status"] == WorkStatus.AWAITING_OFFICE
+
+
+class TestTutorEditNotifiesReturner:
+    """改修④（③相当）: 差戻し中の報告書を講師が修正・保存したら、差戻した操作者へ通知する。"""
+
+    def _to_returned(self, client, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = client.post(
+            "/api/w/reports",
+            json={
+                "assignment_id": str(setup["assignment"].id),
+                "target_month": "2026-06",
+                "form_type": "monthly_dispatch",
+                "form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 60, "note": "数学"}]},
+            },
+            headers=tutor_headers,
+        ).json()["id"]
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "修正してください"},
+            headers=_auth(client, "school@x.example.com"),
+        )
+        return report_id, tutor_headers
+
+    def test_tutor_edit_returned_notifies_returner(self, client, db, setup):
+        report_id, tutor_headers = self._to_returned(client, setup)
+        # 講師が差戻し報告書を修正・保存（teach_minutes 60→90）
+        res = client.patch(
+            f"/api/w/reports/{report_id}",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 90, "note": "数学(修正)"}]}},
+            headers=tutor_headers,
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["form_data"]["lines"][0]["teach_minutes"] == 90
+        # 差戻した学校宛に「講師により修正」通知が1通投函される（編集者である講師宛には送らない）
+        rows = (
+            db.query(WorkMailOutbox)
+            .filter(WorkMailOutbox.to_email == "school@x.example.com", WorkMailOutbox.subject == _TUTOR_EDITED_SUBJECT)
+            .all()
+        )
+        assert len(rows) == 1, [(r.to_email, r.subject) for r in db.query(WorkMailOutbox).all()]
+        assert "修正内容" in rows[0].body
+        tutor_rows = (
+            db.query(WorkMailOutbox)
+            .filter(WorkMailOutbox.to_email == "tutor@x.example.com", WorkMailOutbox.subject == _TUTOR_EDITED_SUBJECT)
+            .count()
+        )
+        assert tutor_rows == 0
+
+    def test_tutor_edit_returned_no_change_no_notify(self, client, db, setup):
+        report_id, tutor_headers = self._to_returned(client, setup)
+        # 値を変えない保存では通知しない
+        res = client.patch(
+            f"/api/w/reports/{report_id}",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 60, "note": "数学"}]}},
+            headers=tutor_headers,
+        )
+        assert res.status_code == 200, res.text
+        rows = (
+            db.query(WorkMailOutbox)
+            .filter(WorkMailOutbox.subject == _TUTOR_EDITED_SUBJECT)
+            .count()
+        )
+        assert rows == 0

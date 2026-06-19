@@ -130,6 +130,8 @@ function getCurrentMonth() {
 const currentMonth = getCurrentMonth();
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedAssignmentId = '';
+// 既存の下書き／差戻し報告書を編集中か。編集中はフォームを常に有効化し、新規作成の可否ゲートに左右されないようにする。
+let editingExisting = false;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -219,10 +221,12 @@ function selectedAssignmentApproved() {
 }
 function selectedAssignmentInProgress() {
   if (!selectedAssignmentId) return false;
+  // 差戻し中（returned_to_tutor）は「進行中」に含めない。差戻しがある月でも講師が新たな指導日を
+  // 追加できるようにするため（バックエンドの create_report が差戻し中の新規作成を許可しているのと整合）。
   const inProgressStatuses = [
     'awaiting_parent_approval', 'parent_approved',
     'submitted_to_admin', 'received', 're_reviewed',
-    'returned_to_tutor', 'returned_to_receiver'
+    'returned_to_receiver'
   ];
   return allReports.some(r =>
     r.target_month === currentMonth &&
@@ -250,6 +254,13 @@ function renderCurrentList() {
 function renderFormAvailability() {
   if (isSubmitPage) {
     formPanel.classList.add('hidden');
+    formUnavailablePanel.classList.add('hidden');
+    return;
+  }
+  // 既存（下書き／差戻し）の報告書を編集中は、生徒・月の選択状態にかかわらずフォームを有効に保つ。
+  // 入力の活殺は editReport() 側で setReportInputsDisabled(false) 済み。
+  if (editingExisting) {
+    formPanel.classList.remove('hidden');
     formUnavailablePanel.classList.add('hidden');
     return;
   }
@@ -469,6 +480,7 @@ function snapBreakMinutes(value) {
 function resetReportForm(keepAssignment = false) {
   const currentAssignment = assignment.value;
   reportForm.reset();
+  editingExisting = false;
   editingId.value = '';
   startHour.value = ''; startMin.value = '';
   endHour.value = ''; endMin.value = '';
@@ -531,13 +543,13 @@ function copyLastReport() {
 function editReport(id) {
   const r = allReports.find(item => item.id === id);
   if (!r) return;
+  editingExisting = true;
   editingId.value = r.id;
   selectedAssignmentId = r.assignment_id;
   assignment.value = r.assignment_id;
   lessonDate.value = r.lesson_date;
   setTimeSelects(startHour, startMin, r.start_time);
   syncStartTime();
-  setEndTimeDisabled(!startTime.value);
   setTimeSelects(endHour, endMin, r.end_time);
   syncEndTime();
   breakMinutes.value = snapBreakMinutes(r.break_minutes);
@@ -545,8 +557,14 @@ function editReport(id) {
   content.value = r.content || '';
   formTitle.textContent = `編集中：${dateLabel(r.lesson_date)}`;
   saveButton.textContent = '保存';
+  // 下書き／差戻しの編集は全項目を有効化（指導日・開始時刻も含めて修正可）。
+  // setReportInputsDisabled(false) は内部で setEndTimeDisabled(!startTime.value) も行う。
+  setReportInputsDisabled(false);
   updateComputedFields();
   updateCopyLastButton();
+  showFormMessage(r.status === 'returned_to_tutor'
+    ? '差戻し報告書を編集中です。指導日・開始/終了時刻を含め修正し、「保存」を押してください。'
+    : '下書きを編集中です。修正後「保存」を押してください。');
   formPanel.scrollIntoView({behavior: 'smooth', block: 'start'});
 }
 async function deleteReport(id) {
@@ -597,6 +615,9 @@ reportForm.addEventListener('submit', async e => {
       await api('/api/reports', {method:'POST', body: JSON.stringify(payload), suppressFlash: true});
       showFormMessage('報告書を作成しました');
     }
+    // 保存完了後は編集モードを抜け、選択中の生徒・月で通常の作成可否ゲートへ戻す
+    // （editingId は loadTutor 中も保持され、成功メッセージは維持される）。
+    editingExisting = false;
     await loadTutor();
     resetReportForm(true);
   } catch (error) {
@@ -607,6 +628,8 @@ reportForm.addEventListener('submit', async e => {
   }
 });
 assignment.addEventListener('change', () => {
+  // 生徒を切り替えたら編集中の内容は破棄し、作成モードに戻す
+  if (editingExisting) resetReportForm(true);
   selectedAssignmentId = assignment.value;
   updateStudentBadge();
   renderCurrentList();
@@ -614,6 +637,8 @@ assignment.addEventListener('change', () => {
   validateLessonDate();
 });
 monthFilter.addEventListener('change', () => {
+  // 月を切り替えたら編集中の内容は破棄し、作成モードに戻す
+  if (editingExisting) resetReportForm(true);
   selectedMonth = monthFilter.value;
   renderCurrentList();
   renderFormAvailability();
