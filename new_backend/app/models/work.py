@@ -181,6 +181,13 @@ class WorkReport(Base):
         meta = (self.form_data or {}).get("meta") or {}
         return meta.get("dispatch_place_name") or None
 
+    @property
+    def school_no(self) -> str | None:
+        """紐付け済みの学校の番号（学校番号＝user_no）。未紐付けは None。"""
+        if self.assignment and self.assignment.parent:
+            return self.assignment.parent.user_no
+        return None
+
 
 class WorkReportEvent(Base):
     __tablename__ = "work_report_events"

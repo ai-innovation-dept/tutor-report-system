@@ -196,8 +196,8 @@
               : `<span class="cursor-not-allowed rounded-lg bg-slate-300 px-3 py-2 text-sm font-medium text-white opacity-70" title="最終承認の完了後にダウンロードできます">PDFでダウンロード</span>`}
           </div>
           <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-            <div class="flex gap-2"><dt class="text-slate-500">学校名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">講師名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.tutor_name || '-')}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">学校名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}${report.school_no ? `（${escapeHtml(report.school_no)}）` : ''}</dd></div>
+            <div class="flex gap-2"><dt class="text-slate-500">講師名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.tutor_name || '-')}${report.tutor_no ? `（${escapeHtml(report.tutor_no)}）` : ''}</dd></div>
             <div class="flex gap-2"><dt class="text-slate-500">弊社担当</dt><dd class="text-slate-800">${escapeHtml(meta.our_staff || '-')}</dd></div>
             <div class="flex gap-2"><dt class="text-slate-500">事業所の所在地</dt><dd class="text-slate-800">${escapeHtml(meta.dispatch_place_address || '-')}</dd></div>
             <div class="flex gap-2"><dt class="text-slate-500">従事業務内容</dt><dd class="text-slate-800">${escapeHtml(meta.work_content || '-')}</dd></div>
