@@ -243,7 +243,7 @@ function openReportWindow(key) {
   const group = currentGroups().find(item => item.key === key);
   if (!group) return;
   const url = `/admin/report-view?assignment_id=${encodeURIComponent(group.assignment_id)}&month=${encodeURIComponent(group.target_month)}`;
-  window.open(url, `report_${group.assignment_id}_${group.target_month}`, 'width=1000,height=800,noopener');
+  openReportPopup(url, `report_${group.assignment_id}_${group.target_month}`);
 }
 function groupPdfUrl(group) {
   const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only', format: 'pdf'});
@@ -764,7 +764,7 @@ tutorFilter.addEventListener('change', () => {
   openCardKey = null;
   updateUrl();
 });
-// 報告書（参照）画面はポップアップ（noopener）で開くため、そこで承認・差戻しが行われたら
+// 報告書（参照）画面は別ウィンドウのポップアップで開くため、そこで承認・差戻しが行われたら
 // localStorage 経由の通知でダッシュボードを再読込し、タスク欄・パイプラインを最新化する。
 window.addEventListener('storage', event => {
   if (event.key === 'adminDashboardRefresh') loadAdmin();

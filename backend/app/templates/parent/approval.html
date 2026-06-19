@@ -175,7 +175,7 @@ function openReportWindow(month) {
   const current = selectedAssignment();
   const assignmentId = selectedAssignmentId || (current && current.id) || '';
   const url = `/parent/report-view?assignment_id=${encodeURIComponent(assignmentId)}&month=${encodeURIComponent(month)}`;
-  window.open(url, `report_${assignmentId}_${month}`, 'width=1000,height=800,noopener');
+  openReportPopup(url, `report_${assignmentId}_${month}`);
 }
 // 承認・差戻しの操作は「報告書を確認」で開く参照画面（report_view.html）へ集約した。
 // 保護者が報告書の中身を確認したうえで操作する導線のため、一覧には状態の案内のみを表示しボタンは置かない。
@@ -247,7 +247,7 @@ monthFilter.addEventListener('change', () => {
   location.href = `${location.pathname}?${params.toString()}`;
 });
 // 「報告書を確認」ポップアップ（report_view.html）で承認/差戻しが行われたら一覧を再読込する。
-// ポップアップは noopener で開くため、localStorage の更新を介して通知を受け取る。
+// ポップアップは別ウィンドウで開くため、localStorage の更新を介して通知を受け取る。
 window.addEventListener('storage', event => {
   if (event.key === 'parentApprovalRefresh') loadApproval();
 });

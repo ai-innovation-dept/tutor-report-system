@@ -211,7 +211,7 @@ function schoolNameFor(report) {
 }
 function openReportWindow(reportId) {
   // 対象報告書を参照専用ウィンドウで開く
-  window.open(`/reports/${reportId}/view`, `report_${reportId}`, 'width=1000,height=800,noopener');
+  openReportPopup(`/reports/${reportId}/view`, `report_${reportId}`);
 }
 function openGroupReports(key) {
   const group = currentGroups().find(item => item.key === key);
@@ -899,7 +899,7 @@ tutorFilter.addEventListener('change', () => {
   openCardKey = null;
   updateUrl();
 });
-// 報告書（参照）画面はポップアップ（noopener）で開くため、そこで承認・差戻しが行われたら
+// 報告書（参照）画面は別ウィンドウのポップアップで開くため、そこで承認・差戻しが行われたら
 // localStorage 経由の通知でダッシュボードを再読込し、タスク欄・パイプラインを最新化する。
 window.addEventListener('storage', event => {
   if (event.key === 'officeQueueRefresh') loadAdmin();

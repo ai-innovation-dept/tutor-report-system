@@ -229,7 +229,7 @@
       }
       return res.json().catch(() => ({}));
     }
-    // 参照画面はポップアップ（noopener）で開かれるため、承認管理一覧へは localStorage 経由で更新を通知する。
+    // 参照画面は別ウィンドウのポップアップで開かれるため、承認管理一覧へは localStorage 経由で更新を通知する。
     function notifyOpener() {
       try { localStorage.setItem('parentApprovalRefresh', String(Date.now())); } catch (_) {}
     }
@@ -360,7 +360,7 @@
       returnConfirmBtn.addEventListener('click', adminReturn);
       if (approveBtn) approveBtn.addEventListener('click', adminApprove);
     }
-    // 参照画面はポップアップ（noopener）で開かれるため、運営ダッシュボードへは localStorage 経由で更新を通知する。
+    // 参照画面は別ウィンドウのポップアップで開かれるため、運営ダッシュボードへは localStorage 経由で更新を通知する。
     function notifyAdminOpener() {
       try { localStorage.setItem('adminDashboardRefresh', String(Date.now())); } catch (_) {}
     }

@@ -335,6 +335,25 @@
       `;
     }
 
+    // 報告書の参照ポップアップを重複起動させないための共通ヘルパー。
+    // 同名ウィンドウが既に開いていれば再利用してフォーカスし、新規ウィンドウは開かない。
+    // ※ window.open の第3引数に noopener を付けると name が _blank 扱いになり、クリックのたびに
+    //   新しいウィンドウが開いてしまう（重複起動の原因）。そのため noopener は付けない。
+    const openedReportWindows = {};
+    function openReportPopup(url, name) {
+      const existing = openedReportWindows[name];
+      if (existing && !existing.closed) {
+        existing.focus();
+        return existing;
+      }
+      const popup = window.open(url, name, 'width=1000,height=800');
+      if (popup) {
+        openedReportWindows[name] = popup;
+        popup.focus();
+      }
+      return popup;
+    }
+
     renderNav(window.currentUser);
   </script>
   {% block scripts %}{% endblock %}

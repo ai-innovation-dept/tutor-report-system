@@ -173,7 +173,7 @@ function schoolNameFor(report) {
 }
 function openReportWindow(reportId) {
   // 対象報告書を参照専用ウィンドウで開く
-  window.open(`/reports/${reportId}/view`, `report_${reportId}`, 'width=1000,height=800,noopener');
+  openReportPopup(`/reports/${reportId}/view`, `report_${reportId}`);
 }
 function openGroupReports(key) {
   const group = currentGroups().find(item => item.key === key);

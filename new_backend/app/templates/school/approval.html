@@ -56,7 +56,7 @@ function reportsForMonth() {
     .sort((a, b) => tutorName(a).localeCompare(tutorName(b), 'ja'));
 }
 function openReportWindow(reportId) {
-  window.open(`/reports/${reportId}/view`, `report_${reportId}`, 'width=1000,height=800,noopener');
+  openReportPopup(`/reports/${reportId}/view`, `report_${reportId}`);
 }
 // 学校が必要とするのは「いつ・どの講師から提出されたか」と「自分（学校）がいつ承認/差戻したか」のみ。
 // 事務・営業など後段の承認は学校には不要なため除外する（submit と、学校確認(awaiting_school)からの自分の操作だけ表示）。
@@ -147,7 +147,7 @@ monthFilter.addEventListener('change', () => {
   renderApproval();
 });
 // 「報告書を確認」ポップアップ（report_view.html）で承認/差戻しが行われたら一覧を再読込する。
-// ポップアップは noopener で開くため、localStorage の更新を介して通知を受け取る。
+// ポップアップは別ウィンドウで開くため、localStorage の更新を介して通知を受け取る。
 window.addEventListener('storage', event => {
   if (event.key === 'schoolApprovalRefresh') loadApproval();
 });

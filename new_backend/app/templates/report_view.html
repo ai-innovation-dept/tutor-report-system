@@ -293,7 +293,7 @@
       }
       return res.json().catch(() => ({}));
     }
-    // 参照画面はポップアップ（noopener）で開かれるため、呼び出し元の一覧へは localStorage 経由で更新を通知する。
+    // 参照画面は別ウィンドウのポップアップで開かれるため、呼び出し元の一覧へは localStorage 経由で更新を通知する。
     // 通知キーは操作ロールごとに分け、各ダッシュボード（学校承認一覧・事務/営業キュー）が自分のキーを監視する。
     function notifyOpener() {
       const key = ACTIVE_ROLE === 'office' ? 'officeQueueRefresh'
