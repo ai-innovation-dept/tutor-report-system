@@ -22,6 +22,12 @@
   </div>
   <script>
     const reportId = {{ report_id | tojson }};
+    // 学校ロールの参照画面でのみ承認/差戻しを表示する。参照画面は全ロール共有のため active_role で限定し、
+    // office/sales/finance/admin には出さない（承認管理一覧のボタンを本画面へ集約したもの）。
+    const ACTIVE_ROLE = {{ active_role | default('') | tojson }};
+    const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
+    let currentReport = null;
+    let flashMsg = null;
     const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
     // 勤怠区分（種別）。講師フォーム・PDFと共有する不変キー。空＝勤務。
     const ATTENDANCE_LABELS = {'': '勤務', work: '勤務', paid_leave: '有給休暇', absent: '欠勤'};
@@ -143,6 +149,7 @@
         document.getElementById('loading').textContent = '報告書を読み込めませんでした。';
         return;
       }
+      currentReport = report;
       const meta = (report.form_data && report.form_data.meta) || {};
       const lines = (report.form_data && Array.isArray(report.form_data.lines) ? report.form_data.lines : []).filter(hasData);
       // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する（講師フォームと同一）
@@ -180,7 +187,7 @@
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
       content.classList.remove('hidden');
-      content.innerHTML = `
+      content.innerHTML = bannerHtml() + `
         <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h1 class="text-lg font-bold text-slate-800">${escapeHtml(monthLabel(report.target_month))} 業務連絡表（参照）</h1>
@@ -202,10 +209,107 @@
             <tbody>${bodyRows}</tbody>
           </table>
           <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">${summaryParts.join('')}</div>
-        </section>`;
+        </section>` + schoolActionAreaHtml(report);
       content.querySelectorAll('.note-view-btn').forEach(btn => {
         btn.addEventListener('click', () => openNoteView(btn.dataset.note || ''));
       });
+      wireSchoolActions();
+    }
+
+    // 学校の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
+    // 当月かつ学校確認待ち（awaiting_school）のときのみ操作可。差戻し中・過去月・それ以外は案内のみ。
+    function schoolActionAreaHtml(report) {
+      if (ACTIVE_ROLE !== 'school') return '';
+      const wrap = (inner) => `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">${inner}</section>`;
+      if (report.target_month !== CURRENT_MONTH) {
+        return wrap('<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>');
+      }
+      if (report.status === 'returned_to_tutor') {
+        return wrap('<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し済みです。講師の修正をお待ちください。</div>');
+      }
+      if (report.status !== 'awaiting_school') {
+        return wrap('<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認済みです。</div>');
+      }
+      return wrap(`
+        <h2 class="font-semibold text-slate-800">承認・差戻し</h2>
+        <p class="mt-1 text-sm text-slate-600">上記の内容をご確認のうえ、${escapeHtml(monthLabel(report.target_month))}の業務連絡表を承認、または差戻してください。</p>
+        <div id="returnForm" class="mt-3 hidden rounded-xl border border-red-200 bg-red-50 p-4">
+          <label class="text-sm font-medium text-slate-700" for="returnComment">差戻しコメント</label>
+          <textarea id="returnComment" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="コメントを入力してください"></textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="returnConfirmBtn" type="button" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700">差戻す</button>
+            <button id="returnCancelBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">キャンセル</button>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button id="returnOpenBtn" type="button" class="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 sm:w-auto">差戻す</button>
+          <button id="approveBtn" type="button" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 sm:w-auto">承認する</button>
+        </div>
+        <div id="actionMsg" class="mt-3 hidden rounded-lg px-3 py-2 text-sm"></div>
+      `);
+    }
+    function bannerHtml() {
+      if (!flashMsg) return '';
+      const message = flashMsg;
+      flashMsg = null;
+      return `<div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">${escapeHtml(message)}</div>`;
+    }
+    function wireSchoolActions() {
+      const approveBtn = document.getElementById('approveBtn');
+      if (!approveBtn) return; // 操作エリア未表示（学校以外・過去月・対象外等）
+      const returnOpenBtn = document.getElementById('returnOpenBtn');
+      const returnForm = document.getElementById('returnForm');
+      const returnConfirmBtn = document.getElementById('returnConfirmBtn');
+      const returnCancelBtn = document.getElementById('returnCancelBtn');
+      returnOpenBtn.addEventListener('click', () => {
+        returnForm.classList.remove('hidden');
+        document.getElementById('returnComment').focus();
+      });
+      returnCancelBtn.addEventListener('click', () => returnForm.classList.add('hidden'));
+      approveBtn.addEventListener('click', schoolApprove);
+      returnConfirmBtn.addEventListener('click', schoolReturn);
+    }
+    function showActionMsg(text, ok) {
+      const el = document.getElementById('actionMsg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = `mt-3 rounded-lg px-3 py-2 text-sm ${ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-rose-200 bg-rose-50 text-rose-700'}`;
+    }
+    async function postAction(body) {
+      const res = await fetch(`/api/w/reports/${reportId}/action`, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (!res.ok) {
+        let detail = `エラー（${res.status}）`;
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      return res.json().catch(() => ({}));
+    }
+    // 参照画面はポップアップ（noopener）で開かれるため、承認管理一覧へは localStorage 経由で更新を通知する。
+    function notifyOpener() {
+      try { localStorage.setItem('schoolApprovalRefresh', String(Date.now())); } catch (_) {}
+    }
+    async function schoolApprove() {
+      if (!confirm('この報告書を承認します。よろしいですか？')) return;
+      try {
+        await postAction({action: 'approve'});
+        notifyOpener();
+        flashMsg = `${monthLabel(currentReport.target_month)}の業務連絡表を承認しました。`;
+        await load();
+      } catch (e) {
+        showActionMsg(`承認できませんでした：${e.message}`, false);
+      }
+    }
+    async function schoolReturn() {
+      const comment = (document.getElementById('returnComment').value || '').trim();
+      if (!comment) { showActionMsg('差戻しコメントを入力してください。', false); return; }
+      try {
+        await postAction({action: 'return', comment});
+        notifyOpener();
+        flashMsg = `${monthLabel(currentReport.target_month)}の業務連絡表を差戻しました。`;
+        await load();
+      } catch (e) {
+        showActionMsg(`差戻しできませんでした：${e.message}`, false);
+      }
     }
     load();
   </script>
