@@ -153,7 +153,7 @@ function operationHistory(reports) {
       ${events.map(event => {
         const r = event.report;
         const tutorLabel = `講師　${escapeHtml(nameWithNo(r.tutor_name, r.tutor_no) || '講師')}`;
-        const parentLabel = `保護者　${escapeHtml(r.parent_name || '保護者')}`;
+        const parentLabel = `保護者　${escapeHtml(nameWithNo(r.parent_name, r.parent_no) || '保護者')}`;
         if (event.action === 'submit_to_parent') return row(event.created_at, tutorLabel, '<span class="font-medium text-slate-700">提出</span>');
         if (event.action === 'parent_approve') return row(event.created_at, parentLabel, '<span class="font-medium text-emerald-700">承認</span>');
         return row(event.created_at, parentLabel, '<span class="font-medium text-red-700">差戻し</span>',
