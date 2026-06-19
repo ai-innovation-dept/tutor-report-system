@@ -80,6 +80,7 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
         ReportEventOut(
             action=event.action,
             actor_name=event.actor.display_name if event.actor else None,
+            actor_no=event.actor.user_no if event.actor else None,
             actor_role=event.actor.role if event.actor else None,
             created_at=event.created_at,
             comment=event.comment,

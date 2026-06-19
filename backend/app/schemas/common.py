@@ -236,6 +236,7 @@ class ReportEventOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     action: str
     actor_name: str | None = None
+    actor_no: str | None = None
     actor_role: str | None = None
     created_at: datetime
     comment: str | None = None

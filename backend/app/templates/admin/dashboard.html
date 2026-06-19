@@ -332,19 +332,19 @@ function getTaskMeta(group, groupStatus) {
 
   if (groupStatus === 're_reviewed') {
     const event = allEvents.find(item => item.action === 're_review');
-    if (event) return `${event.actor_name || ''} / 再鑑完了 ${formatEventDate(event.created_at)}`.trim();
+    if (event) return `${nameWithNo(event.actor_name, event.actor_no) || ''} / 再鑑完了 ${formatEventDate(event.created_at)}`.trim();
   }
   if (groupStatus === 'received') {
     const event = allEvents.find(item => item.action === 'receive');
-    if (event) return `${event.actor_name || ''} / 受付完了 ${formatEventDate(event.created_at)}`.trim();
+    if (event) return `${nameWithNo(event.actor_name, event.actor_no) || ''} / 受付完了 ${formatEventDate(event.created_at)}`.trim();
   }
   if (groupStatus === 'submitted_to_admin') {
     const event = allEvents.find(item => item.action === 'parent_approve');
-    if (event) return `${event.actor_name || ''} / 保護者承認 ${formatEventDate(event.created_at)}`.trim();
+    if (event) return `${nameWithNo(event.actor_name, event.actor_no) || ''} / 保護者承認 ${formatEventDate(event.created_at)}`.trim();
   }
   if (groupStatus === 'returned_to_receiver') {
     const event = allEvents.find(item => item.action === 'return_from_reviewer' || item.action === 'return_from_master');
-    if (event) return `${event.actor_name || ''} / 差戻し ${formatEventDate(event.created_at)}`.trim();
+    if (event) return `${nameWithNo(event.actor_name, event.actor_no) || ''} / 差戻し ${formatEventDate(event.created_at)}`.trim();
   }
   return '';
 }
@@ -523,7 +523,7 @@ function timelineRow(event) {
     <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
       <span>${escapeHtml(formatDateTime(event.created_at))}</span>
       <span>${escapeHtml(roleLabel(event.actor_role))}</span>
-      <span>${escapeHtml(event.actor_name || '-')}</span>
+      <span>${escapeHtml(nameWithNo(event.actor_name, event.actor_no) || '-')}</span>
       ${actionBadge(event.action)}
     </div>
     ${commentBox}
