@@ -16,6 +16,11 @@
     const assignmentId = params.get('assignment_id') || '';
     const targetMonth = params.get('month') || '';
     const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+    // 保護者の参照画面でのみ承認/差戻しを許可（pages.py が parent_can_act を渡したときだけ true。admin 参照は false）。
+    const PARENT_CAN_ACT = {{ parent_can_act | default(false) | tojson }};
+    const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
+    let currentFiltered = [];
+    let flashMsg = null;
 
     function escapeHtml(value) {
       return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -84,6 +89,7 @@
         report.target_month === targetMonth && (!assignmentId || report.assignment_id === assignmentId)));
       const totalMinutes = filtered.reduce((sum, report) => sum + teachingMinutes(report), 0);
       const first = filtered[0] || {};
+      currentFiltered = filtered;
 
       const bodyRows = filtered.length ? filtered.map((report, index) => `<tr class="${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
         <td class="border border-slate-200 px-2 py-1 text-center text-slate-500">${index + 1}</td>
@@ -99,7 +105,7 @@
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
       content.classList.remove('hidden');
-      content.innerHTML = `
+      content.innerHTML = bannerHtml() + `
         <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <h1 class="text-lg font-bold text-slate-800">${escapeHtml(monthLabel(targetMonth))} 指導実績報告書（参照）</h1>
           <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
@@ -127,7 +133,114 @@
             <div>指導日数：<span class="font-semibold">${filtered.length}</span>日</div>
             <div>合計指導時間：<span class="font-semibold">${durationLabel(totalMinutes)}</span></div>
           </div>
-        </section>`;
+        </section>` + actionAreaHtml(filtered);
+      wireParentActions();
+    }
+
+    // 保護者の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
+    // 当月かつ承認待ち（awaiting_parent_approval）のときのみ操作可。差戻し中・過去月・対象なしは案内のみ。
+    function actionAreaHtml(filtered) {
+      if (!PARENT_CAN_ACT) return '';
+      const wrap = (inner) => `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">${inner}</section>`;
+      if (targetMonth !== CURRENT_MONTH) {
+        return wrap('<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>');
+      }
+      if (filtered.some(report => report.status === 'returned_to_tutor')) {
+        return wrap('<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し中の報告書があります。講師の修正をお待ちください。</div>');
+      }
+      const pending = filtered.filter(report => report.status === 'awaiting_parent_approval');
+      if (!pending.length) {
+        return wrap('<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>');
+      }
+      return wrap(`
+        <h2 class="font-semibold text-slate-800">承認・差戻し</h2>
+        <p class="mt-1 text-sm text-slate-600">上記の内容をご確認のうえ、${escapeHtml(monthLabel(targetMonth))}の指導実績を承認、または差戻してください。</p>
+        <div id="returnForm" class="mt-3 hidden rounded-xl border border-red-200 bg-red-50 p-4">
+          <label class="text-sm font-medium text-slate-700" for="returnComment">差戻しコメント</label>
+          <textarea id="returnComment" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="コメントを入力してください"></textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="returnConfirmBtn" type="button" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700">差戻す</button>
+            <button id="returnCancelBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">キャンセル</button>
+          </div>
+        </div>
+        <label class="mt-3 flex cursor-pointer items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+          <input type="checkbox" id="selfConfirm" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+          <span>承認は保護者本人が操作しています</span>
+        </label>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button id="returnOpenBtn" type="button" class="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 sm:w-auto">差戻す</button>
+          <button id="approveBtn" type="button" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto" disabled>すべて承認する</button>
+        </div>
+        <div id="actionMsg" class="mt-3 hidden rounded-lg px-3 py-2 text-sm"></div>
+      `);
+    }
+    function bannerHtml() {
+      if (!flashMsg) return '';
+      const message = flashMsg;
+      flashMsg = null;
+      return `<div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">${escapeHtml(message)}</div>`;
+    }
+    function wireParentActions() {
+      const approveBtn = document.getElementById('approveBtn');
+      if (!approveBtn) return; // 操作エリア未表示（admin・過去月・対象なし等）
+      const selfConfirm = document.getElementById('selfConfirm');
+      const returnOpenBtn = document.getElementById('returnOpenBtn');
+      const returnForm = document.getElementById('returnForm');
+      const returnConfirmBtn = document.getElementById('returnConfirmBtn');
+      const returnCancelBtn = document.getElementById('returnCancelBtn');
+      selfConfirm.addEventListener('change', () => { approveBtn.disabled = !selfConfirm.checked; });
+      returnOpenBtn.addEventListener('click', () => {
+        returnForm.classList.remove('hidden');
+        document.getElementById('returnComment').focus();
+      });
+      returnCancelBtn.addEventListener('click', () => returnForm.classList.add('hidden'));
+      approveBtn.addEventListener('click', parentApprove);
+      returnConfirmBtn.addEventListener('click', parentReturn);
+    }
+    function showActionMsg(text, ok) {
+      const el = document.getElementById('actionMsg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = `mt-3 rounded-lg px-3 py-2 text-sm ${ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-rose-200 bg-rose-50 text-rose-700'}`;
+    }
+    async function postJson(url, body) {
+      const res = await fetch(url, {method: 'POST', credentials: 'same-origin', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+      if (!res.ok) {
+        let detail = `エラー（${res.status}）`;
+        try { detail = (await res.json()).detail || detail; } catch (_) {}
+        throw new Error(detail);
+      }
+      return res.json().catch(() => ({}));
+    }
+    // 参照画面はポップアップ（noopener）で開かれるため、承認管理一覧へは localStorage 経由で更新を通知する。
+    function notifyOpener() {
+      try { localStorage.setItem('parentApprovalRefresh', String(Date.now())); } catch (_) {}
+    }
+    async function parentApprove() {
+      const pending = currentFiltered.filter(report => report.status === 'awaiting_parent_approval');
+      if (!pending.length) return;
+      try {
+        await postJson('/api/reports/parent-approve-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth});
+        notifyOpener();
+        flashMsg = `${monthLabel(targetMonth)}の指導実績を承認しました。`;
+        await load();
+      } catch (e) {
+        showActionMsg(`承認できませんでした：${e.message}`, false);
+      }
+    }
+    async function parentReturn() {
+      const comment = (document.getElementById('returnComment').value || '').trim();
+      if (!comment) { showActionMsg('差戻しコメントを入力してください。', false); return; }
+      const pending = currentFiltered.filter(report => report.status === 'awaiting_parent_approval');
+      if (!pending.length) return;
+      try {
+        await postJson('/api/reports/parent-return-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth, comment});
+        notifyOpener();
+        flashMsg = `${monthLabel(targetMonth)}の指導実績を差戻しました。`;
+        await load();
+      } catch (e) {
+        showActionMsg(`差戻しできませんでした：${e.message}`, false);
+      }
     }
     load();
   </script>

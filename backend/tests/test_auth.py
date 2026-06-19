@@ -98,7 +98,8 @@ def test_parent_reports_page_includes_all_child_assignments(client, db):
     assert "Student" in res.text
     assert "Second Student" in res.text
     assert "/api/reports/exportable-months" not in res.text
-    assert "あなたの操作履歴" in res.text
+    # 操作履歴の見出しは新システムの学校ロールに合わせて「操作履歴」へ統一（旧「【あなたの操作履歴】」）
+    assert "操作履歴" in res.text
 
 
 def test_admin_page_role_mismatch_redirects_to_login(client):

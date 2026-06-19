@@ -18,26 +18,6 @@
 </section>
 
 <div id="approvalContent" class="grid gap-4"></div>
-
-<div id="approveModal" class="fixed inset-0 z-[1000] hidden items-start justify-center overflow-y-auto bg-slate-900/50 px-4 py-8" onclick="closeApproveModal()">
-  <div class="w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">承認の確認</h2>
-      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeApproveModal()">閉じる</button>
-    </div>
-    <div class="grid gap-4 p-5">
-      <p id="approveModalMessage" class="text-sm text-slate-700"></p>
-      <label class="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 transition hover:border-emerald-300">
-        <input type="checkbox" id="approveSelfConfirm" class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500" onchange="updateApproveModalState()">
-        <span>承認は保護者本人が操作しています</span>
-      </label>
-      <div class="flex flex-col gap-2 sm:flex-row sm:justify-end">
-        <button type="button" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto" onclick="closeApproveModal()">キャンセル</button>
-        <button type="button" id="approveConfirmBtn" class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500 sm:w-auto" disabled onclick="submitApprove()">承認する</button>
-      </div>
-    </div>
-  </div>
-</div>
 {% endblock %}
 {% block scripts %}
 <script>
@@ -47,7 +27,6 @@ const parentAssignments = {{ assignments | default([]) | tojson }};
 let allReports = [];
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonth;
 let selectedAssignmentId = new URLSearchParams(location.search).get('assignment_id') || '';
-let expandedReturnMonth = null;
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -193,35 +172,19 @@ function openReportWindow(month) {
   const url = `/parent/report-view?assignment_id=${encodeURIComponent(assignmentId)}&month=${encodeURIComponent(month)}`;
   window.open(url, `report_${assignmentId}_${month}`, 'width=1000,height=800,noopener');
 }
-function monthReturnForm(month) {
-  if (expandedReturnMonth !== month) return '';
-  return `<div class="mt-3 rounded-xl border border-red-200 bg-red-50 p-4">
-    <label class="text-sm font-medium text-slate-700" for="returnComment-${month}">差戻しコメント</label>
-    <textarea id="returnComment-${month}" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="コメントを入力してください"></textarea>
-    <div class="mt-3 flex flex-wrap gap-2">
-      <button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-red-700" onclick="confirmMonthReturn('${month}')">差戻す</button>
-      <button class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="hideMonthReturnForm()">キャンセル</button>
-    </div>
-  </div>`;
-}
+// 承認・差戻しの操作は「報告書を確認」で開く参照画面（report_view.html）へ集約した。
+// 保護者が報告書の中身を確認したうえで操作する導線のため、一覧には状態の案内のみを表示しボタンは置かない。
 function renderActionArea(month, reports) {
   const pending = reports.filter(report => report.status === 'awaiting_parent_approval');
   const returned = reports.filter(report => report.status === 'returned_to_tutor');
   if (month !== currentMonth) {
-    return '<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認差戻しはできません。</div>';
+    return '<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>';
   }
   if (returned.length) {
-    return `<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <button class="w-full rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500 sm:w-auto" disabled>差戻す</button>
-      <button class="w-full rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500 sm:w-auto" disabled>すべて承認する</button>
-    </div>
-    <div class="mt-2 text-sm text-slate-600">差戻し中の報告書があります。講師の修正をお待ちください。</div>`;
+    return '<div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し中の報告書があります。講師の修正をお待ちください。</div>';
   }
   if (pending.length) {
-    return `<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-      <button class="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 sm:w-auto" onclick="showMonthReturnForm('${month}')">差戻す</button>
-      <button class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 sm:w-auto" onclick="approvePending('${month}')">すべて承認する</button>
-    </div>${monthReturnForm(month)}`;
+    return '<div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-700">「報告書を確認」を開き、内容をご確認のうえ承認・差戻しを行ってください。</div>';
   }
   return '<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>';
 }
@@ -256,60 +219,10 @@ function renderApproval() {
 }
 function selectStudent(assignmentId) {
   selectedAssignmentId = assignmentId;
-  expandedReturnMonth = null;
   const params = new URLSearchParams(location.search);
   params.set('assignment_id', selectedAssignmentId);
   params.set('month', selectedMonth);
   location.href = `${location.pathname}?${params.toString()}`;
-}
-function showMonthReturnForm(month) {
-  expandedReturnMonth = month;
-  renderApproval();
-}
-function hideMonthReturnForm() {
-  expandedReturnMonth = null;
-  renderApproval();
-}
-async function confirmMonthReturn(month) {
-  const input = document.getElementById(`returnComment-${month}`);
-  const comment = input.value.trim();
-  if (!comment) {
-    alert('コメントを入力してください。');
-    return;
-  }
-  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_parent_approval');
-  if (!pending.length) return;
-  await api('/api/reports/parent-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month, comment})});
-  expandedReturnMonth = null;
-  await loadApproval();
-}
-let approveTargetMonth = null;
-function approvePending(month) {
-  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_parent_approval');
-  if (!pending.length) return;
-  approveTargetMonth = month;
-  document.getElementById('approveModalMessage').textContent = `${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`;
-  document.getElementById('approveSelfConfirm').checked = false;
-  updateApproveModalState();
-  approveModal.classList.remove('hidden');
-  approveModal.classList.add('flex');
-}
-function updateApproveModalState() {
-  document.getElementById('approveConfirmBtn').disabled = !document.getElementById('approveSelfConfirm').checked;
-}
-function closeApproveModal() {
-  approveModal.classList.add('hidden');
-  approveModal.classList.remove('flex');
-  approveTargetMonth = null;
-}
-async function submitApprove() {
-  const month = approveTargetMonth;
-  if (!month || !document.getElementById('approveSelfConfirm').checked) return;
-  const pending = filteredReports().filter(report => report.target_month === month && report.status === 'awaiting_parent_approval');
-  if (!pending.length) { closeApproveModal(); return; }
-  await api('/api/reports/parent-approve-bulk', {method: 'POST', body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month})});
-  closeApproveModal();
-  await loadApproval();
 }
 async function loadApproval() {
   const reports = await api('/api/reports');
@@ -321,6 +234,11 @@ monthFilter.addEventListener('change', () => {
   params.set('month', monthFilter.value);
   if (selectedAssignmentId) params.set('assignment_id', selectedAssignmentId);
   location.href = `${location.pathname}?${params.toString()}`;
+});
+// 「報告書を確認」ポップアップ（report_view.html）で承認/差戻しが行われたら一覧を再読込する。
+// ポップアップは noopener で開くため、localStorage の更新を介して通知を受け取る。
+window.addEventListener('storage', event => {
+  if (event.key === 'parentApprovalRefresh') loadApproval();
 });
 window.authReady.then(user => {
   if (!user) return;

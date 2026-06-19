@@ -400,7 +400,11 @@ def parent_report_view_page(request: Request, db: Session = Depends(get_db)):
         return _login_redirect()
     if user.must_change_password:
         return _password_change_redirect()
-    return templates.TemplateResponse(request, "report_view.html", context=_base_context(request, user))
+    # 保護者の参照画面でのみ、報告書の中身を確認したうえで承認/差戻しを行えるようにする
+    # （承認管理一覧のボタンは廃止し、本画面に集約。admin の参照画面では出さない）。
+    context = _base_context(request, user)
+    context["parent_can_act"] = True
+    return templates.TemplateResponse(request, "report_view.html", context=context)
 
 
 @router.get("/admin/report-view", response_class=HTMLResponse)
