@@ -414,7 +414,13 @@ def admin_report_view_page(request: Request, db: Session = Depends(get_db)):
         return _login_redirect()
     if user.must_change_password:
         return _password_change_redirect()
-    return templates.TemplateResponse(request, "report_view.html", context=_base_context(request, user))
+    # 受付/再鑑担当は参照画面から直接「承認・差戻し」を行える（ダッシュボードのタスク欄のボタンを本画面へ集約）。
+    # 管理者・管理責任者は承認フロー外のため、従来どおり参照のみ（操作エリアは出さない）。
+    context = _base_context(request, user)
+    if user.role in {"admin_receiver", "admin_reviewer"}:
+        context["admin_can_act"] = True
+        context["admin_role"] = user.role
+    return templates.TemplateResponse(request, "report_view.html", context=context)
 
 
 @router.get("/admin/stale-reports", response_class=HTMLResponse)

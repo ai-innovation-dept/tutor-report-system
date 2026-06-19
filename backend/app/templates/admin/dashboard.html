@@ -63,23 +63,6 @@
 
 <section id="detailDrawer" class="hidden overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm"></section>
 
-<div id="returnModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeReturnModal()">
-  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
-    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h2 class="font-semibold text-slate-800">差戻しコメント</h2>
-      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeReturnModal()">閉じる</button>
-    </div>
-    <div class="p-5">
-      <textarea id="returnComment" class="min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="差戻し理由を入力してください"></textarea>
-      <div id="returnError" class="mt-2 hidden text-sm text-red-700"></div>
-      <div class="mt-4 flex justify-end gap-2">
-        <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeReturnModal()">キャンセル</button>
-        <button type="button" class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white hover:bg-red-700" onclick="submitReturn()">差戻し</button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <div id="bulkEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 px-4" onclick="closeBulkEditModal()">
   <div class="flex max-h-[90vh] w-full max-w-5xl flex-col rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -171,7 +154,6 @@ let separationLocks = {received_report_ids: [], reviewed_report_ids: []};
 let selectedMonth = new URLSearchParams(location.search).get('month') || currentMonthValue();
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
 let openCardKey = null;
-let returnTargetKey = '';
 
 function currentMonthValue() {
   const d = new Date();
@@ -281,23 +263,18 @@ function eventsForGroup(group) {
   });
   return events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 }
-function reportIdsForStatus(group, status) {
-  const statuses = Array.isArray(status) ? status : [status];
-  return group.reports.filter(report => statuses.includes(report.status)).map(report => report.id);
-}
 function taskStatuses(config) {
   if (!config) return [];
   return config.statuses || [config.status];
 }
 function taskConfig() {
   // 管理者・管理責任者は承認フローから外れ、承認タスクは持たない（閲覧・PDFのみ）
+  // 承認・差戻しの実操作は報告書（参照）画面に集約済み。ここはタスク表示（statuses/label/subtext）のみに使う。
   if (currentRole === 'admin_receiver') {
     return {
       statuses: ['submitted_to_admin', 'returned_to_receiver'],
       subtext: '受付対応が必要',
       label: '受付承認',
-      endpoint: '/api/reports/admin-receive-bulk',
-      returnRole: 'receiver'
     };
   }
   if (currentRole === 'admin_reviewer') {
@@ -306,8 +283,6 @@ function taskConfig() {
       statuses: ['received', 're_reviewed'],
       subtext: '再鑑（最終承認）が必要',
       label: '再鑑承認',
-      endpoint: '/api/reports/admin-review-bulk',
-      returnRole: 'reviewer'
     };
   }
   return null;
@@ -400,33 +375,56 @@ function renderBulkExportLinks() {
   bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
   bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
 }
+// あなたのタスク：承認・差戻しボタンは報告書（参照）画面へ集約したため、ここには置かない。
+// 「どの講師の残タスクか」を一目で把握できるよう講師ごとにまとめ、各行クリックで参照画面を開く。
 function renderTasks(groups) {
   const config = taskConfig();
   const statuses = taskStatuses(config);
   const tasks = config ? groups.filter(group => statuses.includes(currentGroupStatus(group.reports))) : [];
   taskCountBadge.textContent = tasks.length;
-  taskList.innerHTML = tasks.length ? tasks.map(group => {
-    const groupStatus = currentGroupStatus(group.reports);
-    const meta = getTaskMeta(group, groupStatus);
-    const lockReason = separationLockReason(group);
-    const approveButton = lockReason
-      ? `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto cursor-not-allowed opacity-60" style="background:#9CA3AF;" disabled title="${escapeHtml(lockReason)}">${escapeHtml(config.label)}</button>`
-      : `<button class="w-full rounded-lg px-3 py-2 text-sm font-medium text-white sm:w-auto" style="background:#16A34A;" onclick="approveGroup('${group.key}')">${escapeHtml(config.label)}</button>`;
-    const returnButton = lockReason
-      ? `<button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto cursor-not-allowed opacity-60" style="border-color:#E5E7EB;color:#9CA3AF;background:#fff;" disabled title="${escapeHtml(lockReason)}">差戻し</button>`
-      : `<button class="w-full rounded-lg border px-3 py-2 text-sm font-medium sm:w-auto" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${group.key}')">差戻し</button>`;
-    return `<div class="flex flex-col gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 sm:flex-row sm:items-center sm:justify-between">
-      <div>
-        <div class="font-medium text-slate-800">${escapeHtml(group.student_name)} - ${escapeHtml(monthShortLabel(group.target_month))}</div>
-        <div class="mt-1 text-xs text-slate-500">${escapeHtml(nameWithNo(group.tutor_name, group.tutor_no))}${meta ? ` / ${escapeHtml(meta)}` : ''}</div>
-        ${lockReason ? `<div class="mt-1 text-xs font-medium text-amber-600">⚠ ${escapeHtml(lockReason)}</div>` : ''}
+  if (!tasks.length) {
+    taskList.innerHTML = '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
+    return;
+  }
+  const byTutor = new Map();
+  tasks.forEach(group => {
+    if (!byTutor.has(group.tutor_id)) {
+      byTutor.set(group.tutor_id, {tutor_name: group.tutor_name, tutor_no: group.tutor_no, items: []});
+    }
+    byTutor.get(group.tutor_id).items.push(group);
+  });
+  const blocks = [...byTutor.values()].sort((a, b) => a.tutor_name.localeCompare(b.tutor_name, 'ja'));
+  taskList.innerHTML = blocks.map(block => {
+    const rows = block.items
+      .slice()
+      .sort((a, b) => a.student_name.localeCompare(b.student_name, 'ja'))
+      .map(group => {
+        const groupStatus = currentGroupStatus(group.reports);
+        const meta = getTaskMeta(group, groupStatus);
+        const lockReason = separationLockReason(group);
+        const cta = lockReason
+          ? '<span class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">確認のみ</span>'
+          : `<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700">確認して${escapeHtml(config.label)}<span aria-hidden="true">→</span></span>`;
+        return `<button type="button" class="flex w-full items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50" onclick="openReportWindow('${group.key}')">
+          <div class="min-w-0">
+            <div class="font-medium text-slate-800">${escapeHtml(group.student_name)}<span class="px-1 text-slate-300">・</span>${escapeHtml(monthShortLabel(group.target_month))}</div>
+            <div class="mt-0.5 truncate text-xs text-slate-500">${escapeHtml(meta || config.subtext)}</div>
+            ${lockReason ? `<div class="mt-1 text-xs font-medium text-amber-600">⚠ ${escapeHtml(lockReason)}</div>` : ''}
+          </div>
+          ${cta}
+        </button>`;
+      }).join('');
+    return `<div class="border-b border-slate-100 last:border-b-0">
+      <div class="flex items-center justify-between gap-2 bg-slate-50 px-4 py-2">
+        <div class="flex min-w-0 items-center gap-2 text-sm font-semibold text-slate-700">
+          <span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-[11px]">👤</span>
+          <span class="truncate">${escapeHtml(nameWithNo(block.tutor_name, block.tutor_no))}</span>
+        </div>
+        <span class="shrink-0 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">${block.items.length}件</span>
       </div>
-      <div class="flex flex-col gap-2 sm:flex-row">
-        ${approveButton}
-        ${returnButton}
-      </div>
+      ${rows}
     </div>`;
-  }).join('') : '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
+  }).join('');
 }
 function pipelineColumnForStatus(status) {
   if (status === 'returned_to_tutor') return 'draft';
@@ -629,42 +627,10 @@ function showDetails(key) {
     ${groupProgressSection(group, activeStatus)}
     ${currentRole === 'admin_reviewer' && activeStatus === 'admin_approved' ? `
     <div class="mt-4 border-t border-slate-200 pt-4">
-      <p class="mb-2 text-xs text-slate-500">完了後に修正が必要な場合は、受付へ差戻しできます。</p>
-      <button class="rounded-lg border px-4 py-2 text-sm font-medium" style="border-color:#FCA5A5;color:#DC2626;background:#fff;" onclick="openReturnModal('${key}')">差戻し</button>
+      <p class="text-xs text-slate-500">完了後に修正が必要な場合は、上の「報告書を確認」を開いて受付へ差戻しできます。</p>
     </div>` : ''}
   </div>`;
   renderPipeline(currentGroups());
-}
-async function approveGroup(key) {
-  const group = currentGroups().find(item => item.key === key);
-  if (!group) return;
-  const config = taskConfig();
-  if (!config) return;
-  const lockReason = separationLockReason(group);
-  if (lockReason) { showToast(lockReason, 'error'); return; }
-  const ids = reportIdsForStatus(group, taskStatuses(config));
-  if (!ids.length) return;
-  if (!confirm(`${group.student_name}さんの${monthShortLabel(group.target_month)}分を${config.label}します。よろしいですか？`)) return;
-  await api(config.endpoint, {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month})});
-  await loadAdmin();
-}
-function openReturnModal(key) {
-  const group = currentGroups().find(item => item.key === key);
-  // 兼務スタッフ（受付・再鑑）は職務分掌によりロックされる場合がある
-  if (group) {
-    const reason = separationLockReason(group);
-    if (reason) { showToast(reason, 'error'); return; }
-  }
-  returnTargetKey = key;
-  returnComment.value = '';
-  returnError.classList.add('hidden');
-  returnModal.classList.remove('hidden');
-  returnModal.classList.add('flex');
-}
-function closeReturnModal() {
-  returnTargetKey = '';
-  returnModal.classList.add('hidden');
-  returnModal.classList.remove('flex');
 }
 // 受付による報告書修正：報告（生徒×講師×対象月）単位で、その月の全指導日を1画面でまとめて編集する。
 // 受付の手元にある3状態のみ編集可。修正で講師・保護者へ1通の通知をまとめて送る。
@@ -754,34 +720,6 @@ async function submitBulkEdit() {
     btn.disabled = false;
   }
 }
-async function submitReturn() {
-  const group = currentGroups().find(item => item.key === returnTargetKey);
-  if (!group) return;
-  const config = taskConfig();
-  if (!config) return;
-  const comment = returnComment.value.trim();
-  if (!comment) {
-    returnError.textContent = '差戻し理由を入力してください';
-    returnError.classList.remove('hidden');
-    return;
-  }
-  const groupStatus = currentGroupStatus(group.reports);
-  let ids;
-  if (currentRole === 'admin_reviewer' && groupStatus === 'admin_approved') {
-    // 再鑑者（最終承認者）による完了後の差戻し
-    ids = group.reports.filter(r => r.status === 'admin_approved').map(r => r.id);
-  } else {
-    ids = reportIdsForStatus(group, taskStatuses(config));
-  }
-  if (!ids.length) return;
-  try {
-    await api('/api/reports/admin-return-bulk', {method: 'POST', body: JSON.stringify({report_ids: ids, target_month: group.target_month, from_role: config.returnRole, comment})});
-  } catch (error) {
-    showToast(error.message || '差戻しに失敗しました', 'error');
-  }
-  closeReturnModal();
-  await loadAdmin();
-}
 function updateUrl() {
   const params = new URLSearchParams();
   if (selectedMonth) params.set('month', selectedMonth);
@@ -825,6 +763,11 @@ tutorFilter.addEventListener('change', () => {
   selectedTutorId = tutorFilter.value;
   openCardKey = null;
   updateUrl();
+});
+// 報告書（参照）画面はポップアップ（noopener）で開くため、そこで承認・差戻しが行われたら
+// localStorage 経由の通知でダッシュボードを再読込し、タスク欄・パイプラインを最新化する。
+window.addEventListener('storage', event => {
+  if (event.key === 'adminDashboardRefresh') loadAdmin();
 });
 window.authReady.then(user => {
   if (!user) return;
