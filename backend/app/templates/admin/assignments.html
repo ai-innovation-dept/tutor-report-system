@@ -44,8 +44,9 @@
   </div>
 </section>
 
-<div id="editOverlay" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeEdit()">
-  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+<!-- 担当の追加/編集モーダル。背景クリックでは閉じない（新規生徒登録時の再描画で誤クローズするのを防ぐ）。閉じるのは「閉じる」/「キャンセル」ボタンのみ。 -->
+<div id="editOverlay" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 p-4">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl">
     <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
       <h2 id="editTitle" class="font-semibold text-slate-800">担当を追加</h2>
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeEdit()">閉じる</button>
