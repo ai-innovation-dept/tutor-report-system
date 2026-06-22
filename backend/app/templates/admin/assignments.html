@@ -331,12 +331,20 @@ function closeEdit() {
   overlay.classList.add('hidden');
   overlay.classList.remove('flex');
   editingId = null;
+  showEditMsg('');
+  clearFlash();
 }
 function showEditMsg(text, isError) {
   const el = document.getElementById('editMsg');
   if (!text) { el.className = 'hidden text-sm'; el.textContent = ''; return; }
   el.className = `text-sm ${isError ? 'text-rose-700' : 'text-emerald-700'}`;
   el.textContent = text;
+}
+// 共通の #flash バナー（api() がエラー時に表示し、リロード/画面遷移まで残り続ける）を消す。
+// 担当モーダルのエラーは #editMsg にのみ出す方針なので、保存/キャンセル/閉じる時にここで確実に消す。
+function clearFlash() {
+  const flash = document.querySelector('#flash');
+  if (flash) { flash.textContent = ''; flash.classList.add('hidden'); }
 }
 function openAdd() {
   editingId = null;
@@ -380,7 +388,7 @@ async function deleteAssignment() {
   const name = a ? a.student_name : '';
   if (!confirm(`「${name}」の担当を完全に削除します。元に戻せません。よろしいですか？`)) return;
   try {
-    await api(`/api/assignments/${editingId}`, {method: 'DELETE'});
+    await api(`/api/assignments/${editingId}`, {method: 'DELETE', suppressFlash: true});
     showToast('担当を削除しました', 'success');
     closeEdit();
     await load();
@@ -391,6 +399,9 @@ async function deleteAssignment() {
   }
 }
 async function saveEdit() {
+  // 保存を押すたびに、直前のエラー表示（モーダル内 #editMsg ＋共通 #flash バナー）を一旦消す。
+  showEditMsg('');
+  clearFlash();
   const tutor = tutorCombo.get();
   if (!tutor || !tutor.id) { showEditMsg('講師を選択してください', true); return; }
   const tutorId = tutor.id;
@@ -401,14 +412,14 @@ async function saveEdit() {
       const p = parentCombo.get();
       const parentId = (p && !p._none) ? p.id : null;
       const isActive = document.getElementById('fActive').checked;
-      await api(`/api/assignments/${editingId}`, {method: 'PATCH', body: JSON.stringify({student_name: student, tutor_id: tutorId, parent_id: parentId, is_active: isActive})});
+      await api(`/api/assignments/${editingId}`, {method: 'PATCH', suppressFlash: true, body: JSON.stringify({student_name: student, tutor_id: tutorId, parent_id: parentId, is_active: isActive})});
       showToast('担当を更新しました', 'success');
     } else if (currentMode === 'add-existing') {
       const s = studentCombo.get();
       if (!s) { showEditMsg('生徒を選択してください（一覧に無い場合は「新規生徒として登録」）', true); return; }
       const body = {tutor_id: tutorId, student_name: s.student_name};
       if (s.parent_id) body.parent_id = s.parent_id;
-      await api('/api/assignments', {method: 'POST', body: JSON.stringify(body)});
+      await api('/api/assignments', {method: 'POST', suppressFlash: true, body: JSON.stringify(body)});
       showToast('担当を追加しました', 'success');
     } else {   // add-new
       const student = document.getElementById('fNewStudentName').value.trim();
@@ -416,7 +427,7 @@ async function saveEdit() {
       const p = parentCombo.get();
       const body = {tutor_id: tutorId, student_name: student};
       if (p && !p._none && p.id) body.parent_id = p.id;
-      await api('/api/assignments', {method: 'POST', body: JSON.stringify(body)});
+      await api('/api/assignments', {method: 'POST', suppressFlash: true, body: JSON.stringify(body)});
       showToast('担当を追加しました', 'success');
     }
     closeEdit();
@@ -424,7 +435,7 @@ async function saveEdit() {
   } catch (error) {
     let msg = error.message;
     try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
-    if (msg === 'assignment already exists') msg = 'この講師には同じ生徒の担当がすでに登録されています。';
+    if (msg === 'assignment already exists') msg = 'すでに講師は生徒を追加済みです';
     showEditMsg(msg || '保存できませんでした', true);
   }
 }
