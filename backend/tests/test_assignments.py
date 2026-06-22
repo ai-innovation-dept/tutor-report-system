@@ -286,3 +286,80 @@ def test_parent_cannot_delete_assignment(client, db):
     assignment = db.query(Assignment).first()
     res = client.delete(f"/api/assignments/{assignment.id}", headers={"Authorization": f"Bearer {parent_token}"})
     assert res.status_code == 403
+
+
+# === 担当管理：生徒タイプアヘッド（GET /api/assignments/students）===
+
+def test_student_options_return_distinct_with_parent(client, db):
+    # シード済みの担当（生徒"Student" × 保護者"Parent"）が1件の生徒候補として保護者付きで返る。
+    master_token = token(client, "master@example.com")
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    res = client.get("/api/assignments/students", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200
+    rows = res.json()
+    student = next((s for s in rows if s["student_name"] == "Student"), None)
+    assert student is not None
+    assert student["parent_id"] == str(parent.id)
+    assert student["parent_name"] == "Parent"
+
+
+def test_student_options_collapse_same_student_across_tutors(client, db):
+    # 同じ生徒（生徒名＋保護者）に複数講師が付いていても1件に集約される。
+    master_token = token(client, "master@example.com")
+    base = db.query(Assignment).first()
+    second_tutor = User(
+        email="tutor-dup@example.com", role="tutor", roles=["tutor"],
+        display_name="Tutor Dup", allowed_systems=["legacy"], password_hash=hash_password("Passw0rd!"),
+    )
+    db.add(second_tutor)
+    db.flush()
+    db.add(Assignment(tutor_id=second_tutor.id, parent_id=base.parent_id, student_name=base.student_name))
+    db.commit()
+
+    res = client.get("/api/assignments/students", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200
+    names = [s["student_name"] for s in res.json()]
+    assert names.count(base.student_name) == 1
+
+
+def test_student_options_keyword_filters(client, db):
+    master_token = token(client, "master@example.com")
+    # 生徒名で一致
+    hit = client.get("/api/assignments/students?q=Stud", headers={"Authorization": f"Bearer {master_token}"})
+    assert hit.status_code == 200
+    assert any(s["student_name"] == "Student" for s in hit.json())
+    # 保護者名で一致
+    by_parent = client.get("/api/assignments/students?q=Parent", headers={"Authorization": f"Bearer {master_token}"})
+    assert any(s["student_name"] == "Student" for s in by_parent.json())
+    # 該当なし
+    miss = client.get("/api/assignments/students?q=zzzzz", headers={"Authorization": f"Bearer {master_token}"})
+    assert miss.json() == []
+
+
+def test_student_options_exclude_new_system(client, db):
+    # 業務連絡表システム（system_type='new'）の学校紐付けは生徒候補に出さない。
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    db.add(Assignment(tutor_id=tutor.id, student_name="渋谷高校", system_type="new"))
+    db.commit()
+    res = client.get("/api/assignments/students", headers={"Authorization": f"Bearer {master_token}"})
+    names = [s["student_name"] for s in res.json()]
+    assert "渋谷高校" not in names
+
+
+def test_student_options_require_admin(client, db):
+    for email in ("tutor@example.com", "parent@example.com"):
+        res = client.get("/api/assignments/students", headers={"Authorization": f"Bearer {token(client, email)}"})
+        assert res.status_code == 403, email
+
+
+def test_user_search_matches_user_no(client, db):
+    # 担当管理のタイプアヘッドで講師Noでも検索できるよう、ユーザー検索が user_no に一致する。
+    master_token = token(client, "master@example.com")
+    tutor = db.query(User).filter(User.role == "tutor").first()
+    tutor.user_no = "10042"
+    db.commit()
+    res = client.get("/api/users?roles=tutor&search=10042", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert any(u["id"] == str(tutor.id) for u in items)

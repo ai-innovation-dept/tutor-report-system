@@ -148,6 +148,19 @@ class AssignmentOut(BaseModel):
     reminder_count: int
 
 
+class StudentOption(BaseModel):
+    """担当管理の生徒選択（タイプアヘッド）用の候補。
+
+    既存システムは生徒マスタを持たず、生徒は assignments の (生徒名, 保護者) の一意な組として
+    表される。本スキーマはその組を1件の「生徒」候補として返す。保護者No も同梱するため、
+    画面側は生徒を選んだだけで保護者（No）を自動表示できる。
+    """
+    student_name: str
+    parent_id: UUID | None = None
+    parent_name: str | None = None
+    parent_no: str | None = None
+
+
 class InvitationCreate(BaseModel):
     email: EmailStr
     role: str = "parent"

@@ -12,7 +12,7 @@
   <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
     <label class="text-sm">
       <span class="sr-only">検索</span>
-      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-72" placeholder="生徒名・講師名・保護者名で検索">
+      <input id="searchInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-72" placeholder="生徒名・講師名・保護者名・Noで検索">
     </label>
     <label class="flex items-center gap-2 text-sm text-slate-700">
       <input id="activeOnly" type="checkbox" checked class="h-4 w-4 rounded border-slate-300"> 有効のみ表示
@@ -47,31 +47,65 @@
 <div id="editOverlay" class="fixed inset-0 z-[1000] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeEdit()">
   <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-      <h2 id="editTitle" class="font-semibold text-slate-800">担当を編集</h2>
+      <h2 id="editTitle" class="font-semibold text-slate-800">担当を追加</h2>
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeEdit()">閉じる</button>
     </div>
     <div class="grid gap-4 p-5">
-      <label class="block text-sm">
-        <span class="mb-1 block text-slate-700">生徒名</span>
-        <input id="fStudent" maxlength="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-      </label>
-      <label class="block text-sm">
-        <span class="mb-1 block text-slate-700">講師</span>
-        <select id="fTutor" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-        <span class="mt-1 block text-xs text-slate-500">変更すると以降の担当が新しい講師になります（過去の報告書の作成者はそのまま保持されます）。</span>
-      </label>
-      <label class="block text-sm">
-        <span class="mb-1 block text-slate-700">保護者</span>
-        <select id="fParent" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
-        <span class="mt-1 block text-xs text-slate-500">変更すると報告書の承認先も変わります。「未設定」で紐づけを解除します。</span>
-      </label>
-      <label id="activeField" class="flex items-center gap-2 text-sm text-slate-700">
+      <!-- ① 講師（最初に選択） -->
+      <div class="block text-sm">
+        <span class="mb-1 block font-medium text-slate-700">講師 <span class="text-rose-600">*</span></span>
+        <div id="tutorCombo" class="relative">
+          <input id="fTutorInput" autocomplete="off" placeholder="講師名・講師Noで検索" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+          <div data-panel class="absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-60 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg"></div>
+        </div>
+        <span class="mt-1 block text-xs text-slate-500">氏名またはNoで検索して選択します。</span>
+      </div>
+
+      <!-- ② 生徒（既存から選択）— 講師の次に選択 -->
+      <div id="studentExistingGroup" class="block text-sm">
+        <span class="mb-1 block font-medium text-slate-700">生徒 <span class="text-rose-600">*</span></span>
+        <div id="studentCombo" class="relative">
+          <input id="fStudentInput" autocomplete="off" placeholder="生徒名・保護者名・保護者Noで検索" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+          <div data-panel class="absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-60 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg"></div>
+        </div>
+        <!-- ③ 生徒を選ぶと保護者（No）を自動表示 -->
+        <div id="studentParentBox" class="mt-2 hidden rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-slate-700"></div>
+        <span class="mt-1 block text-xs text-slate-500">生徒を選ぶと保護者（No）が自動で紐づきます。一覧に無い生徒は、検索欄の下の「新規生徒として登録」を選んでください。</span>
+      </div>
+
+      <!-- ④ 生徒（新規作成） -->
+      <div id="studentNewGroup" class="hidden text-sm">
+        <div class="flex items-center justify-between">
+          <span class="mb-1 block font-medium text-slate-700">生徒名（新規） <span class="text-rose-600">*</span></span>
+          <button type="button" class="text-xs font-medium text-blue-600 hover:underline" onclick="backToExistingStudent()">← 既存の生徒から選ぶ</button>
+        </div>
+        <input id="fNewStudentName" maxlength="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        <span class="mt-1 block text-xs text-slate-500">新しい生徒を登録します。下の「保護者」でどの保護者の生徒かを設定してください。</span>
+      </div>
+
+      <!-- 生徒（編集時の生徒名修正用） -->
+      <div id="studentEditGroup" class="hidden text-sm">
+        <span class="mb-1 block font-medium text-slate-700">生徒名 <span class="text-rose-600">*</span></span>
+        <input id="fStudentName" maxlength="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+      </div>
+
+      <!-- 保護者（新規生徒の登録時／編集時に選択）。既存生徒の選択時は上のboxに自動表示するため非表示。 -->
+      <div id="parentGroup" class="hidden text-sm">
+        <span class="mb-1 block font-medium text-slate-700">保護者</span>
+        <div id="parentCombo" class="relative">
+          <input id="fParentInput" autocomplete="off" placeholder="保護者名・保護者Noで検索（未設定可）" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+          <div data-panel class="absolute left-0 right-0 top-full z-20 mt-1 hidden max-h-60 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg"></div>
+        </div>
+        <span id="parentHint" class="mt-1 block text-xs text-slate-500">空欄のままで「未設定」になります。変更すると報告書の承認先も変わります。</span>
+      </div>
+
+      <label id="activeField" class="hidden items-center gap-2 text-sm text-slate-700">
         <input id="fActive" type="checkbox" class="h-4 w-4 rounded border-slate-300"> 有効
       </label>
       <p id="editMsg" class="hidden text-sm"></p>
       <div class="flex items-center justify-between gap-2">
-        <button id="deleteBtn" type="button" class="rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteAssignment()">削除</button>
-        <div class="flex gap-2">
+        <button id="deleteBtn" type="button" class="hidden rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteAssignment()">削除</button>
+        <div class="ml-auto flex gap-2">
           <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeEdit()">キャンセル</button>
           <button id="saveBtn" type="button" class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700" onclick="saveEdit()">保存</button>
         </div>
@@ -97,28 +131,182 @@
 <script>
 setBreadcrumb('運営ポータル', '担当管理');
 let assignments = [];
-let tutors = [];
-let parents = [];
 let editingId = null;
+let currentMode = 'add-existing';   // 'add-existing' | 'add-new' | 'edit'
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
 }
-function tutorOptions(selectedId) {
-  return tutors.map(t => `<option value="${t.id}"${t.id === selectedId ? ' selected' : ''}>${escapeHtml(t.display_name)}${t.user_no ? `（${escapeHtml(t.user_no)}）` : ''}</option>`).join('');
+
+// === 検索つきセレクト（タイプアヘッド）の共通部品 ===
+// 講師・生徒・保護者の3箇所で再利用する。数千件規模でもサーバー側検索＋件数制限で軽量に動く。
+function createCombo(rootId, opts) {
+  const root = document.getElementById(rootId);
+  const input = root.querySelector('input');
+  const panel = root.querySelector('[data-panel]');
+  let items = [];
+  let active = -1;
+  let selected = null;
+  let seq = 0;       // 直近のリクエストだけを採用する（古い応答の上書き防止）
+  let timer = null;
+
+  const isOpen = () => !panel.classList.contains('hidden');
+  const close = () => { panel.classList.add('hidden'); active = -1; };
+
+  function paint() {
+    if (document.activeElement !== input) return;   // フォーカスが外れていたら開かない
+    const q = input.value.trim();
+    const rows = items.map((it, i) =>
+      `<li role="option" data-i="${i}" class="cursor-pointer px-3 py-2 ${i === active ? 'bg-blue-50' : 'hover:bg-blue-50'}">${opts.toHtml(it)}</li>`
+    ).join('');
+    let inner = items.length ? rows
+      : `<li class="px-3 py-2 text-sm text-slate-500">${escapeHtml(opts.emptyText || '該当する候補がありません')}</li>`;
+    if (opts.hasFooter) {
+      const label = q ? `＋「${escapeHtml(q)}」を新規生徒として登録` : '＋ 新規生徒として登録';
+      inner += `<li data-footer="1" class="cursor-pointer border-t border-slate-100 px-3 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-50">${label}</li>`;
+    }
+    panel.innerHTML = `<ul role="listbox">${inner}</ul>`;
+    panel.classList.remove('hidden');
+  }
+
+  async function run(q) {
+    const my = ++seq;
+    let data = [];
+    try { data = await opts.fetch(q); } catch (_) { data = []; }
+    if (my !== seq) return;
+    items = Array.isArray(data) ? data : [];
+    active = items.length ? 0 : -1;
+    paint();
+  }
+
+  input.addEventListener('input', () => {
+    if (selected) { selected = null; opts.onSelect && opts.onSelect(null); }
+    const q = input.value.trim();
+    clearTimeout(timer);
+    timer = setTimeout(() => run(q), 200);
+  });
+  input.addEventListener('focus', () => { if (!selected) run(input.value.trim()); });
+  input.addEventListener('blur', () => setTimeout(close, 150));
+  input.addEventListener('keydown', (e) => {
+    if (!isOpen()) return;
+    if (e.key === 'ArrowDown') { e.preventDefault(); active = Math.min(active + 1, items.length - 1); paint(); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); active = Math.max(active - 1, 0); paint(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (active >= 0 && items[active]) pick(items[active]); }
+    else if (e.key === 'Escape') { close(); }
+  });
+  panel.addEventListener('mousedown', (e) => {   // blur より先に拾うため mousedown
+    const li = e.target.closest('li');
+    if (!li) return;
+    e.preventDefault();
+    if (li.dataset.footer) { close(); opts.onFooter && opts.onFooter(input.value.trim()); return; }
+    const i = Number(li.dataset.i);
+    if (items[i]) pick(items[i]);
+  });
+
+  function pick(it) {
+    selected = it;
+    input.value = opts.toText(it);
+    close();
+    opts.onSelect && opts.onSelect(it);
+  }
+
+  return {
+    get: () => selected,
+    set: (it) => { selected = it; input.value = it ? opts.toText(it) : ''; },
+    clear: () => { selected = null; input.value = ''; items = []; close(); },
+    focus: () => input.focus(),
+  };
 }
-function parentOptions(selectedId) {
-  return ['<option value="">未設定</option>'].concat(
-    parents.map(p => `<option value="${p.id}"${p.id === selectedId ? ' selected' : ''}>${escapeHtml(p.display_name)}${p.email ? `（${escapeHtml(p.email)}）` : ''}</option>`)
-  ).join('');
+
+// === 各コンボのデータ取得 ===
+async function fetchTutors(q) {
+  const res = await api('/api/users?roles=tutor&search=' + encodeURIComponent(q) + '&per_page=20');
+  return (res && res.items) ? res.items : [];
 }
+async function fetchParents(q) {
+  const res = await api('/api/users?roles=parent&search=' + encodeURIComponent(q) + '&per_page=20');
+  const list = (res && res.items) ? res.items : [];
+  return [{_none: true}, ...list];   // 先頭に「未設定」を常設
+}
+async function fetchStudents(q) {
+  return await api('/api/assignments/students?q=' + encodeURIComponent(q) + '&limit=20') || [];
+}
+
+function tutorHtml(t) {
+  return `<div class="text-sm font-medium text-slate-800">${escapeHtml(t.display_name || '')}</div>`
+    + `<div class="text-xs text-slate-500">No: ${escapeHtml(t.user_no || '—')}${t.email ? '・' + escapeHtml(t.email) : ''}</div>`;
+}
+function parentHtml(p) {
+  if (p._none) return '<div class="text-sm text-slate-600">未設定（保護者なし）</div>';
+  return `<div class="text-sm font-medium text-slate-800">${escapeHtml(p.display_name || '')}</div>`
+    + `<div class="text-xs text-slate-500">No: ${escapeHtml(p.user_no || '—')}${p.email ? '・' + escapeHtml(p.email) : ''}</div>`;
+}
+function studentHtml(s) {
+  const parent = s.parent_id ? nameWithNo(s.parent_name, s.parent_no) : '未設定';
+  return `<div class="text-sm font-medium text-slate-800">${escapeHtml(s.student_name || '')}</div>`
+    + `<div class="text-xs text-slate-500">保護者: ${escapeHtml(parent)}</div>`;
+}
+
+let tutorCombo, studentCombo, parentCombo;
+function initCombos() {
+  tutorCombo = createCombo('tutorCombo', {
+    fetch: fetchTutors,
+    toHtml: tutorHtml,
+    toText: (t) => nameWithNo(t.display_name, t.user_no),
+    emptyText: '該当する講師がいません',
+  });
+  studentCombo = createCombo('studentCombo', {
+    fetch: fetchStudents,
+    toHtml: studentHtml,
+    toText: (s) => s.student_name,
+    emptyText: '該当する生徒がいません',
+    hasFooter: true,
+    onFooter: (q) => startNewStudent(q),
+    onSelect: onStudentSelect,
+  });
+  parentCombo = createCombo('parentCombo', {
+    fetch: fetchParents,
+    toHtml: parentHtml,
+    toText: (p) => p._none ? '未設定（保護者なし）' : nameWithNo(p.display_name, p.user_no),
+    emptyText: '該当する保護者がいません',
+  });
+}
+
+// ③ 既存生徒を選んだら保護者（No）を自動表示
+function onStudentSelect(s) {
+  const box = document.getElementById('studentParentBox');
+  if (!s) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+  const label = s.parent_id ? nameWithNo(s.parent_name, s.parent_no) : '未設定';
+  box.innerHTML = `保護者：<span class="font-medium text-slate-800">${escapeHtml(label)}</span>`;
+  box.classList.remove('hidden');
+}
+
+// === モード切替（追加（既存生徒）／追加（新規生徒）／編集）===
+function setMode(mode) {
+  currentMode = mode;
+  const show = (id, on) => document.getElementById(id).classList.toggle('hidden', !on);
+  show('studentExistingGroup', mode === 'add-existing');
+  show('studentNewGroup', mode === 'add-new');
+  show('studentEditGroup', mode === 'edit');
+  show('parentGroup', mode === 'add-new' || mode === 'edit');
+  // 編集時のみ「有効」チェックと削除ボタンを表示（label/buttonは flex 表示）
+  document.getElementById('activeField').classList.toggle('hidden', mode !== 'edit');
+  document.getElementById('activeField').classList.toggle('flex', mode === 'edit');
+  document.getElementById('deleteBtn').classList.toggle('hidden', mode !== 'edit');
+  document.getElementById('parentHint').textContent = mode === 'edit'
+    ? '空欄で「未設定」になります。変更すると報告書の承認先も変わります。'
+    : '空欄のままで「未設定」になります。どの保護者の生徒かを設定してください。';
+  document.getElementById('editTitle').textContent =
+    mode === 'edit' ? '担当を編集' : (mode === 'add-new' ? '担当を追加（新規生徒）' : '担当を追加');
+}
+
 function filteredAssignments() {
   const keyword = (document.getElementById('searchInput').value || '').trim().toLowerCase();
   const activeOnly = document.getElementById('activeOnly').checked;
   return assignments.filter(a => {
     if (activeOnly && !a.is_active) return false;
     if (!keyword) return true;
-    return `${a.student_name || ''} ${a.tutor_name || ''} ${a.parent_name || ''}`.toLowerCase().includes(keyword);
+    return `${a.student_name || ''} ${a.tutor_name || ''} ${a.tutor_no || ''} ${a.parent_name || ''} ${a.parent_no || ''}`.toLowerCase().includes(keyword);
   });
 }
 function render() {
@@ -126,8 +314,8 @@ function render() {
   document.getElementById('rows').innerHTML = list.length
     ? list.map(a => `<tr class="border-t border-slate-100 ${a.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
         <td class="px-4 py-3 font-medium text-slate-800" data-label="生徒名">${escapeHtml(a.student_name || '-')}</td>
-        <td class="px-4 py-3" data-label="講師">${escapeHtml(a.tutor_name || '-')}</td>
-        <td class="px-4 py-3" data-label="保護者">${a.parent_id ? escapeHtml(a.parent_name || '-') : '<span class="font-medium text-amber-600">未設定</span>'}</td>
+        <td class="px-4 py-3" data-label="講師">${escapeHtml(nameWithNo(a.tutor_name, a.tutor_no) || '-')}</td>
+        <td class="px-4 py-3" data-label="保護者">${a.parent_id ? escapeHtml(nameWithNo(a.parent_name, a.parent_no)) : '<span class="font-medium text-amber-600">未設定</span>'}</td>
         <td class="px-4 py-3" data-label="状態">${a.is_active ? '有効' : '無効'}</td>
         <td class="px-4 py-3" data-label="操作"><button class="min-h-[40px] rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openEdit('${a.id}')">編集</button></td>
       </tr>`).join('')
@@ -152,26 +340,37 @@ function showEditMsg(text, isError) {
 }
 function openAdd() {
   editingId = null;
-  document.getElementById('editTitle').textContent = '担当を追加';
-  document.getElementById('fStudent').value = '';
-  document.getElementById('fTutor').innerHTML = '<option value="">選択してください</option>' + tutorOptions('');
-  document.getElementById('fParent').innerHTML = parentOptions('');
-  document.getElementById('activeField').classList.add('hidden');
-  document.getElementById('deleteBtn').classList.add('hidden');
+  tutorCombo.clear();
+  studentCombo.clear();
+  parentCombo.clear();
+  document.getElementById('fNewStudentName').value = '';
+  onStudentSelect(null);
+  setMode('add-existing');
   showEditMsg('');
   openOverlay();
+  setTimeout(() => tutorCombo.focus(), 50);
+}
+// ④ 新規生徒の登録モードへ（検索語を生徒名にプリフィル）
+function startNewStudent(prefill) {
+  document.getElementById('fNewStudentName').value = prefill || '';
+  parentCombo.clear();
+  setMode('add-new');
+  setTimeout(() => document.getElementById('fNewStudentName').focus(), 30);
+}
+function backToExistingStudent() {
+  setMode('add-existing');
+  setTimeout(() => studentCombo.focus(), 30);
 }
 function openEdit(id) {
   const a = assignments.find(x => x.id === id);
   if (!a) return;
   editingId = id;
-  document.getElementById('editTitle').textContent = '担当を編集';
-  document.getElementById('fStudent').value = a.student_name || '';
-  document.getElementById('fTutor').innerHTML = tutorOptions(a.tutor_id);
-  document.getElementById('fParent').innerHTML = parentOptions(a.parent_id || '');
-  document.getElementById('activeField').classList.remove('hidden');
+  tutorCombo.set(a.tutor_id ? {id: a.tutor_id, display_name: a.tutor_name, user_no: a.tutor_no} : null);
+  document.getElementById('fStudentName').value = a.student_name || '';
+  if (a.parent_id) parentCombo.set({id: a.parent_id, display_name: a.parent_name, user_no: a.parent_no});
+  else parentCombo.set({_none: true});
   document.getElementById('fActive').checked = !!a.is_active;
-  document.getElementById('deleteBtn').classList.remove('hidden');
+  setMode('edit');
   showEditMsg('');
   openOverlay();
 }
@@ -192,19 +391,31 @@ async function deleteAssignment() {
   }
 }
 async function saveEdit() {
-  const student = document.getElementById('fStudent').value.trim();
-  const tutorId = document.getElementById('fTutor').value;
-  const parentId = document.getElementById('fParent').value || null;
-  if (!student) { showEditMsg('生徒名を入力してください', true); return; }
-  if (!tutorId) { showEditMsg('講師を選択してください', true); return; }
+  const tutor = tutorCombo.get();
+  if (!tutor || !tutor.id) { showEditMsg('講師を選択してください', true); return; }
+  const tutorId = tutor.id;
   try {
-    if (editingId) {
+    if (currentMode === 'edit') {
+      const student = document.getElementById('fStudentName').value.trim();
+      if (!student) { showEditMsg('生徒名を入力してください', true); return; }
+      const p = parentCombo.get();
+      const parentId = (p && !p._none) ? p.id : null;
       const isActive = document.getElementById('fActive').checked;
       await api(`/api/assignments/${editingId}`, {method: 'PATCH', body: JSON.stringify({student_name: student, tutor_id: tutorId, parent_id: parentId, is_active: isActive})});
       showToast('担当を更新しました', 'success');
-    } else {
+    } else if (currentMode === 'add-existing') {
+      const s = studentCombo.get();
+      if (!s) { showEditMsg('生徒を選択してください（一覧に無い場合は「新規生徒として登録」）', true); return; }
+      const body = {tutor_id: tutorId, student_name: s.student_name};
+      if (s.parent_id) body.parent_id = s.parent_id;
+      await api('/api/assignments', {method: 'POST', body: JSON.stringify(body)});
+      showToast('担当を追加しました', 'success');
+    } else {   // add-new
+      const student = document.getElementById('fNewStudentName').value.trim();
+      if (!student) { showEditMsg('生徒名を入力してください', true); return; }
+      const p = parentCombo.get();
       const body = {tutor_id: tutorId, student_name: student};
-      if (parentId) body.parent_id = parentId;
+      if (p && !p._none && p.id) body.parent_id = p.id;
       await api('/api/assignments', {method: 'POST', body: JSON.stringify(body)});
       showToast('担当を追加しました', 'success');
     }
@@ -213,6 +424,7 @@ async function saveEdit() {
   } catch (error) {
     let msg = error.message;
     try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
+    if (msg === 'assignment already exists') msg = 'この講師には同じ生徒の担当がすでに登録されています。';
     showEditMsg(msg || '保存できませんでした', true);
   }
 }
@@ -273,18 +485,14 @@ document.getElementById('csvFileInput').addEventListener('change', async (event)
   if (file) await importCsv(file);
 });
 async function load() {
-  const [asg, tut, par] = await Promise.all([
-    api('/api/assignments'),
-    api('/api/users?roles=tutor&per_page=200'),
-    api('/api/users?roles=parent&per_page=500'),
-  ]);
-  assignments = asg || [];
-  tutors = tut.items || tut;
-  parents = par.items || par;
+  // 一覧（既存システムの担当のみ）を取得。講師・保護者・生徒の選択肢はモーダルで都度サーバー検索する
+  // （数千件規模でも一括ロードしないため軽量）。
+  assignments = await api('/api/assignments') || [];
   render();
 }
 window.authReady.then(user => {
   if (!user) return;
+  initCombos();
   load();
 });
 </script>

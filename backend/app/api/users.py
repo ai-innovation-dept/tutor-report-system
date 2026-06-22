@@ -14,7 +14,7 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, User
 from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
-from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
+from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, StudentOption, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import assignment_import_service, user_import_service
 from app.services.user_import_service import create_initial_user, revive_user
 
@@ -212,7 +212,15 @@ def list_users(
     stmt = select(User).where(User.deleted_at.is_(None))
     if search and search.strip():
         keyword = f"%{search.strip().lower()}%"
-        stmt = stmt.where(or_(func.lower(User.display_name).like(keyword), func.lower(User.email).like(keyword)))
+        # 氏名・メールに加えて No（user_no / tutor_no）でも検索可能にする。
+        # 担当管理など No 中心の運用でタイプアヘッド検索を効かせるため。NULL 列は like が
+        # NULL を返し OR では非マッチ扱いになるので安全。
+        stmt = stmt.where(or_(
+            func.lower(User.display_name).like(keyword),
+            func.lower(User.email).like(keyword),
+            func.lower(User.user_no).like(keyword),
+            func.lower(User.tutor_no).like(keyword),
+        ))
     users = db.scalars(stmt).all()
     # 所属の唯一の基準は allowed_systems。既存システム(legacy)に登録のあるユーザーのみ表示する。
     users = [user for user in users if "legacy" in (user.allowed_systems or [])]
@@ -443,6 +451,42 @@ def delete_assignment(assignment_id: UUID, db: Session = Depends(get_db), _: Use
     db.delete(assignment)
     db.commit()
     return {"status": "deleted"}
+
+
+@router.get("/assignments/students", response_model=list[StudentOption])
+def list_assignment_students(
+    q: str | None = None,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role(*ADMIN_ROLES)),
+):
+    """担当管理の生徒選択（タイプアヘッド）用に、既存の担当から生徒候補を返す。
+
+    生徒は (生徒名, 保護者) の一意な組として扱う（生徒マスタは持たない）。同じ生徒に複数の
+    講師が付いていても1件に集約する。キーワード q は生徒名・保護者名・保護者No を部分一致
+    （大文字小文字無視）で絞り込む。数千件規模を想定し、サーバー側で集約・件数制限してから
+    返す。新システム（system_type='new'）の学校紐付けは対象外。
+    """
+    limit = min(max(1, limit), 50)
+    stmt = (
+        select(Assignment.student_name, Assignment.parent_id, User.display_name, User.user_no)
+        .outerjoin(User, Assignment.parent_id == User.id)
+        .where(or_(Assignment.system_type != "new", Assignment.system_type.is_(None)))
+        .group_by(Assignment.student_name, Assignment.parent_id, User.display_name, User.user_no)
+        .order_by(Assignment.student_name)
+    )
+    if q and q.strip():
+        keyword = f"%{q.strip().lower()}%"
+        stmt = stmt.where(or_(
+            func.lower(Assignment.student_name).like(keyword),
+            func.lower(User.display_name).like(keyword),
+            func.lower(User.user_no).like(keyword),
+        ))
+    rows = db.execute(stmt.limit(limit)).all()
+    return [
+        StudentOption(student_name=name, parent_id=parent_id, parent_name=parent_name, parent_no=parent_no)
+        for (name, parent_id, parent_name, parent_no) in rows
+    ]
 
 
 @router.get("/assignments/export")
