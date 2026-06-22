@@ -4,13 +4,13 @@
 
 > メモ: Claude Code の個人メモリ（`~/.claude/...`）はアカウント/PCに紐づくため引き継がれない。引継ぎに必要な文脈はすべて本ファイル（リポジトリ）に集約している。
 
-最終更新: 2026-06-16
+最終更新: 2026-06-22
 
 ---
 
 ## 0. システム構成（最低限）
 
-| | 指導実績報告システム（既存=legacy） | 業務連絡表システム（新=new） |
+| | イスト勤怠レポート for 代々木進学会<br>（旧称: 指導実績報告システム / 既存=legacy） | イスト勤怠レポート for EMPS<br>（旧称: 業務連絡表システム / 新=new） |
 |---|---|---|
 | ディレクトリ | `backend/` | `new_backend/` |
 | ポート | 8000 | 8001 |
@@ -18,23 +18,25 @@
 
 - **DB（Postgres `tutor`）・`users`/`assignments`/`invitations` テーブル・`.env` を両システムで共有**。新システム専用テーブルは `work_*`。
 - Alembic は legacy=`alembic_version` / new=`work_alembic_version` で分離。`users` 等の共有テーブルは **legacy 側 Alembic が管理**。
-- 詳細は `CLAUDE.md`、`docs/SPECIFICATION.md`、`docs/DATA_MODEL.md`、`docs/INFRASTRUCTURE.md`。
+- 詳細は `docs/README.md`（索引）、各システムの `docs/イスト勤怠レポート for .../SPECIFICATION.md`、共通の `docs/DATA_MODEL.md`・`docs/INFRASTRUCTURE.md`、`CLAUDE.md`。
 
 ---
 
 ## 1. 🔴 最優先の未対応タスク：本番メールが実配信されない
 
-**症状:** 既存システムから招待メール等を送っても Gmail に届かない。
+**症状:** 本番から招待メール等を送っても受信箱に届かない。
 
-**原因:** 本番の SMTP 設定が既定の **MailHog のまま**（`host=mailhog / port=1025 / 認証なし / from=noreply@example.com`）。実在の外部 SMTP サービスが未設定。コードの送信処理は正常で、**SMTP 認証＋TLS は実装済み**（送信経路は両システム共通）。メールは（本番なら）MailHog（`本番IP:8025`）に溜まり Gmail へは出ていかない。
+**原因（2点）:** ① 既定が **`MAIL_BACKEND=console`**（＝実送信せずログ出力のみ）。② SMTP も既定で **MailHog のまま**（`host=mailhog / port=1025 / 認証なし`）。送信機構自体は実装済み（**SMTP認証＋TLS＋送信キュー**＝アウトボックスに投函し1通ずつ間隔送信。経路は両システム共通、送信元のみ `SMTP_FROM`/`NEW_SMTP_FROM` で分離）。**実配信には `MAIL_BACKEND=smtp` かつ 実在SMTP の両方**が必要。
 
 **現状確認コマンド（本番）:**
 ```bash
-sudo docker compose exec backend python -c "from app.config import settings; print(settings.smtp_host, settings.smtp_port, settings.smtp_tls, settings.smtp_username, settings.smtp_from)"
+sudo docker compose exec backend python -c "from app.config import settings as s; print('mail_backend=', s.mail_backend, '| smtp=', s.smtp_host, s.smtp_port, s.smtp_tls, s.smtp_from)"
 ```
-`host=mailhog` なら未配信が確定。
+`mail_backend=console` または `host=mailhog` なら未配信が確定。
 
-**対処（本番 `.env` に実 SMTP を設定するだけ）— 最短は Gmail:**
+**対処A（最短）— `mailmode.sh` で切替:** `.env` に `MAIL_LIVE_*`（Brevo等の実配信SMTP）を設定済みなら、`sudo bash mailmode.sh live` だけで `MAIL_BACKEND=smtp`＋SMTP差替＋再起動まで完了する（検証は `sandbox`＝Mailtrapで捕捉、停止は `off`）。
+
+**対処B（手動）— 本番 `.env` に実 SMTP を設定 — 例は Gmail:**
 1. Google アカウント（kintaikanri.tutor1@gmail.com）で 2 段階認証を有効化 → **アプリ パスワード 16 桁**を発行。
 2. 本番 `~/tutor-report-system/.env` を編集:
    ```env
@@ -45,6 +47,7 @@ sudo docker compose exec backend python -c "from app.config import settings; pri
    SMTP_TLS=starttls
    SMTP_FROM=kintaikanri.tutor1@gmail.com
    NEW_SMTP_FROM=kintaikanri.tutor1@gmail.com
+   MAIL_BACKEND=smtp
    ENVIRONMENT=production
    ```
 3. 反映＆疎通確認:
@@ -64,6 +67,7 @@ SMTP_PASSWORD=（SESコンソールで発行したSMTPパスワード）
 SMTP_TLS=starttls                                   # 465を使うなら ssl
 SMTP_FROM=no-reply@（SESで検証済みのドメイン/アドレス）
 NEW_SMTP_FROM=no-reply@（SESで検証済みのドメイン/アドレス）
+MAIL_BACKEND=smtp
 ENVIRONMENT=production
 ```
 SES 固有の注意:
@@ -118,6 +122,9 @@ SES 固有の注意:
 | `SMTP_TLS` | `none`(MailHog) / `starttls`(587) / `ssl`(465)（共通） |
 | `SMTP_FROM` | 送信元（既存システム） |
 | `NEW_SMTP_FROM` | 送信元（新システム） |
+| `MAIL_BACKEND` | `smtp`=実送信 / `console`=ログのみ（**既定・実送信しない**） |
+| `MAIL_SEND_INTERVAL_SECONDS` | 送信キューの1通ごと間隔（既定4秒。連打ロック回避） |
+| `MAIL_SANDBOX_*` / `MAIL_LIVE_*` | `mailmode.sh sandbox/live` が読む 検証(Mailtrap)/実配信(Brevo等) の認証グループ |
 
 - 実装: `backend/app/services/notification_service.py` と `new_backend/app/services/notification_service.py` の各 `_smtp_send_kwargs`。
 - legacy の送信は失敗時に例外（招待APIは 500）。new の `send_email` は失敗を握りつぶしログ警告のみ。
@@ -148,16 +155,13 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 
 ---
 
-## 5. 直近の改修（このスレッドの作業・コミット）
+## 5. 直近の主な改修
 
-| commit | 内容 |
-|---|---|
-| `aae4c4f` | ユーザ管理CSV: No採番を最小空き番号化＋削除済みメールの再利用（同一アカウント復活） |
-| `258760c` | 両システムの本番メール送信対応（SMTP認証＋TLS）＋送信元アドレスの設定化（SMTP_FROM/NEW_SMTP_FROM） |
-| `d0fa56f` | 本番クリーン投入 `seed_production.py` 追加＋migration 0014 の本番ガード |
-| `b94a8bb` | docs: 本番クリーン投入手順を `INFRASTRUCTURE.md` に追記 |
-| `eaad4b6` | サンプルユーザーを単一ロールに修正（ログイン不可・ロール選択エラーの解消） |
-| `81a02e4` | メール不達の診断ツール `send_test_email.py` 追加＋`.env.example` に Gmail SMTP 例 |
+> 正確な履歴は `git log --oneline` を参照（手動コミット表は陳腐化しやすいため要点のみ）。
+- **メール**: 送信キュー(outbox)化＝1通ずつ間隔送信＋`MAIL_BACKEND`(smtp/console)／`mailmode.sh`(sandbox/off/live) 導入。
+- **本番クリーン投入** `seed_production.py`＋migration 0014 の本番ガード。検証用サンプルユーザーは単一ロール（§2）。
+- **担当管理**「＋担当を追加」を 講師→生徒 の検索式UIへ刷新（生徒候補API・No検索）。
+- **docs 再編**: 2システム別フォルダ（`イスト勤怠レポート for 代々木進学会/`・`for EMPS/`）＋共通(`DATA_MODEL`/`INFRASTRUCTURE`/`HANDOFF`)＋`OLD/` に分類（本ファイルも含む）。
 
 ---
 
@@ -166,7 +170,7 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 - **本番は手動デプロイ**（Lightsail SSH で git pull＋up --build）。ローカルでの `up --build` は本番に反映されない。
 - **`.env` は両システム共有**。衝突回避のため URL は `BASE_URL`/`NEW_BASE_URL`、送信元は `SMTP_FROM`/`NEW_SMTP_FROM` に分離済み。本番 `.env` は手動管理（リポジトリには無い）。
 - **`users.email` は一意（1メール=1ユーザー行）**。同じメールに複数ロールを持たせるとログインのロール選択で破綻する（上記2参照）。
-- **MailHog は開発用ダミー**。本番で `.env` を実 SMTP にしない限りメールは届かない（上記1）。
+- **MailHog は開発用ダミー**。本番で実配信するには **実SMTP＋`MAIL_BACKEND=smtp` の両方**が必要（`console` 既定では送らない。上記1）。
 - 共有テーブルへの列追加は **legacy 側 Alembic**（`backend/alembic/versions/`）で行い、`backend` と `new_backend` 双方のモデルに反映する。`backend` コンテナは `alembic/` をマウントしないため、マイグレーション反映には再ビルドが必要。
 - （Claude Code 向け）この環境では PowerShell ツール経由の `git add/commit` が拒否されることがある。その場合は Bash ツール経由で `git` を実行する。
 
@@ -174,7 +178,7 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 
 ## 7. 次にやることチェックリスト
 
-- [ ] 本番 `.env` に実 SMTP（Gmail 等）＋ `ENVIRONMENT=production` を設定 → `up -d --build` → `send_test_email` で配信確認（最優先）。
+- [ ] 本番で実配信を有効化: `.env` に `MAIL_LIVE_*`＋`ENVIRONMENT=production` を設定し `sudo bash mailmode.sh live`（または手動で `SMTP_*`＋`MAIL_BACKEND=smtp`）→ `send_test_email` で配信確認（最優先）。
 - [ ] 招待メールが Gmail に実際に届くことを確認。
 - [ ] 必要に応じて本番で `seed_production --yes` を実行しサンプル 6 ユーザーに統一。
 - [ ] （任意）legacy 用の 保護者/受付/再鑑 サンプルが必要なら別エイリアスで追加。
