@@ -2,11 +2,22 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ドキュメント（まず読む）
+
+本リポジトリは「**イスト勤怠レポート**」の **2システム構成**。ドキュメントは **`docs/README.md`（索引）** から辿る。システム別の仕様・操作手順は `docs/イスト勤怠レポート for 代々木進学会/`・`docs/イスト勤怠レポート for EMPS/` に、共通のデータモデル／インフラ／引継ぎは `docs/` 直下にある。
+
+| 区分 | 製品名 | 旧称 | コード | ポート |
+|---|---|---|---|---|
+| 既存 | イスト勤怠レポート for 代々木進学会 | 指導実績報告システム | `backend/` | 8000 |
+| 新 | イスト勤怠レポート for EMPS | 業務連絡表システム | `new_backend/` | 8001 |
+
 ## 引継ぎ・現在の作業状況（新しく入った担当者・別アカウントはまず読む）
 
-進行中の作業の引継ぎ、未対応の最優先事項（**本番メールの実配信に向けた SMTP 設定**＝Gmail/AWS SES、本番クリーン投入の実行、検証用サンプルユーザー など）は **`docs/HANDOFF.md`** に集約している。作業を引き継ぐ場合はまず `docs/HANDOFF.md` を読むこと。
+進行中の作業の引継ぎ・未対応事項・本番反映状況は **`docs/HANDOFF.md`** に集約している。作業を引き継ぐ場合はまず `docs/HANDOFF.md` を読むこと。
 
 ## Project Overview
+
+> 以下は **既存システム＝イスト勤怠レポート for 代々木進学会**（旧称: 指導実績報告システム, `backend/`）の説明。新システム **イスト勤怠レポート for EMPS**（旧 業務連絡表システム, `new_backend/`）は `docs/イスト勤怠レポート for EMPS/` を参照。
 
 Japanese home tutoring lesson report management system (家庭教師 指導実績報告システム). Tutors record monthly lesson reports, which go through a multi-stage approval workflow: tutor → parent → admin_receiver → admin_reviewer (reviewer approval is final). admin_master / admin_chief are outside the approval flow (view, PDF, user/assignment management, stale-report close). Built as a FastAPI + PostgreSQL full-stack web app with server-rendered Jinja2 templates.
 
