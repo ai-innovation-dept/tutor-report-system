@@ -26,6 +26,7 @@
 - [`DATA_MODEL.md`](DATA_MODEL.md) — データモデル（共有テーブル＋各システム固有テーブル）。**スキーマの正本**。
 - [`INFRASTRUCTURE.md`](INFRASTRUCTURE.md) — 本番インフラ・デプロイ・クリーン投入手順
 - [`HANDOFF.md`](HANDOFF.md) — 引継ぎ・未対応事項・本番反映状況
+- [`クローズ機能ガイド.md`](クローズ機能ガイド.md) — クローズ／強制クローズの**具体例つきやさしい解説**（両システム）
 - リポジトリ直下 [`../CLAUDE.md`](../CLAUDE.md)（開発ガイド／Claude Code 用）・[`../README.md`](../README.md)（クイックスタート）
 
 > **注（次段で更新予定）**: 共通資料 `DATA_MODEL.md` / `INFRASTRUCTURE.md` / `HANDOFF.md` は、新名称への統一と内容の最新化（新システムの**経理ステップ廃止・事務事前確認の追加**などワークフロー修正、`work_assignment_profiles` のスキーマ差分、`mail_outbox`/`work_mail_outbox` 追加、SMTP送信キュー・`mailmode.sh`、ポート8001 など）を**次段で実施予定**です。ワークフロー／スキーマの確定情報は、各システムの `SPECIFICATION.md` とコード（`backend/app/...`・`new_backend/app/...`、特に `new_backend/app/workflow/definitions.py`）を正とします。
