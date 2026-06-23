@@ -71,7 +71,7 @@ def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
     monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
     master_token = token(client, "master@example.com")
     existing_tutor = db.query(User).filter(User.role == "tutor").first()
-    existing_tutor.tutor_no = "10002"
+    existing_tutor.tutor_no = "10001"
     db.commit()
     res = client.post(
         "/api/invitations",
@@ -80,8 +80,9 @@ def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
     )
     assert res.status_code == 200
     assert res.json()["role"] == "tutor"
-    assert res.json()["tutor_no"] == "10003"
-    assert "講師No：10003" in sent[-1][2]
+    # 統一採番ポリシー: 既存講師が10001なので、最小の空きは10002（max+1ではなく歯抜けを埋める）。
+    assert res.json()["tutor_no"] == "10002"
+    assert "講師No：10002" in sent[-1][2]
 
     invitation = db.query(Invitation).filter(Invitation.email == "tutor3@example.com").one()
     info = client.get(f"/api/auth/register?token={invitation.token}")
@@ -98,7 +99,7 @@ def test_admin_can_invite_tutor_and_register(client, db, monkeypatch):
     user = db.query(User).filter(User.email == "tutor3@example.com").one()
     assert user.roles == ["tutor"]
     assert user.display_name == "田中 三郎"
-    assert user.tutor_no == "10003"
+    assert user.tutor_no == "10002"
 
 
 def test_admin_can_invite_staff_and_register(client, db, monkeypatch):

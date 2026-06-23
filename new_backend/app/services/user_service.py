@@ -35,6 +35,7 @@ def generate_user_no(db: Session, role: str) -> str:
     既存（未削除）user_noと未受諾招待を参照して重複を防ぐ。帯内で歯抜けになっている
     若い番号があればそれを優先して埋める（max+1ではない）。
     削除済み（ソフトデリート）ユーザーのNoは解放済みとして扱い、再利用の対象に含める。
+    ※ backend/app/services/user_no_service.generate_user_no と同一方針。変更時は両方を更新すること。
     """
     start, prefix = _NO_RANGE.get(role, (10001, ""))
 

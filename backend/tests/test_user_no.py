@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from app.core.security import hash_password
 from app.models import User
 from app.services.user_no_service import (
@@ -8,7 +10,7 @@ from app.services.user_no_service import (
 )
 
 
-def _add(db, email, role, *, tutor_no=None, allowed_systems=("legacy",), user_no=None):
+def _add(db, email, role, *, tutor_no=None, allowed_systems=("legacy",), user_no=None, deleted=False):
     user = User(
         email=email,
         role=role,
@@ -18,6 +20,8 @@ def _add(db, email, role, *, tutor_no=None, allowed_systems=("legacy",), user_no
         user_no=user_no,
         allowed_systems=list(allowed_systems),
         password_hash=hash_password("Passw0rd!"),
+        is_active=not deleted,
+        deleted_at=datetime.now(timezone.utc) if deleted else None,
     )
     db.add(user)
     db.flush()
@@ -85,3 +89,28 @@ def test_generate_user_no_continues_band(db):
     db.commit()
     assert generate_user_no(db, "parent") == "20002"
     assert generate_user_no(db, "tutor") == "10001"
+
+
+def test_generate_user_no_fills_smallest_gap(db):
+    # 統一ポリシー: 帯内で歯抜けの若い番号を優先採番（max+1ではない）。
+    _add(db, "t1@x.com", "tutor", user_no="10001", tutor_no="10001")
+    _add(db, "t3@x.com", "tutor", user_no="10003", tutor_no="10003")
+    db.commit()
+    assert generate_user_no(db, "tutor") == "10002"
+
+
+def test_generate_user_no_reuses_deleted_number(db):
+    # 統一ポリシー: 削除済み（ソフトデリート）ユーザーのNoは解放され、次の採番で即・再利用される。
+    _add(db, "t1@x.com", "tutor", user_no="10001", tutor_no="10001")
+    _add(db, "t2@x.com", "tutor", user_no="10002", tutor_no="10002", deleted=True)
+    db.commit()
+    # 10002 は削除済み→解放。有効なのは 10001 のみなので最小の空きは 10002。
+    assert generate_user_no(db, "tutor") == "10002"
+
+
+def test_generate_user_no_keeps_active_numbers_reserved(db):
+    # 有効ユーザーのNoは当然「使用済み」。10001・10002 が有効なら次は 10003。
+    _add(db, "t1@x.com", "tutor", user_no="10001", tutor_no="10001")
+    _add(db, "t2@x.com", "tutor", user_no="10002", tutor_no="10002")
+    db.commit()
+    assert generate_user_no(db, "tutor") == "10003"

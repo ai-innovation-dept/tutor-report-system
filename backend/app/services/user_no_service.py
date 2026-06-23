@@ -52,10 +52,22 @@ def _seq_in_band(no: str | None, band: int) -> int:
 
 
 def generate_user_no(db: Session, role: str) -> str:
-    """当該ロールの番号帯で、既存 user_no/tutor_no・未受諾招待と衝突しない次の番号を採番する。"""
+    """当該ロールの番号帯で「未使用の最小番号」を採番する（新旧システム共通の統一ポリシー）。
+
+    帯内で歯抜けになっている若い番号があれば優先して埋める（max+1 ではない）。
+    削除済み（ソフトデリート）ユーザーのNoは解放済みとして扱い、再利用の対象に含める
+    （＝「使用済み」集合に入れない＝即・再利用可能）。承認履歴等はソフトデリートで保持される。
+    未受諾招待の予約番号は使用済みとして扱う。
+    ※ new_backend/app/services/user_service.generate_user_no と同一方針。変更時は両方を更新すること。
+    """
     band = band_for_role(role)
-    candidates: list[str | None] = list(db.scalars(select(User.user_no).where(User.user_no.is_not(None))).all())
-    candidates += list(db.scalars(select(User.tutor_no).where(User.tutor_no.is_not(None))).all())
+    # 削除済みユーザーのNoは予約しない（即・再利用可能にする）。有効ユーザーと未受諾招待のみ「使用済み」。
+    candidates: list[str | None] = list(
+        db.scalars(select(User.user_no).where(User.user_no.is_not(None), User.deleted_at.is_(None))).all()
+    )
+    candidates += list(
+        db.scalars(select(User.tutor_no).where(User.tutor_no.is_not(None), User.deleted_at.is_(None))).all()
+    )
     candidates += list(
         db.scalars(
             select(Invitation.tutor_no).where(
@@ -64,8 +76,12 @@ def generate_user_no(db: Session, role: str) -> str:
             )
         ).all()
     )
-    max_seq = max((_seq_in_band(no, band) for no in candidates), default=0)
-    return str(band + max_seq + 1)
+    used = {seq for seq in (_seq_in_band(no, band) for no in candidates) if seq}
+    # 帯の先頭(連番1)から走査し、未使用の最小番号を返す。
+    seq = 1
+    while seq in used:
+        seq += 1
+    return str(band + seq)
 
 
 def user_no_for_new_user(db: Session, role: str, tutor_no: str | None = None) -> str:
