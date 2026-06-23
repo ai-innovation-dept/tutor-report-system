@@ -19,9 +19,11 @@
     </label>
   </div>
   <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-    <p class="max-w-3xl text-xs leading-relaxed text-slate-500">
-      CSV一括取込：「CSVエクスポート」で現在の担当を書き出し、編集後に「CSVインポート」で取り込みます。<strong>講師No＋生徒名</strong>が一致する担当は保護者の紐づけを更新、無ければ新規作成します。保護者Noは空欄で「未設定」、記入する場合はその保護者Noの登録が必要です。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。
-    </p>
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
+      <button id="csvHelpBtn" type="button" onclick="openCsvHelp()" aria-haspopup="dialog" aria-controls="csvHelpOverlay" aria-label="CSV一括取込の使い方を見る" title="使い方を見る"
+        class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30">?</button>
+    </div>
     <div class="flex shrink-0 items-center gap-2">
       <a href="/api/assignments/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
       <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
@@ -124,6 +126,86 @@
     <div id="importResultBody" class="overflow-y-auto px-5 py-4 text-sm text-slate-700"></div>
     <div class="flex justify-end border-t border-slate-200 px-5 py-3">
       <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeImportResult()">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="csvHelpOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="csvHelpTitle" onclick="closeCsvHelp()">
+  <div class="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 id="csvHelpTitle" class="font-semibold text-slate-800">CSV一括取込の使い方</h2>
+      <button id="csvHelpClose" type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeCsvHelp()">閉じる</button>
+    </div>
+    <div class="space-y-6 overflow-y-auto px-5 py-5 text-sm text-slate-700">
+      <p class="leading-relaxed">担当（<strong class="font-semibold text-slate-900">講師・生徒・保護者の組み合わせ</strong>）を CSVファイルでまとめて編集・追加できる機能です。Excel などの表計算ソフトで開いて編集します。</p>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">操作は3ステップ</h3>
+        <ol class="space-y-3">
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">1</span>
+            <div><span class="font-medium text-slate-900">書き出す</span><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">CSVエクスポート</span><p class="mt-0.5 text-slate-600">いまの担当一覧がCSVで保存されます。編集前のバックアップにもなります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">2</span>
+            <div><span class="font-medium text-slate-900">編集する</span><p class="mt-0.5 text-slate-600">Excel などで開き、保護者Noを直したり、行を追加して新しい担当を作ります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">3</span>
+            <div><span class="font-medium text-slate-900">取り込む</span><span class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700">CSVインポート</span><p class="mt-0.5 text-slate-600">編集したCSVファイルを選ぶと取り込みます。</p></div>
+          </li>
+        </ol>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/assignment-csv-help-buttons.png" alt="担当管理の操作バーにある「CSVエクスポート」「CSVインポート」ボタン" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ 担当管理の操作バーにある2つのボタンを使います。</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">担当は「講師No ＋ 生徒名」で見分けます</h3>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p class="font-semibold text-blue-800">一致する担当がある → 更新</p>
+            <p class="mt-1 text-xs leading-relaxed text-blue-900/80">同じ講師No＋生徒名の担当が既にあれば、その担当の<strong>保護者の紐づけ</strong>を保護者No欄の値に置き換えます。</p>
+          </div>
+          <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <p class="font-semibold text-emerald-800">一致する担当がない → 新規作成</p>
+            <p class="mt-1 text-xs leading-relaxed text-emerald-900/80">その講師・生徒の担当が無ければ、<strong>新しい担当</strong>として作成します。</p>
+          </div>
+        </div>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 保護者No が空欄なら保護者は「未設定」になります。記入する場合は、<strong>登録済みの保護者No</strong>を指定してください（見つからない・保護者でない番号はエラーになります）。</p>
+        <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-500">
+              <tr><th class="px-3 py-2 font-medium">列</th><th class="px-3 py-2 font-medium">役割</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">講師No</td><td class="px-3 py-2 text-slate-600">必須。担当する講師のNoです。登録済みの講師Noを指定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">生徒名</td><td class="px-3 py-2 text-slate-600">必須。講師No＋生徒名で担当を1件に特定します（同じ講師の中で生徒名は重複できません）。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">保護者No</td><td class="px-3 py-2 text-slate-600">空欄＝保護者は未設定。記入する場合は登録済みの保護者Noを指定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">講師名(参考)・保護者名(参考)・状態(参考)・登録日(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。取り込み時には使われません。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">安全のしくみ</h3>
+        <ul class="space-y-2">
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span><strong class="text-slate-900">1件でもエラーがあると、全件取り込みません。</strong>途中まで取り込まれる心配はありません。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>取り込めなかったときは、何行目がなぜダメだったかが一覧で表示されます。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>先頭が <code class="rounded bg-slate-100 px-1 font-mono">#</code> の行は、メモ（コメント）として読み飛ばされます。</span></li>
+        </ul>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/assignment-csv-help-error.png" alt="エラーのある行を示す「取り込みエラー」の表示例" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ エラーがあるときはこの画面で内容を確認できます（このとき取り込みは行われていません）。</figcaption>
+        </figure>
+      </section>
+
+      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。リマインダーや承認スキップなどの設定はCSVでは変更できません（各担当の編集画面で設定します）。</p>
+    </div>
+    <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <button type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeCsvHelp()">OK</button>
     </div>
   </div>
 </div>
@@ -496,6 +578,28 @@ document.getElementById('csvFileInput').addEventListener('change', async (event)
   event.target.value = '';  // 同じファイルを連続選択しても change が発火するように
   if (file) await importCsv(file);
 });
+
+// === CSV一括取込のヘルプ（「?」アイコンで開く使い方ポップアップ） ===
+let csvHelpLastFocus = null;
+function openCsvHelp() {
+  csvHelpLastFocus = document.activeElement;
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.getElementById('csvHelpClose')?.focus();
+  document.addEventListener('keydown', csvHelpEscHandler);
+}
+function closeCsvHelp() {
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  document.removeEventListener('keydown', csvHelpEscHandler);
+  if (csvHelpLastFocus && typeof csvHelpLastFocus.focus === 'function') csvHelpLastFocus.focus();
+}
+function csvHelpEscHandler(event) {
+  if (event.key === 'Escape') closeCsvHelp();
+}
+
 async function load() {
   // 一覧（既存システムの担当のみ）を取得。講師・保護者・生徒の選択肢はモーダルで都度サーバー検索する
   // （数千件規模でも一括ロードしないため軽量）。
