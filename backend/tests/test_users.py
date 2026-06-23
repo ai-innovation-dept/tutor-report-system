@@ -1,5 +1,21 @@
-from app.models import User
+import datetime as dt
+
+from app.models import Assignment, LessonReport, ReportStatus, User
 from tests.conftest import token
+
+
+def _add_report(db, status):
+    """conftestのtutor＋parent＋assignmentに、指定ステータスの報告書を1件足す。"""
+    tutor = db.query(User).filter(User.email == "tutor@example.com").one()
+    parent = db.query(User).filter(User.email == "parent@example.com").one()
+    assignment = db.query(Assignment).first()
+    db.add(LessonReport(
+        assignment_id=assignment.id, tutor_id=tutor.id, parent_id=parent.id,
+        lesson_date=dt.date(2026, 6, 1), start_time=dt.time(16, 0), end_time=dt.time(17, 0),
+        break_minutes=0, content="x", target_month="2026-06", status=status,
+    ))
+    db.commit()
+    return tutor, parent
 
 
 def test_admin_can_update_staff_roles(client, db):
@@ -94,3 +110,38 @@ def test_last_active_admin_master_cannot_be_disabled(client, db):
     res = client.patch(f"/api/users/{master.id}/disable", headers={"Authorization": f"Bearer {master_token}"})
 
     assert res.status_code == 409
+
+
+def test_cannot_delete_user_with_active_approval_flow(client, db):
+    # 承認フロー進行中（保護者承認待ち）の報告書に関与する講師・保護者は削除できない。
+    master_token = token(client, "master@example.com")
+    tutor, parent = _add_report(db, ReportStatus.awaiting_parent_approval.value)
+
+    res_parent = client.delete(f"/api/users/{parent.id}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res_parent.status_code == 409, res_parent.text
+    assert "承認フロー進行中" in res_parent.json()["detail"]
+
+    res_tutor = client.delete(f"/api/users/{tutor.id}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res_tutor.status_code == 409, res_tutor.text
+
+    db.expire_all()
+    assert db.get(User, tutor.id).deleted_at is None
+    assert db.get(User, parent.id).deleted_at is None
+
+
+def test_can_delete_user_after_flow_finalized(client, db):
+    # 最終承認済み（終端）の報告書しか持たないユーザーは削除できる。
+    master_token = token(client, "master@example.com")
+    tutor, _ = _add_report(db, ReportStatus.admin_approved.value)
+
+    res = client.delete(f"/api/users/{tutor.id}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200, res.text
+
+
+def test_can_delete_user_with_only_draft_report(client, db):
+    # 下書き（未提出＝フロー外）のみのユーザーは削除できる。
+    master_token = token(client, "master@example.com")
+    tutor, _ = _add_report(db, ReportStatus.draft.value)
+
+    res = client.delete(f"/api/users/{tutor.id}", headers={"Authorization": f"Bearer {master_token}"})
+    assert res.status_code == 200, res.text

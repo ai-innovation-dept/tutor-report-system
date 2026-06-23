@@ -12,7 +12,7 @@ from app.core.rbac import ADMIN_ROLES, has_role, is_admin, require_role, sync_us
 from app.core.security import hash_password, verify_password
 from app.database import get_db
 from app.deps import get_current_user
-from app.models import Assignment, Invitation, LessonReport, User
+from app.models import Assignment, Invitation, LessonReport, ReportStatus, User
 from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
 from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, StudentOption, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import assignment_import_service, user_import_service
@@ -197,6 +197,41 @@ def _ensure_not_last_admin_master(user: User, db: Session) -> None:
         raise HTTPException(status_code=409, detail="最後の管理責任者のため操作できません")
 
 
+# 承認フローが「進行中」とみなす報告書ステータス＝下書き・最終承認済み・クローズ「以外」。
+# これらに達していれば当人の関与は終わっており、安全に削除できる。
+_FLOW_SETTLED_STATUSES = (
+    ReportStatus.draft.value,
+    ReportStatus.admin_approved.value,
+    ReportStatus.closed.value,
+)
+
+
+def _ensure_no_active_approval_flow(user: User, db: Session) -> None:
+    """承認フロー進行中の報告書に当人(講師 or 保護者)が関与している間は削除を止める。
+
+    soft-delete 自体はデータ整合性(UUID参照)を壊さないが、削除すると本人しか進められない
+    承認（保護者の承認、差戻し中の講師の再提出）が停滞する。最終承認/クローズに達してから、
+    または担当の付け替え（保護者の紐づけ変更で報告書のparent_idも更新される）後に削除する想定。
+    運営ロール(受付/再鑑/管理者)は報告書のtutor_id/parent_idに紐づかないため該当しない。
+    """
+    active_count = db.scalar(
+        select(func.count())
+        .select_from(LessonReport)
+        .where(
+            or_(LessonReport.tutor_id == user.id, LessonReport.parent_id == user.id),
+            LessonReport.status.notin_(_FLOW_SETTLED_STATUSES),
+        )
+    )
+    if active_count:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"このユーザーは承認フロー進行中の報告書に関与しているため削除できません（{active_count}件）。"
+                "対象の報告書が最終承認またはクローズされてから、もしくは担当の付け替え後に削除してください。"
+            ),
+        )
+
+
 @router.get("/users", response_model=UserListOut)
 def list_users(
     page: int = 1,
@@ -319,6 +354,7 @@ def delete_user(user_id: UUID, db: Session = Depends(get_db), current_user: User
     if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
         raise HTTPException(status_code=403, detail="管理責任者の削除は管理責任者のみ可能です")
     _ensure_not_last_admin_master(user, db)
+    _ensure_no_active_approval_flow(user, db)
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
     db.commit()
