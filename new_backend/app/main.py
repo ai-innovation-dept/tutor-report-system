@@ -1,9 +1,13 @@
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, reports, users, admin, pages, invitations, assignments, chat, contracts
 from app.services.reminder_service import start_scheduler
 
 app = FastAPI(title="Work Report System", version="0.1.0")
+
+# 静的アセット配信（ヘルプ用スクリーンショット等）。既存システム(backend)と同じ /static/ で揃える。
+app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 app.include_router(pages.router)
 app.include_router(auth.router)

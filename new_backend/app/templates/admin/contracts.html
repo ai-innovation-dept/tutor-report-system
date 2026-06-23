@@ -46,7 +46,11 @@
     <button id="newContractBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規登録</button>
   </div>
 </section>
-<p class="mb-4 -mt-1 text-xs text-slate-500">CSV一括更新：「CSVエクスポート」で現在の契約を書き出し、編集して「CSVインポート」で取り込みます。講師は<b>講師番号</b>、学校は<b>学校番号</b>で照合します（氏名・学校名は参考列）。同一(講師番号×学校番号)は<b>上書き更新</b>、無ければ<b>新規追加</b>。1件でもエラーがあれば全件取り込みません。先頭が#の行は取り込まれません。</p>
+<div class="mb-4 -mt-1 flex items-center gap-2">
+  <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
+  <button id="csvHelpBtn" type="button" onclick="openCsvHelp()" aria-haspopup="dialog" aria-controls="csvHelpOverlay" aria-label="CSV一括取込の使い方を見る" title="使い方を見る"
+    class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">?</button>
+</div>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
   <div class="overflow-x-auto">
@@ -78,6 +82,89 @@
     <div id="importResultBody" class="overflow-y-auto px-5 py-4 text-sm text-slate-700"></div>
     <div class="flex justify-end border-t border-slate-200 px-5 py-3">
       <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeImportResult()">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="csvHelpOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="csvHelpTitle" onclick="closeCsvHelp()">
+  <div class="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 id="csvHelpTitle" class="font-semibold text-slate-800">CSV一括取込の使い方</h2>
+      <button id="csvHelpClose" type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeCsvHelp()">閉じる</button>
+    </div>
+    <div class="space-y-6 overflow-y-auto px-5 py-5 text-sm text-slate-700">
+      <p class="leading-relaxed">契約（<strong class="font-semibold text-slate-900">講師×学校の組み合わせ</strong>）を CSVファイルでまとめて編集・追加できる機能です。Excel などの表計算ソフトで開いて編集します。</p>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">操作は3ステップ</h3>
+        <ol class="space-y-3">
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">1</span>
+            <div><span class="font-medium text-slate-900">書き出す</span><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">CSVエクスポート</span><p class="mt-0.5 text-slate-600">いまの契約一覧がCSVで保存されます。編集前のバックアップにもなります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">2</span>
+            <div><span class="font-medium text-slate-900">編集する</span><p class="mt-0.5 text-slate-600">Excel などで開き、契約内容を直したり、行を追加して新しい契約を作ります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-xs font-bold text-white">3</span>
+            <div><span class="font-medium text-slate-900">取り込む</span><span class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700">CSVインポート</span><p class="mt-0.5 text-slate-600">編集したCSVファイルを選ぶと取り込みます。</p></div>
+          </li>
+        </ol>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/contract-csv-help-buttons.png" alt="契約管理の操作バーにある「CSVエクスポート」「CSVインポート」ボタン" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ 契約管理の操作バーにある2つのボタンを使います。</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">契約は「講師番号 ＋ 学校番号」で見分けます</h3>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p class="font-semibold text-blue-800">一致する契約がある → 更新</p>
+            <p class="mt-1 text-xs leading-relaxed text-blue-900/80">同じ講師番号＋学校番号の契約が既にあれば、その契約の<strong>内容を行の値で上書き更新</strong>します。</p>
+          </div>
+          <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <p class="font-semibold text-emerald-800">一致する契約がない → 新規追加</p>
+            <p class="mt-1 text-xs leading-relaxed text-emerald-900/80">その講師×学校の契約が無ければ、<strong>新しい契約</strong>として追加します。</p>
+          </div>
+        </div>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ <strong>講師番号・学校番号はどちらも必須</strong>です。登録済みの講師・学校の番号を指定してください（見つからない・講師/学校でない番号はエラーになります）。<strong>担当業務①</strong>も必須です。</p>
+        <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-500">
+              <tr><th class="px-3 py-2 font-medium">列</th><th class="px-3 py-2 font-medium">役割</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">講師番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの講師の番号（講師Noまたは tutor_no）を指定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">学校番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの学校の番号を指定します。講師番号＋学校番号で契約を1件に特定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">担当業務①名／ID／個別契約ID</td><td class="px-3 py-2 text-slate-600">担当業務①は必須（名前・ID・個別契約IDのいずれかを入力）。②〜⑤・副業務①〜③は任意です。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">契約開始／契約終了</td><td class="px-3 py-2 text-slate-600">日付（YYYY-MM-DD）。「2026/4/1」のような「/」区切り・ゼロ詰めなしも取り込めます。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">月時間(分)／週コマ</td><td class="px-3 py-2 text-slate-600">数値で入力します（担当業務①の1ケース分）。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">採点を追加する(有/無) ほか採点列</td><td class="px-3 py-2 text-slate-600">「有」で採点項目を追加し、項目名・単位・委託業務ID・個別契約IDを設定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">講師氏名(参考)・学校名(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。照合・取り込みには使われません。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">安全のしくみ</h3>
+        <ul class="space-y-2">
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span><strong class="text-slate-900">1件でもエラーがあると、全件取り込みません。</strong>途中まで取り込まれる心配はありません。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>取り込めなかったときは、何行目がなぜダメだったかが一覧で表示されます。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>先頭が <code class="rounded bg-slate-100 px-1 font-mono">#</code> の行（＝講師番号が「#」で始まる行）は、メモ（コメント）として読み飛ばされます。</span></li>
+        </ul>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/contract-csv-help-error.png" alt="エラーのある行を示す「取り込みエラー」の表示例" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ エラーがあるときはこの画面で内容を確認できます（このとき取り込みは行われていません）。</figcaption>
+        </figure>
+      </section>
+
+      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。報告書の表示項目（表示／非表示）やリマインダーなど一部の設定はCSVでは変更できません（各契約の編集画面で設定します）。</p>
+    </div>
+    <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <button type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeCsvHelp()">OK</button>
     </div>
   </div>
 </div>
@@ -549,6 +636,27 @@ csvFileInput.addEventListener('change', async () => {
   csvFileInput.value = '';  // 同じファイルを連続選択しても change が発火するようにクリア
   if (file) await importCsv(file);
 });
+
+// === CSV一括取込のヘルプ（「?」アイコンで開く使い方ポップアップ） ===
+let csvHelpLastFocus = null;
+function openCsvHelp() {
+  csvHelpLastFocus = document.activeElement;
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.getElementById('csvHelpClose')?.focus();
+  document.addEventListener('keydown', csvHelpEscHandler);
+}
+function closeCsvHelp() {
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  document.removeEventListener('keydown', csvHelpEscHandler);
+  if (csvHelpLastFocus && typeof csvHelpLastFocus.focus === 'function') csvHelpLastFocus.focus();
+}
+function csvHelpEscHandler(event) {
+  if (event.key === 'Escape') closeCsvHelp();
+}
 
 window.authReady.then(user => {
   if (!user) return;
