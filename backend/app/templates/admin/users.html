@@ -90,9 +90,11 @@
     </div>
   </div>
   <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-    <p class="max-w-3xl text-xs leading-relaxed text-slate-500">
-      CSV一括取込：「CSVエクスポート」で現在の登録状態を書き出して（バックアップ）、編集後に「CSVインポート」で取り込みます。No一致の既存ユーザーはメール・氏名のみ更新、No空欄の行は新規作成（ロール必須・Noは自動採番・初期パスワードPassw0rd!で初回ログイン時に変更）。1件でもエラーがあれば全件取り込みません（先頭が#の行は対象外）。
-    </p>
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
+      <button id="csvHelpBtn" type="button" onclick="openCsvHelp()" aria-haspopup="dialog" aria-controls="csvHelpOverlay" aria-label="CSV一括取込の使い方を見る" title="使い方を見る"
+        class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30">?</button>
+    </div>
     <div class="flex shrink-0 items-center gap-2">
       <a href="/api/users/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
       <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
@@ -147,6 +149,87 @@
     <div id="importResultBody" class="overflow-y-auto px-5 py-4 text-sm text-slate-700"></div>
     <div class="flex justify-end border-t border-slate-200 px-5 py-3">
       <button class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeImportResult()">OK</button>
+    </div>
+  </div>
+</div>
+
+<div id="csvHelpOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="csvHelpTitle" onclick="closeCsvHelp()">
+  <div class="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+      <h2 id="csvHelpTitle" class="font-semibold text-slate-800">CSV一括取込の使い方</h2>
+      <button id="csvHelpClose" type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeCsvHelp()">閉じる</button>
+    </div>
+    <div class="space-y-6 overflow-y-auto px-5 py-5 text-sm text-slate-700">
+      <p class="leading-relaxed">登録済みのユーザーを <strong class="font-semibold text-slate-900">CSVファイル</strong> でまとめて編集・追加できる機能です。Excel などの表計算ソフトで開いて編集します。</p>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">操作は3ステップ</h3>
+        <ol class="space-y-3">
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">1</span>
+            <div><span class="font-medium text-slate-900">書き出す</span><span class="ml-1 rounded bg-slate-100 px-1.5 py-0.5 text-xs">CSVエクスポート</span><p class="mt-0.5 text-slate-600">いまの登録内容がCSVで保存されます。編集前のバックアップにもなります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">2</span>
+            <div><span class="font-medium text-slate-900">編集する</span><p class="mt-0.5 text-slate-600">Excel などで開き、メール・氏名を直したり、行を追加して新しいユーザーを作ります。</p></div>
+          </li>
+          <li class="flex gap-3">
+            <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">3</span>
+            <div><span class="font-medium text-slate-900">取り込む</span><span class="ml-1 rounded bg-emerald-100 px-1.5 py-0.5 text-xs text-emerald-700">CSVインポート</span><p class="mt-0.5 text-slate-600">編集したCSVファイルを選ぶと取り込みます。</p></div>
+          </li>
+        </ol>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/csv-help-buttons.png" alt="「登録済みユーザー」の操作バーにある「CSVエクスポート」「CSVインポート」ボタン" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲「登録済みユーザー」の操作バーにある2つのボタンを使います。</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">いちばん大事なのは「No」列</h3>
+        <div class="grid gap-3 sm:grid-cols-2">
+          <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+            <p class="font-semibold text-blue-800">Noが入っている行 → 更新</p>
+            <p class="mt-1 text-xs leading-relaxed text-blue-900/80">その番号の既存ユーザーの<strong>メール・氏名だけ</strong>を書き換えます。ロールや状態は変わりません。</p>
+          </div>
+          <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-3">
+            <p class="font-semibold text-emerald-800">Noが空欄の行 → 新規登録</p>
+            <p class="mt-1 text-xs leading-relaxed text-emerald-900/80"><strong>ロール必須</strong>／Noは自動で採番／初期パスワードは <code class="rounded bg-white px-1 font-mono">Passw0rd!</code>（初回ログイン時に変更）。</p>
+          </div>
+        </div>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 過去に削除したユーザーと同じメールアドレスをNo空欄で登録すると、新しく作るのではなく、その削除済みアカウントが履歴を引き継いで復活します（取り込み結果の「復活」件数で分かります）。</p>
+        <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 text-slate-500">
+              <tr><th class="px-3 py-2 font-medium">列</th><th class="px-3 py-2 font-medium">役割</th></tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100">
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">No</td><td class="px-3 py-2 text-slate-600">照合のカギ。入っていれば更新、空欄なら新規になります。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">メールアドレス</td><td class="px-3 py-2 text-slate-600">更新・新規ともに反映されます（必須）。1人につき1つで、他の人や同じCSV内と重複しているとエラーになります。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">氏名</td><td class="px-3 py-2 text-slate-600">更新・新規ともに反映されます（必須）。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">ロール</td><td class="px-3 py-2 text-slate-600">新規のときのみ必須。1行に1つだけ指定します。<br><span class="text-slate-500">指定できる値：tutor／parent／admin_receiver／admin_reviewer／admin_master／admin_chief</span><br><span class="text-slate-400">※ admin_chief（管理責任者）は管理責任者だけが作成できます。</span></td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">状態(参考)・登録日(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。取り込み時には使われません。</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">安全のしくみ</h3>
+        <ul class="space-y-2">
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span><strong class="text-slate-900">1件でもエラーがあると、全件取り込みません。</strong>途中まで登録される心配はありません。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>取り込めなかったときは、何行目がなぜダメだったかが一覧で表示されます。</span></li>
+          <li class="flex gap-2"><span class="font-bold text-emerald-600">✓</span><span>先頭が <code class="rounded bg-slate-100 px-1 font-mono">#</code> の行は、メモ（コメント）として読み飛ばされます。</span></li>
+        </ul>
+        <figure class="mt-3 overflow-hidden rounded-lg border border-slate-200">
+          <img src="/static/img/csv-help-error.png" alt="エラーのある行を示す「取り込みエラー」の表示例" class="block w-full" loading="lazy">
+          <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ エラーがあるときはこの画面で内容を確認できます（このとき登録は行われていません）。</figcaption>
+        </figure>
+      </section>
+
+      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。保護者もアカウントだけ作成できます（生徒との紐づけは「担当管理」で行います）。</p>
+    </div>
+    <div class="flex justify-end border-t border-slate-200 px-5 py-3">
+      <button type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeCsvHelp()">OK</button>
     </div>
   </div>
 </div>
@@ -739,6 +822,27 @@ csvFileInput.addEventListener('change', async () => {
   csvFileInput.value = '';  // 同じファイルを連続選択しても change が発火するように
   if (file) await importCsv(file);
 });
+
+// === CSV一括取込のヘルプ（「?」アイコンで開く使い方ポップアップ） ===
+let csvHelpLastFocus = null;
+function openCsvHelp() {
+  csvHelpLastFocus = document.activeElement;
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.getElementById('csvHelpClose')?.focus();
+  document.addEventListener('keydown', csvHelpEscHandler);
+}
+function closeCsvHelp() {
+  const overlay = document.getElementById('csvHelpOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  document.removeEventListener('keydown', csvHelpEscHandler);
+  if (csvHelpLastFocus && typeof csvHelpLastFocus.focus === 'function') csvHelpLastFocus.focus();
+}
+function csvHelpEscHandler(event) {
+  if (event.key === 'Escape') closeCsvHelp();
+}
 
 window.authReady.then(user => {
   if (!user) return;
