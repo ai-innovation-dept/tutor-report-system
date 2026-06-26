@@ -27,7 +27,7 @@
     <div id="totalTeachingTime" class="border-t border-slate-200 bg-slate-50 p-4 text-sm font-semibold text-slate-700"></div>
   </section>
   <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" id="formPanel">
-    <h2 class="mb-4 font-semibold text-slate-800" id="formTitle">簡易作成</h2>
+    <h2 class="mb-4 font-semibold text-slate-800" id="formTitle">指導報告作成</h2>
     <!-- 生徒・表示月は見出しの下に、同じ高さ・同じ幅（各50%）の2プルダウンとして左右整列する。
          生徒(assignment)はフォーム外に出すため、保存時は formPayload() で assignment_id を明示付与する。 -->
     <div class="mb-4 grid grid-cols-2 gap-3">
@@ -495,7 +495,7 @@ function resetReportForm(keepAssignment = false) {
   }
   selectedAssignmentId = assignment.value || selectedAssignmentId;
   updateStudentBadge();
-  formTitle.textContent = '簡易作成';
+  formTitle.textContent = '指導報告作成';
   saveButton.textContent = '保存';
   setEndTimeDisabled(true);
   updateComputedFields();

@@ -30,7 +30,7 @@ ROLE_LABELS = {
 }
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-PASSWORD_RESET_SUBJECT = "【指導実績報告システム】パスワードリセットのご案内"
+PASSWORD_RESET_SUBJECT = "【指導報告・指導時間確認票】パスワードリセットのご案内"
 
 
 class RoleSelectIn(BaseModel):

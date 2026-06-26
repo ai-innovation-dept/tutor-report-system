@@ -82,7 +82,7 @@ def test_page_route_uses_login_cookie_after_reload(client):
     client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "Passw0rd!"})
     res = client.get("/tutor/reports")
     assert res.status_code == 200
-    assert "Tutor Reports" in res.text
+    assert "指導報告・指導時間確認票" in res.text
 
 
 def test_parent_reports_page_includes_all_child_assignments(client, db):

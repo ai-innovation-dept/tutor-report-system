@@ -18,9 +18,9 @@ from app.services.user_no_service import generate_user_no
 
 router = APIRouter(prefix="/api/invitations", tags=["invitations"])
 
-INVITATION_SUBJECT = "【指導実績報告システム】保護者アカウントのご案内"
-TUTOR_INVITATION_SUBJECT = "【指導実績報告システム】講師アカウントのご案内"
-STAFF_INVITATION_SUBJECT = "【指導実績報告システム】スタッフアカウントのご案内"
+INVITATION_SUBJECT = "【指導報告・指導時間確認票】保護者アカウントのご案内"
+TUTOR_INVITATION_SUBJECT = "【指導報告・指導時間確認票】講師アカウントのご案内"
+STAFF_INVITATION_SUBJECT = "【指導報告・指導時間確認票】スタッフアカウントのご案内"
 ALLOWED_INVITATION_ROLES = {"parent", "tutor", "admin_receiver", "admin_reviewer", "admin_master", "admin_chief"}
 ROLE_LABELS = {
     "parent": "保護者",
