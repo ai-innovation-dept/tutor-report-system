@@ -3,7 +3,9 @@
 //  (1) 上部にも横スクロールバーがあり、下部の表とスクロール位置が双方向同期する。
 //  (2) 縦スクロールで見出し行(thead)が固定される。
 //  (3) 横スクロールで先頭=日付列が固定される。
-// office/queue.html と sales/queue.html は同一実装のため、両ロールで同じ検証を行う。
+// 編集モーダル(office-edit)を持つのは事務(office)のみ。営業(sales)は最終承認（承認/差戻し）専用で
+// 編集モーダルを持たない（sales/queue.html に #officeEditHead は無い＝office-edit は撤回済み）。
+// そのため本「編集モーダルの表スクロール」検証は office のみを対象とする。
 // シードに依存しないよう、列も行も多い合成レポートを allReports へ注入して編集モーダルを開く。
 const { test } = require('@playwright/test');
 const { login, NEW, expect } = require('./helpers');
@@ -53,7 +55,6 @@ async function openWideEditModal(page) {
 test.describe('新システム 事務/営業 進捗パイプライン編集 表スクロール', () => {
   for (const role of [
     { name: '事務(office)', email: 'office1@example.com', path: '/office/queue' },
-    { name: '営業(sales)', email: 'sales1@example.com', path: '/sales/queue' },
   ]) {
     test(`${role.name}：上部スクロールバーが本体と双方向同期`, async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
