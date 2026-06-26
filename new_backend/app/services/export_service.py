@@ -191,7 +191,9 @@ def _col_widths(display_cols: list[dict], mm, avail_width):
         elif ctype == "count_minutes":
             widths.append(28 * mm)
         elif key == "date":
-            widths.append(22 * mm)
+            # 「yyyy-mm-dd（W）」例:2026-06-16（火）=約64pt+左右余白12pt=76pt。22mm(62.4pt)では
+            # 曜日「（火）」が枠線に重なるため、収まる幅(28mm=79.4pt)にする。
+            widths.append(28 * mm)
         elif key == "subject_period":
             widths.append(16 * mm)
         elif ctype == "number":

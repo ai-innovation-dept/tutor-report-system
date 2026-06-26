@@ -126,6 +126,7 @@ class TestUserManagementEndpoints:
     def test_disable_and_enable(self, client, db):
         _add_user(db, "master@x.example.com", "admin_master")
         target = _add_user(db, "t1@x.example.com", "tutor")
+        _add_user(db, "t2@x.example.com", "tutor")  # 「最後の講師」ガードに掛からないよう同ロールを2名に
         headers = _auth(client, "master@x.example.com")
 
         res = client.patch(f"/api/w/users/{target.id}/disable", headers=headers)
@@ -143,6 +144,7 @@ class TestUserManagementEndpoints:
     def test_delete_is_soft_delete(self, client, db):
         _add_user(db, "master@x.example.com", "admin_master")
         target = _add_user(db, "t1@x.example.com", "tutor")
+        _add_user(db, "t2@x.example.com", "tutor")  # 「最後の講師」ガードに掛からないよう同ロールを2名に
         headers = _auth(client, "master@x.example.com")
 
         res = client.delete(f"/api/w/users/{target.id}", headers=headers)
@@ -153,6 +155,31 @@ class TestUserManagementEndpoints:
 
         res = client.get("/api/w/users", headers=headers)
         assert "t1@x.example.com" not in {u["email"] for u in res.json()["items"]}
+
+    def test_cannot_disable_or_delete_self(self, client, db):
+        # 自分自身は無効化・削除できない（最後の経理ガードと切り分けるため経理は2名にする）
+        master = _add_user(db, "master@x.example.com", "admin_master")
+        _add_user(db, "master2@x.example.com", "admin_master")
+        headers = _auth(client, "master@x.example.com")
+        assert client.patch(f"/api/w/users/{master.id}/disable", headers=headers).status_code == 409
+        assert client.delete(f"/api/w/users/{master.id}", headers=headers).status_code == 409
+
+    def test_cannot_disable_or_delete_last_of_role(self, client, db):
+        # そのロール（講師）が1人だけなら無効化・削除できない
+        _add_user(db, "master@x.example.com", "admin_master")
+        sole_tutor = _add_user(db, "only_tutor@x.example.com", "tutor")
+        headers = _auth(client, "master@x.example.com")
+        assert client.patch(f"/api/w/users/{sole_tutor.id}/disable", headers=headers).status_code == 409
+        assert client.delete(f"/api/w/users/{sole_tutor.id}", headers=headers).status_code == 409
+
+    def test_can_disable_when_role_has_others(self, client, db):
+        # 同じロールが2名以上いれば（最後の1人でないため）無効化できる
+        _add_user(db, "master@x.example.com", "admin_master")
+        t1 = _add_user(db, "tu1@x.example.com", "tutor")
+        _add_user(db, "tu2@x.example.com", "tutor")
+        headers = _auth(client, "master@x.example.com")
+        res = client.patch(f"/api/w/users/{t1.id}/disable", headers=headers)
+        assert res.status_code == 200 and res.json()["is_active"] is False
 
 
 # ---------------------------------------------------------------------------

@@ -224,6 +224,7 @@
 {% block scripts %}
 <script>
 const CURRENT_USER_ROLE = "{{ current_user.role }}";
+const CURRENT_USER_ID = "{{ current_user.id }}";
 setBreadcrumb('管理ポータル', 'ユーザー管理');
 let invitations = [];
 let users = [];
@@ -276,12 +277,17 @@ function canEditAdminRoles(user) { return userRoles(user).every(role => ['sales'
 function rolesKey(roles) { return [...roles].sort().join('|'); }
 function currentEditedRoles(user) { return changedRoles[user.id] || userRoles(user); }
 function userHasRoleChanges(user) { return rolesKey(currentEditedRoles(user)) !== rolesKey(userRoles(user)); }
-function isLastActiveAdmin(user) {
-  return user.is_active && userRoles(user).includes('admin_master') && paginationState.active_admin_master_count <= 1;
-}
 function isAdminChief(user) { return userRoles(user).includes('admin_chief'); }
-function isLastActiveChief(user) {
-  return user.is_active && isAdminChief(user) && paginationState.active_admin_chief_count <= 1;
+function isSelf(user) { return String(user.id) === String(CURRENT_USER_ID); }
+// 対象が「最後の1人」になる有効ロールがあればその表示名を返す（なければ null）。
+// サーバ側ガード（_ensure_not_last_of_role）と同一基準で、削除・無効ボタンの活殺に使う。
+function lastActiveRoleLabel(user) {
+  if (!user.is_active) return null;
+  const counts = paginationState.active_role_counts || {};
+  for (const role of userRoles(user)) {
+    if ((counts[role] || 0) <= 1) return ROLE_LABELS[role] || role;
+  }
+  return null;
 }
 function formatDate(value) {
   if (!value) return '-';
@@ -442,7 +448,8 @@ async function loadUsersPage(page = paginationState.page) {
     total_pages: userRowsData.total_pages || 1,
     role_counts: userRowsData.role_counts || {},
     active_admin_master_count: userRowsData.active_admin_master_count || 0,
-    active_admin_chief_count: userRowsData.active_admin_chief_count || 0
+    active_admin_chief_count: userRowsData.active_admin_chief_count || 0,
+    active_role_counts: userRowsData.active_role_counts || {}
   };
   changedRoles = {};
   renderUsers();
@@ -507,16 +514,17 @@ function closeDetailDrawer() {
 async function renderDetailDrawer(id) {
   const user = selectedUser && selectedUser.id === id ? selectedUser : users.find(item => item.id === id);
   if (!user) return;
-  const lastAdmin = isLastActiveAdmin(user);
-  const lastChief = isLastActiveChief(user);
+  const self = isSelf(user);
+  const lastRoleLabel = lastActiveRoleLabel(user);
   const isChief = isAdminChief(user);
   const canModifyChief = CURRENT_USER_ROLE === 'admin_chief';
-  const disableBlocked = (isChief && !canModifyChief) || lastAdmin || lastChief;
-  const deleteBlocked = (isChief && !canModifyChief) || lastAdmin || lastChief;
+  const chiefBlocked = isChief && !canModifyChief;
+  const disableBlocked = self || chiefBlocked || !!lastRoleLabel;
+  const deleteBlocked = self || chiefBlocked || !!lastRoleLabel;
   let disableTitle = '';
-  if (isChief && !canModifyChief) disableTitle = '管理責任者の操作は管理責任者のみ可能です';
-  else if (lastChief) disableTitle = '最後の管理責任者のため操作できません';
-  else if (lastAdmin) disableTitle = '最後の経理のため無効化できません';
+  if (self) disableTitle = '自分自身は削除・無効化できません';
+  else if (chiefBlocked) disableTitle = '管理責任者の操作は管理責任者のみ可能です';
+  else if (lastRoleLabel) disableTitle = `最後の${lastRoleLabel}ユーザーのため操作できません`;
   const statusButton = user.is_active
     ? `<button class="rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="disableUser('${user.id}')" ${disableBlocked ? `disabled title="${disableTitle}"` : ''}>無効化する</button>`
     : `<button class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white" onclick="enableUser('${user.id}')">有効化する</button>`;

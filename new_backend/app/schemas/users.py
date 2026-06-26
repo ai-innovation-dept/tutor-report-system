@@ -40,3 +40,5 @@ class UserListOut(BaseModel):
     role_counts: dict[str, int] = {}
     active_admin_master_count: int = 0
     active_admin_chief_count: int = 0
+    # ロール別の有効ユーザー数（最後の1人なら削除・無効化を不可にするUI判定に使用）
+    active_role_counts: dict[str, int] = {}

@@ -390,6 +390,7 @@ class TestUserManagement:
 
     def test_admin_can_disable_user(self, client, master_user):
         uid = self._add_user("dis@x.example.com", "tutor")
+        self._add_user("dis2@x.example.com", "tutor")  # 「最後の講師」ガード回避のため同ロールを2名に
         res = client.patch(f"/api/w/users/{uid}", json={"is_active": False}, headers=_auth(client))
         assert res.status_code == 200
         assert res.json()["is_active"] is False

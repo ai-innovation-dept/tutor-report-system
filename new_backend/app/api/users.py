@@ -28,18 +28,31 @@ def _user_roles(user: User) -> list[str]:
     return list(user.roles or []) or ([user.role] if user.role else [])
 
 
-def _active_admin_master_count(db: Session) -> int:
+ROLE_LABELS_JA = {
+    "tutor": "講師",
+    "school": "学校",
+    "sales": "営業",
+    "office": "事務",
+    "admin_master": "経理",
+    "admin_chief": "管理責任者",
+}
+
+
+def _active_role_counts(db: Session) -> dict[str, int]:
+    """新システム所属の有効（未削除・is_active）ユーザーをロール別に数える。
+
+    「最後の1人」のロール保護ガードと、一覧画面のUI判定で共通に使う唯一の集計。
+    """
     users = db.scalars(
         select(User).where(User.deleted_at.is_(None), User.is_active.is_(True))
     ).all()
-    return sum(1 for u in users if "admin_master" in _user_roles(u))
-
-
-def _active_admin_chief_count(db: Session) -> int:
-    users = db.scalars(
-        select(User).where(User.deleted_at.is_(None), User.is_active.is_(True))
-    ).all()
-    return sum(1 for u in users if "admin_chief" in _user_roles(u))
+    counts: dict[str, int] = {}
+    for u in users:
+        if "new" not in (u.allowed_systems or []):
+            continue
+        for role in _user_roles(u):
+            counts[role] = counts.get(role, 0) + 1
+    return counts
 
 
 def _get_user_or_404(db: Session, user_id: UUID) -> User:
@@ -49,19 +62,25 @@ def _get_user_or_404(db: Session, user_id: UUID) -> User:
     return user
 
 
-def _ensure_not_last_admin(db: Session, user: User) -> None:
-    if (
-        user.is_active
-        and "admin_master" in _user_roles(user)
-        and _active_admin_master_count(db) <= 1
-    ):
-        raise HTTPException(status_code=409, detail="最後の経理ユーザーのため操作できません")
-    if (
-        user.is_active
-        and "admin_chief" in _user_roles(user)
-        and _active_admin_chief_count(db) <= 1
-    ):
-        raise HTTPException(status_code=409, detail="最後の管理責任者のため操作できません")
+def _ensure_not_self(current_user: User, user: User) -> None:
+    """自分自身の削除・無効化を禁止する（操作者が自分のアカウントを使用不能にするのを防ぐ）。"""
+    if current_user.id == user.id:
+        raise HTTPException(status_code=409, detail="自分自身は削除・無効化できません")
+
+
+def _ensure_not_last_of_role(db: Session, user: User) -> None:
+    """対象がそのロールの最後の有効ユーザーなら操作を止める（ロールを空にしない）。
+
+    対象が持つロールごとに有効ユーザー数を数え、1人（＝本人のみ）なら 409。
+    既に無効化済みの対象は有効数に影響しないため対象外（無効ユーザーの削除は許可）。
+    """
+    if not user.is_active:
+        return
+    counts = _active_role_counts(db)
+    for role in _user_roles(user):
+        if counts.get(role, 0) <= 1:
+            label = ROLE_LABELS_JA.get(role, role)
+            raise HTTPException(status_code=409, detail=f"最後の{label}ユーザーのため操作できません")
 
 
 @router.get("/me", response_model=UserOut)
@@ -107,6 +126,9 @@ def list_users(
     active_admin_chief_count = sum(
         1 for u in users if u.is_active and "admin_chief" in _user_roles(u)
     )
+    # ロール保護（最後の1人は削除・無効化不可）のUI判定用に、全ロールの有効ユーザー数を返す。
+    # 検索・ロール絞り込みに依存しない全体集計（サーバ側ガード _ensure_not_last_of_role と同一基準）。
+    active_role_counts = _active_role_counts(db)
 
     if role_filter:
         wanted = {r.strip() for r in role_filter.split(",") if r.strip()}
@@ -123,6 +145,7 @@ def list_users(
         role_counts=role_counts,
         active_admin_master_count=active_admin_master_count,
         active_admin_chief_count=active_admin_chief_count,
+        active_role_counts=active_role_counts,
     )
 
 
@@ -267,7 +290,8 @@ def patch_user(
     if "skip_parent_approval" in data and not has_role(current_user, "admin_chief"):
         raise HTTPException(status_code=403, detail="学校承認スキップの設定は管理責任者のみ可能です")
     if data.get("is_active") is False:
-        _ensure_not_last_admin(db, user)
+        _ensure_not_self(current_user, user)
+        _ensure_not_last_of_role(db, user)
     for key, value in data.items():
         setattr(user, key, value)
     db.commit()
@@ -305,9 +329,10 @@ def disable_user(
     current_user: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     user = _get_user_or_404(db, user_id)
+    _ensure_not_self(current_user, user)
     if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
         raise HTTPException(status_code=403, detail="管理責任者の無効化は管理責任者のみ可能です")
-    _ensure_not_last_admin(db, user)
+    _ensure_not_last_of_role(db, user)
     user.is_active = False
     db.commit()
     db.refresh(user)
@@ -334,9 +359,10 @@ def delete_user(
     current_user: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
     user = _get_user_or_404(db, user_id)
+    _ensure_not_self(current_user, user)
     if has_role(user, "admin_chief") and not has_role(current_user, "admin_chief"):
         raise HTTPException(status_code=403, detail="管理責任者の削除は管理責任者のみ可能です")
-    _ensure_not_last_admin(db, user)
+    _ensure_not_last_of_role(db, user)
     # 共有テーブルのため物理削除はせずソフトデリートする
     user.is_active = False
     user.deleted_at = datetime.now(timezone.utc)
