@@ -67,7 +67,9 @@
       return Number.isFinite(n) ? n : 0;
     }
     function hasData(line) {
-      return Object.values(line || {}).some(v => String(v ?? '').trim() !== '');
+      // 空欄・数値0のみの行は「何も記載がない行（NULL行）」として除外する（旧データは未入力セルが0で保存されるため）。
+      // PDF/CSVの _has_data と同条件。空行は値が0/空のため、除外しても合計は変わらない。
+      return Object.values(line || {}).some(v => { const s = String(v ?? '').trim(); return s !== '' && s !== '0'; });
     }
     function noteDigest(value) {
       const text = String(value || '').replace(/\s+/g, ' ').trim();

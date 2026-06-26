@@ -70,8 +70,16 @@ def _int(value) -> int:
 
 
 def _has_data(line: dict) -> bool:
-    """記入のある行か（参照ビューの hasData と同条件。種別のみの行も対象に含む）。"""
-    return isinstance(line, dict) and any(str(value).strip() for value in line.values())
+    """記入のある行か（参照ビュー report_view の hasData と同条件）。
+
+    「何も記載がない行（NULL行）」を除外する。旧データは未入力セルが数値0で保存されている
+    ため、空文字だけでなく "0" も未記入とみなす。日付・種別(有給/欠勤)・時刻・内容・正の数値の
+    いずれかがあれば記入行として残す（有給/欠勤の行も保持）。空行は値が0/空のため、除外しても
+    合計（指導分・休憩・交通費）は変わらない。
+    """
+    if not isinstance(line, dict):
+        return False
+    return any(str(value).strip() not in ("", "0") for value in line.values())
 
 
 def _snapshot_columns(report: WorkReport) -> list[dict]:
@@ -473,10 +481,8 @@ def build_reports_csv(reports: list[WorkReport], target_month: str) -> bytes:
             _csv_value(report.target_month),
         ]
         for line in (report.form_data or {}).get("lines") or []:
-            if not isinstance(line, dict):
-                continue
-            if not any(str(value).strip() for value in line.values()):
-                continue  # 未記入行は出力しない
+            if not _has_data(line):
+                continue  # 未記入行（空欄・0のみ＝NULL行）は出力しない
             row = list(base)
             row += [
                 _csv_value(line.get("date")),
