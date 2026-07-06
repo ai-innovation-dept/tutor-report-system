@@ -288,19 +288,58 @@ def _report_table_story(report: WorkReport, font_name: str, styles, cell_style, 
     return [table, Spacer(1, 2 * mm), Paragraph(summary, styles["Normal"])]
 
 
-def _meta_line(report: WorkReport) -> str:
-    """参照ビュー上部の補足情報（弊社担当・事業所の所在地・従事業務内容）を1行にまとめる。"""
+def _report_header_values(
+    report: WorkReport,
+    school_name: str,
+    tutor_name: str,
+) -> tuple[str, list[tuple[str, str]]]:
+    """参照画面と同じタイトル・基本情報をPDFヘッダー用に返す。"""
+    year, month_str = report.target_month.split("-")
     meta = (report.form_data or {}).get("meta") or {}
-    parts = []
-    for label, key in (
-        ("弊社担当", "our_staff"),
-        ("事業所の所在地", "dispatch_place_address"),
-        ("従事業務内容", "work_content"),
-    ):
-        value = meta.get(key)
-        if value not in (None, ""):
-            parts.append(f"{label}：{value}")
-    return "　".join(parts)
+
+    school_no = report.school_no
+    tutor_no = report.tutor_no
+    school_label = f"{school_name}（{school_no}）" if school_no else school_name
+    tutor_label = f"{tutor_name}（{tutor_no}）" if tutor_no else tutor_name
+
+    return (
+        f"{year}年{int(month_str)}月分 業務連絡表",
+        [
+            ("学校名", school_label or "-"),
+            ("講師名", tutor_label or "-"),
+            ("弊社担当", str(meta.get("our_staff") or "-")),
+            ("事業所の所在地", str(meta.get("dispatch_place_address") or "-")),
+            ("従事業務内容", str(meta.get("work_content") or "-")),
+        ],
+    )
+
+
+def _report_header_story(report: WorkReport, school_name: str, tutor_name: str, font_name: str, styles) -> list:
+    """参照画面と同じ情報構成のPDFヘッダーを生成する。"""
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    title, fields = _report_header_values(report, school_name, tutor_name)
+    rows = [
+        [Paragraph(escape(label), styles["HeaderLabel"]), Paragraph(escape(value).replace("\n", "<br/>"), styles["HeaderValue"])]
+        for label, value in fields
+    ]
+    table = Table(rows, colWidths=[34 * mm, 235 * mm], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f5f9")),
+        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#e2e8f0")),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return [Paragraph(escape(title), styles["Title"]), Spacer(1, 3 * mm), table, Spacer(1, 5 * mm)]
 
 
 def _make_styles(font_name: str):
@@ -310,40 +349,32 @@ def _make_styles(font_name: str):
     for style in styles.byName.values():
         style.fontName = font_name
     styles["Title"].fontSize = 14
+    styles["Title"].leading = 18
     styles["Normal"].fontSize = 9
     cell_style = ParagraphStyle("cell", fontName=font_name, fontSize=8, leading=10)
     header_style = ParagraphStyle("cellhdr", fontName=font_name, fontSize=7, leading=8)
+    styles.add(ParagraphStyle("HeaderLabel", fontName=font_name, fontSize=8, leading=11, textColor="#475569"))
+    styles.add(ParagraphStyle("HeaderValue", fontName=font_name, fontSize=9, leading=12, textColor="#1e293b"))
     return styles, cell_style, header_style
 
 
-def build_report_pdf(report: WorkReport, student_name: str, tutor_name: str) -> bytes:
+def build_report_pdf(report: WorkReport, school_name: str, tutor_name: str) -> bytes:
     """1報告書分のPDFバイト列を生成して返す。"""
     font_name = _register_font()
-
-    year, month_str = report.target_month.split("-")
-    month_label = f"{year}年{int(month_str):02d}月"
 
     try:
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import mm
-        from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import SimpleDocTemplate
     except ModuleNotFoundError as exc:
         raise RuntimeError("reportlab is not installed") from exc
 
     styles, cell_style, header_style = _make_styles(font_name)
-    meta_line = _meta_line(report)
-
     # 動的列（担当業務・副業務・採点）で横に広くなるため横向きで出力する。
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=landscape(A4), rightMargin=12 * mm, leftMargin=12 * mm,
                             topMargin=16 * mm, bottomMargin=16 * mm, title="指導実績")
-    story = [
-        Paragraph(f"指導実績　{student_name}　{tutor_name}　{month_label}", styles["Title"]),
-        Spacer(1, 4 * mm),
-    ]
-    if meta_line:
-        story.append(Paragraph(meta_line, styles["Normal"]))
-        story.append(Spacer(1, 3 * mm))
+    story = _report_header_story(report, school_name, tutor_name, font_name, styles)
     story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
     doc.build(story)
     return buf.getvalue()
@@ -353,13 +384,10 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
     """複数報告書分を1つのPDFにまとめて返す。"""
     font_name = _register_font()
 
-    year, month_str = target_month.split("-")
-    month_label = f"{year}年{int(month_str):02d}月"
-
     try:
         from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.units import mm
-        from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate, Spacer
+        from reportlab.platypus import PageBreak, SimpleDocTemplate
     except ModuleNotFoundError as exc:
         raise RuntimeError("reportlab is not installed") from exc
 
@@ -378,17 +406,10 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
     )
     story = []
 
-    for index, (report, student_name, tutor_name) in enumerate(reports):
+    for index, (report, school_name, tutor_name) in enumerate(reports):
         if index:
             story.append(PageBreak())
-        meta_line = _meta_line(report)
-        story.extend([
-            Paragraph(f"指導実績　{student_name}　{tutor_name}　{month_label}", styles["Title"]),
-            Spacer(1, 4 * mm),
-        ])
-        if meta_line:
-            story.append(Paragraph(meta_line, styles["Normal"]))
-            story.append(Spacer(1, 3 * mm))
+        story.extend(_report_header_story(report, school_name, tutor_name, font_name, styles))
         story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
 
     doc.build(story)

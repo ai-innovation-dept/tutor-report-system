@@ -149,6 +149,29 @@ def test_build_report_pdf_dynamic_columns_smoke():
     assert len(pdf) > 1000
 
 
+def test_pdf_header_matches_report_view():
+    """PDFヘッダーは参照画面と同じ対象月・学校/講師番号・契約情報を持つ。"""
+    from app.models.shared import Assignment, User
+    from app.services.export_service import _report_header_values
+
+    report = _dynamic_report()
+    school = User(display_name="渋谷高校", user_no="40001")
+    tutor = User(display_name="山田太郎", user_no="10002", tutor_no="10002")
+    report.assignment = Assignment(student_name="旧表示名", parent=school)
+    report.tutor = tutor
+
+    title, fields = _report_header_values(report, "渋谷高校", "山田太郎")
+
+    assert title == "2026年6月分 業務連絡表"
+    assert fields == [
+        ("学校名", "渋谷高校（40001）"),
+        ("講師名", "山田太郎（10002）"),
+        ("弊社担当", "山田"),
+        ("事業所の所在地", "渋谷区1-1"),
+        ("従事業務内容", "数学指導"),
+    ]
+
+
 def test_build_reports_csv_positional_wide():
     """全講師分CSV（横持ち・位置固定）: 列固定・業務名はセル値・有給日も1行・未記入行は除外。"""
     from app.models.shared import User
