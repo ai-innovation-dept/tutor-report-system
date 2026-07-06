@@ -314,32 +314,53 @@ def _report_header_values(
     )
 
 
+def _header_grid_rows(fields: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
+    """基本情報を参照画面(report_view)の grid-cols-2 と同じ並びに整形する。
+
+    左→右の順で1行2項目: [学校名|講師名] [弊社担当|事業所の所在地] [従事業務内容]。
+    """
+    return [fields[i:i + 2] for i in range(0, len(fields), 2)]
+
+
 def _report_header_story(report: WorkReport, school_name: str, tutor_name: str, font_name: str, styles) -> list:
-    """参照画面と同じ情報構成のPDFヘッダーを生成する。"""
+    """参照画面(report_view)のヘッダーと同じレイアウトのPDFヘッダーを生成する。
+
+    タイトル（例: 2026年6月分 業務連絡表。画面の「（参照）」表記は付けない）の下に、
+    基本情報5項目を画面と同じ2列グリッド（罫線・背景なし、ラベル灰色・値濃色）で配置する。
+    """
     from xml.sax.saxutils import escape
 
-    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
     from reportlab.lib.units import mm
     from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
     title, fields = _report_header_values(report, school_name, tutor_name)
-    rows = [
-        [Paragraph(escape(label), styles["HeaderLabel"]), Paragraph(escape(value).replace("\n", "<br/>"), styles["HeaderValue"])]
-        for label, value in fields
-    ]
-    table = Table(rows, colWidths=[34 * mm, 235 * mm], hAlign="LEFT")
+
+    def para(text: str, style):
+        return Paragraph(escape(text).replace("\n", "<br/>"), style)
+
+    rows = []
+    for pair in _header_grid_rows(fields):
+        cells = []
+        for label, value in pair:
+            cells += [para(label, styles["HeaderLabel"]), para(value, styles["HeaderValue"])]
+        cells += [""] * (4 - len(cells))  # 奇数個の最終行は画面同様に左列のみ
+        rows.append(cells)
+
+    avail_width = landscape(A4)[0] - 24 * mm
+    label_w = 26 * mm
+    value_w = avail_width / 2 - label_w
+    table = Table(rows, colWidths=[label_w, value_w, label_w, value_w], hAlign="LEFT")
     table.setStyle(TableStyle([
         ("FONTNAME", (0, 0), (-1, -1), font_name),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f5f9")),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.35, colors.HexColor("#e2e8f0")),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 7),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (1, 0), (1, -1), 17),  # 左右グリッド列の間隔（画面の gap-x-6 相当）
+        ("TOPPADDING", (0, 0), (-1, -1), 1.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 1.5),
     ]))
-    return [Paragraph(escape(title), styles["Title"]), Spacer(1, 3 * mm), table, Spacer(1, 5 * mm)]
+    return [Paragraph(escape(title), styles["HeaderTitle"]), Spacer(1, 3 * mm), table, Spacer(1, 5 * mm)]
 
 
 def _make_styles(font_name: str):
@@ -348,12 +369,12 @@ def _make_styles(font_name: str):
     styles = getSampleStyleSheet()
     for style in styles.byName.values():
         style.fontName = font_name
-    styles["Title"].fontSize = 14
-    styles["Title"].leading = 18
     styles["Normal"].fontSize = 9
     cell_style = ParagraphStyle("cell", fontName=font_name, fontSize=8, leading=10)
     header_style = ParagraphStyle("cellhdr", fontName=font_name, fontSize=7, leading=8)
-    styles.add(ParagraphStyle("HeaderLabel", fontName=font_name, fontSize=8, leading=11, textColor="#475569"))
+    # ヘッダーは参照画面(report_view)と同じ見た目: タイトル左寄せ・濃色、ラベルはslate-500、値はslate-800。
+    styles.add(ParagraphStyle("HeaderTitle", fontName=font_name, fontSize=14, leading=18, textColor="#1e293b"))
+    styles.add(ParagraphStyle("HeaderLabel", fontName=font_name, fontSize=9, leading=12, textColor="#64748b"))
     styles.add(ParagraphStyle("HeaderValue", fontName=font_name, fontSize=9, leading=12, textColor="#1e293b"))
     return styles, cell_style, header_style
 

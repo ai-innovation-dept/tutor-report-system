@@ -172,6 +172,24 @@ def test_pdf_header_matches_report_view():
     ]
 
 
+def test_pdf_header_grid_matches_report_view_layout():
+    """PDFヘッダーの2列グリッドは参照画面と同じ並び（学校名|講師名 / 弊社担当|所在地 / 従事業務内容）。"""
+    from app.services.export_service import _header_grid_rows
+
+    fields = [
+        ("学校名", "渋谷高校（40001）"),
+        ("講師名", "山田太郎（10002）"),
+        ("弊社担当", "山田"),
+        ("事業所の所在地", "渋谷区1-1"),
+        ("従事業務内容", "数学指導"),
+    ]
+    assert _header_grid_rows(fields) == [
+        [("学校名", "渋谷高校（40001）"), ("講師名", "山田太郎（10002）")],
+        [("弊社担当", "山田"), ("事業所の所在地", "渋谷区1-1")],
+        [("従事業務内容", "数学指導")],
+    ]
+
+
 def test_build_reports_csv_positional_wide():
     """全講師分CSV（横持ち・位置固定）: 列固定・業務名はセル値・有給日も1行・未記入行は除外。"""
     from app.models.shared import User
