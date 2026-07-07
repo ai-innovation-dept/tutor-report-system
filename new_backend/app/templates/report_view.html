@@ -331,7 +331,7 @@
     // ロール別に「承認対象ステータス・完了後差戻し対象・承認ラベル・職務分掌の衝突講師IDキー」を定義。
     const STAFF_ACTION_CONFIG = {
       office: {
-        // awaiting_office_precheck = 月分超過の事前確認（承認で学校確認へ進む）
+        // awaiting_office_precheck = 事前確認（月分超過・1〜9分手入力。承認で学校確認へ進む）
         statuses: ['awaiting_office_precheck', 'awaiting_office', 'returned_to_office'],
         completedStatuses: [],
         approveLabel: '事務承認',

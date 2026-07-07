@@ -211,7 +211,7 @@ setBreadcrumb('講師ポータル', '報告書一覧');
 
 const STATUS_LABELS = {
   draft: '下書き',
-  awaiting_office_precheck: '事務事前確認待ち（月分超過）',
+  awaiting_office_precheck: '事務事前確認待ち',
   awaiting_school: '学校確認待ち',
   returned_to_tutor: '差戻し（要修正）',
   awaiting_sales: '営業確認待ち',
@@ -1284,6 +1284,19 @@ async function submitReport(id) {
   }
   const report = allReports.find(r => r.id === id);
   if (!report) return;
+  // 担当業務・副担当業務に1〜9分単位の手入力がある報告書は、学校の前に運営（事務）の事前確認を
+  // 経由するワークフローへ変わるため、提出前にポップアップで知らせる（学校スキップ校は変更なし）。
+  const assignment = allAssignments.find(a => a.id === report.assignment_id);
+  const skipSchool = Boolean(assignment?.skip_school_approval || report.skip_school_approval);
+  if (!skipSchool && workReportHasMinuteLevelInput(report)) {
+    const ok = await showConfirmModal({
+      title: '承認ワークフローが変更されます',
+      message: '担当業務・副担当業務に1〜9分単位の手入力があるため、この報告書は学校へ依頼する前に運営（事務）の事前確認を経由します。\n\n承認フロー：講師 → 事務（事前確認） → 学校 → 事務 → 営業\n\nこのまま提出しますか？',
+      confirmLabel: '提出する',
+      cancelLabel: 'キャンセル'
+    });
+    if (!ok) return;
+  }
   await api(`/api/w/assignments/${report.assignment_id}`, {method:'PATCH', body:JSON.stringify({parent_id: schoolId})});
   await api(`/api/w/reports/${id}/action`, {method:'POST', body:JSON.stringify({action: 'submit'})});
   await loadTutor();

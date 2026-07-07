@@ -19,11 +19,22 @@
 <script>
 setBreadcrumb('講師ポータル', '承認管理');
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-const STEPS = [
+// 通常フロー: 講師→学校→事務→営業。事前確認フロー（月分超過・担当業務/副担当業務の1〜9分手入力）:
+// 講師→事務(事前確認)→学校→事務→営業。事前確認フローは先頭に「運営へ依頼」ステップが入る。
+const NORMAL_STEPS = [
   {key: 'request', label: '学校へ依頼'},
   {key: 'school', label: '学校承認'},
   {key: 'operation', label: '運営承認'}
 ];
+const PRECHECK_STEPS = [
+  {key: 'precheck', label: '運営へ依頼'},
+  {key: 'request', label: '学校へ依頼'},
+  {key: 'school', label: '学校承認'},
+  {key: 'operation', label: '運営承認'}
+];
+function groupSteps(group) {
+  return group.precheck_route ? PRECHECK_STEPS : NORMAL_STEPS;
+}
 const PHASE_CURRENT_STEP = {
   recording: 0,
   returned: 0,
@@ -35,9 +46,15 @@ const PHASE_CURRENT_STEP = {
   completed: 3,
   closed: 3
 };
+// 事前確認フローは「運営へ依頼」が先頭に入るため、学校確認以降のフェーズを1つ後ろへずらす
+const PRECHECK_SHIFTED_PHASES = new Set(['awaiting_school', 'awaiting_sales', 'awaiting_office', 'awaiting_finance', 'completed', 'closed']);
+function currentStepIndex(group) {
+  const base = PHASE_CURRENT_STEP[group.phase] ?? 0;
+  return (group.precheck_route && PRECHECK_SHIFTED_PHASES.has(group.phase)) ? base + 1 : base;
+}
 const STATUS_LABELS = {
   draft: '下書き',
-  awaiting_office_precheck: '事務事前確認待ち（月分超過）',
+  awaiting_office_precheck: '事務事前確認待ち',
   awaiting_school: '学校承認待ち',
   awaiting_sales: '営業確認待ち',
   returned_to_tutor: '差戻し（要修正）',
@@ -122,7 +139,7 @@ function monthlyPhase(reports) {
     closed: 7
   }[status] ?? 0));
   if (statuses.includes('returned_to_tutor')) return 'returned';
-  // 月分超過の報告は学校確認の前に事務の事前確認を待つ
+  // 事前確認対象（月分超過・1〜9分手入力）の報告は学校確認の前に事務の事前確認を待つ
   if (statuses.includes('awaiting_office_precheck')) return 'office_precheck';
   if (statuses.length && statuses.every(status => status === 'closed')) return 'closed';
   if (statuses.length && statuses.every(status => status === 'approved')) return 'completed';
@@ -151,19 +168,37 @@ function resolveSchoolName(assignment, reports) {
 function tutorDisplayName(assignment) {
   return assignment?.tutor?.display_name || window.currentUser?.display_name || '講師未設定';
 }
+// 提出前に事前確認フローへ切り替わる（＝担当業務・副担当業務に1〜9分の手入力がある）下書き・差戻し中の報告書
+function minuteInputReports(reports) {
+  return reports.filter(report =>
+    ['draft', 'returned_to_tutor'].includes(report.status) && workReportHasMinuteLevelInput(report));
+}
+// 事前確認フロー（講師→事務→学校→事務→営業）の判定。
+// 提出後はステータス／事前確認の承認履歴で、提出前は1〜9分手入力の有無（クライアント判定）で決める。
+// 学校スキップ校は事前確認を挟まない（サーバの判定と同じ優先順位）。
+// ※月分超過（契約との突合が必要）は提出前には判定できないため、提出後の表示で事前確認フローに切り替わる。
+function isPrecheckRoute(reports, skipSchool) {
+  if (skipSchool) return false;
+  return reports.some(report =>
+    report.status === 'awaiting_office_precheck'
+    || report.precheck_approved_at
+    || (['draft', 'returned_to_tutor'].includes(report.status) && workReportHasMinuteLevelInput(report)));
+}
 function buildGroup(assignment, reports) {
   const sorted = [...reports].sort((a, b) => {
     const dateCompare = String(a.lesson_date || a.target_month || '').localeCompare(String(b.lesson_date || b.target_month || ''));
     if (dateCompare !== 0) return dateCompare;
     return timeText(a.start_time).localeCompare(timeText(b.start_time));
   });
+  const skipSchool = Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval));
   return {
     assignment_id: assignment?.id || sorted[0]?.assignment_id,
     student_name: assignment?.student_name || '生徒未設定',
     tutor_name: tutorDisplayName(assignment),
     school_id: assignment?.parent_id || sorted[0]?.parent_id || null,
     school_display_name: resolveSchoolName(assignment, sorted),
-    skip_school_approval: Boolean(assignment?.skip_school_approval || sorted.some(report => report.skip_school_approval)),
+    skip_school_approval: skipSchool,
+    precheck_route: isPrecheckRoute(sorted, skipSchool),
     target_month: sorted[0]?.target_month || selectedApprovalMonth || currentMonth(),
     reports: sorted,
     phase: monthlyPhase(sorted),
@@ -171,19 +206,29 @@ function buildGroup(assignment, reports) {
     total_minutes: sorted.reduce((sum, report) => sum + teachingMinutes(report), 0),
     submitted_to_school_at: latest(sorted.map(report => report.submitted_to_school_at)),
     first_submitted_to_school_at: earliest(sorted.map(report => report.submitted_to_school_at)),
+    precheck_approved_at: latest(sorted.map(report => report.precheck_approved_at)),
     school_approved_at: latest(sorted.map(report => report.school_approved_at)),
     approved_at: latest(sorted.map(report => report.approved_at)),
     can_submit: sorted.length > 0 && sorted.every(report => ['draft', 'returned_to_tutor'].includes(report.status)),
   };
 }
 function stepTimestamp(group, index) {
-  if (index === 0) return group.first_submitted_to_school_at || group.submitted_to_school_at;
+  const requestedAt = group.first_submitted_to_school_at || group.submitted_to_school_at;
+  if (group.precheck_route) {
+    // 運営へ依頼（講師の提出）→ 学校へ依頼（事務の事前確認の承認）→ 学校承認 → 運営承認
+    if (index === 0) return requestedAt;
+    if (index === 1) return group.precheck_approved_at;
+    if (index === 2) return group.school_approved_at;
+    if (index === 3) return group.approved_at;
+    return null;
+  }
+  if (index === 0) return requestedAt;
   if (index === 1) return group.school_approved_at;
   if (index === 2) return group.approved_at;
   return null;
 }
 function stepState(group, index) {
-  const current = PHASE_CURRENT_STEP[group.phase] ?? 0;
+  const current = currentStepIndex(group);
   if (group.phase === 'completed') return 'done';
   if (index < current) return 'done';
   if (index === current) return 'current';
@@ -207,12 +252,16 @@ function stepLabel(group, step) {
   return step.label;
 }
 function renderStepper(group) {
+  const steps = groupSteps(group);
+  // ステップ数に応じて列数（ステップ＋間の矢印）と最小幅を変える（4ステップ=事前確認フロー）
+  const columns = steps.length * 2 - 1;
+  const minWidth = steps.length > 3 ? 'min-w-[640px]' : 'min-w-[480px]';
   return `<div class="mt-5 overflow-x-auto">
-    <div class="grid min-w-[480px] grid-cols-[repeat(5,minmax(0,1fr))] items-start gap-2">
-    ${STEPS.map((step, index) => {
+    <div class="grid ${minWidth} grid-cols-[repeat(${columns},minmax(0,1fr))] items-start gap-2">
+    ${steps.map((step, index) => {
       const state = stepState(group, index);
       const icon = state === 'done' ? '✓' : (state === 'current' ? '⏱' : '');
-      const connector = index < STEPS.length - 1
+      const connector = index < steps.length - 1
         ? `<div class="pt-5 text-center"><div class="border-t-2 ${connectorClass(group, index)}"></div><div class="${connectorClass(group, index)} text-lg leading-none">→</div></div>`
         : '';
       return `<div class="text-center">
@@ -280,7 +329,9 @@ function actionArea(group) {
     if (!group.skip_school_approval && !group.school_id) {
       return '<div class="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">学校が未設定のため再依頼できません。</div>';
     }
-    const label = group.skip_school_approval ? '修正済みの報告書を管理へ再提出' : '修正済みの報告書を学校へ再依頼';
+    // 事前確認フロー（1〜9分手入力）の再依頼は学校ではなく運営（事務の事前確認）へ向かうため文言を変える
+    const label = group.skip_school_approval ? '修正済みの報告書を管理へ再提出'
+      : (group.precheck_route ? '修正済みの報告書を再提出' : '修正済みの報告書を学校へ再依頼');
     return `${returnedNotice(group)}<div class="mt-3 flex flex-wrap items-center gap-3">
       <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
@@ -288,8 +339,13 @@ function actionArea(group) {
     </div>`;
   }
   if (group.can_submit) {
-    const label = group.skip_school_approval ? '管理へ提出' : '学校へまとめて承認依頼';
+    // 事前確認フロー（1〜9分手入力）は学校の前に運営（事務）の事前確認を経由するため「提出」表記にする
+    const label = group.skip_school_approval ? '管理へ提出' : (group.precheck_route ? '提出' : '学校へまとめて承認依頼');
+    const precheckNote = (!group.skip_school_approval && group.precheck_route)
+      ? '<div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">担当業務・副担当業務に1〜9分単位の手入力があるため、提出すると学校へ依頼する前に運営（事務）の事前確認を経由します。</div>'
+      : '';
     return `<div class="mt-5 grid gap-3">
+      ${precheckNote}
       <div class="flex flex-wrap items-center gap-3">
         <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
         ${deleteButton(group)}
@@ -303,7 +359,11 @@ function actionArea(group) {
     </div>`;
   }
   if (group.phase === 'office_precheck') {
-    return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>月分が契約の固定分を超えているため、事務担当の事前確認を待っています</button>';
+    // 発動理由に応じた案内（1〜9分手入力はクライアントで判定可。それ以外＝月分超過）
+    const reason = group.reports.some(workReportHasMinuteLevelInput)
+      ? '担当業務・副担当業務に1〜9分単位の手入力があるため'
+      : '月分が契約の固定分を超えているため';
+    return `<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>${reason}、事務担当の事前確認を待っています</button>`;
   }
   if (group.phase === 'awaiting_school') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>学校の承認を待っています</button>';
@@ -346,28 +406,41 @@ async function deleteDraftReports(assignmentId) {
   await loadApproval();
 }
 function summaryGrid(group) {
-  // 依頼前（作成中）は「学校へ依頼日時」欄に「作成中」を表示し、
-  // 「学校承認日時」欄の「承認待ち」は学校へ依頼した後にのみ表示する
+  // 依頼前（作成中）は先頭の依頼日時欄に「作成中」を表示し、後続の「承認待ち」は依頼後にのみ表示する。
+  // 事前確認フローは「運営へ依頼日時（講師の提出）」「学校へ依頼日時（事務の事前確認の承認）」の4欄になる。
   const requestedAt = group.first_submitted_to_school_at || group.submitted_to_school_at;
-  return `<div class="mt-5 grid gap-3 sm:grid-cols-3">
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校へ依頼日時</div><div class="font-medium text-slate-800">${requestedAt ? timeLabel(requestedAt) : '作成中'}</div></div>
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">学校承認日時</div><div class="font-medium text-slate-800">${group.school_approved_at ? timeLabel(group.school_approved_at) : (requestedAt ? '承認待ち' : '-')}</div></div>
-    <div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">運営承認日時</div><div class="font-medium text-slate-800">${group.approved_at ? timeLabel(group.approved_at) : '-'}</div></div>
+  const cells = [];
+  if (group.precheck_route) {
+    cells.push(['運営へ依頼日時', requestedAt ? timeLabel(requestedAt) : '作成中']);
+    cells.push(['学校へ依頼日時', group.precheck_approved_at ? timeLabel(group.precheck_approved_at) : (requestedAt ? '事前確認待ち' : '-')]);
+    cells.push(['学校承認日時', group.school_approved_at ? timeLabel(group.school_approved_at) : (group.precheck_approved_at ? '承認待ち' : '-')]);
+  } else {
+    cells.push(['学校へ依頼日時', requestedAt ? timeLabel(requestedAt) : '作成中']);
+    cells.push(['学校承認日時', group.school_approved_at ? timeLabel(group.school_approved_at) : (requestedAt ? '承認待ち' : '-')]);
+  }
+  cells.push(['運営承認日時', group.approved_at ? timeLabel(group.approved_at) : '-']);
+  const gridCols = cells.length === 4 ? 'sm:grid-cols-2 lg:grid-cols-4' : 'sm:grid-cols-3';
+  return `<div class="mt-5 grid gap-3 ${gridCols}">
+    ${cells.map(([label, value]) => `<div class="rounded-xl border border-slate-200 bg-slate-50 p-3"><div class="text-xs font-medium text-slate-500">${escapeHtml(label)}</div><div class="font-medium text-slate-800">${value}</div></div>`).join('')}
   </div>`;
 }
 function detailRows(group) {
+  // 事前確認フローは「運営へ依頼（講師の提出）」列が先頭に入り、「学校へ依頼」は事務の事前確認の承認日時になる
+  const pre = group.precheck_route;
   const rows = group.reports.map(r => `<tr class="border-t border-slate-100 hover:bg-slate-50">
     <td class="px-4 py-3">${escapeHtml(`${Number((r.target_month || '').slice(5, 7))}月分`)}</td>
     <td class="px-4 py-3">${statusLabel(r.status)}</td>
-    <td class="px-4 py-3">${timeLabel(r.submitted_to_school_at, '-')}</td>
+    ${pre ? `<td class="px-4 py-3">${timeLabel(r.submitted_to_school_at, '-')}</td>
+    <td class="px-4 py-3">${timeLabel(r.precheck_approved_at, '-')}</td>` : `<td class="px-4 py-3">${timeLabel(r.submitted_to_school_at, '-')}</td>`}
     <td class="px-4 py-3">${timeLabel(r.school_approved_at, '-')}</td>
     <td class="px-4 py-3">${timeLabel(r.approved_at, '-')}</td>
     <td class="px-4 py-3 text-rose-700">${r.status === 'returned_to_tutor' ? (r.last_return_comment || '') : ''}</td>
     <td class="px-4 py-3 text-slate-700">${r.status === 'closed' ? `<div class="font-medium text-slate-800">クローズ済み</div><div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(r.close_reason || '-')}</div><div class="mt-1">日時：${timeLabel(r.closed_at, '-')}</div>` : ''}</td>
   </tr>`).join('');
+  const requestHeads = pre ? '<th class="px-4 py-3 text-left">運営へ依頼</th><th class="px-4 py-3 text-left">学校へ依頼</th>' : '<th class="px-4 py-3 text-left">学校へ依頼</th>';
   return `<div class="mt-5 overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導月</th><th class="px-4 py-3 text-left">状態</th><th class="px-4 py-3 text-left">学校へ依頼</th><th class="px-4 py-3 text-left">学校承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
+      <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500"><tr><th class="px-4 py-3 text-left">指導月</th><th class="px-4 py-3 text-left">状態</th>${requestHeads}<th class="px-4 py-3 text-left">学校承認</th><th class="px-4 py-3 text-left">最終承認</th><th class="px-4 py-3 text-left">差戻し理由</th><th class="px-4 py-3 text-left">クローズ情報</th></tr></thead>
       <tbody>${rows}</tbody>
     </table>
   </div>`;
@@ -406,10 +479,26 @@ function toggleDetails(assignmentId) {
   const area = document.getElementById(`detail-${assignmentId}`);
   area.innerHTML = area.innerHTML ? '' : detailRows(group);
 }
+// 提出対象に1〜9分単位の手入力（担当業務・副担当業務）がある場合は、承認ワークフローが
+// 事前確認フロー（講師→事務→学校→事務→営業）へ変わることをポップアップで知らせてから提出する。
+// 学校スキップ校はフローが変わらないため表示しない。キャンセルで提出を中止できる。
+async function confirmPrecheckSubmit(group, ids) {
+  if (group.skip_school_approval) return true;
+  const hasMinuteInput = group.reports.some(report => ids.includes(report.id) && workReportHasMinuteLevelInput(report));
+  if (!hasMinuteInput) return true;
+  return showConfirmModal({
+    title: '承認ワークフローが変更されます',
+    message: '担当業務・副担当業務に1〜9分単位の手入力があるため、この報告書は学校へ依頼する前に運営（事務）の事前確認を経由します。\n\n承認フロー：講師 → 事務（事前確認） → 学校 → 事務 → 営業\n\nこのまま提出しますか？',
+    confirmLabel: '提出する',
+    cancelLabel: 'キャンセル'
+  });
+}
 async function submitToParentGroup(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   // リマインド設定は講師では行わない（運営の進捗パイプラインで設定する）
-  for (const id of reportIdsForParentSubmit(group)) {
+  const ids = reportIdsForParentSubmit(group);
+  if (!(await confirmPrecheckSubmit(group, ids))) return;
+  for (const id of ids) {
     await api(`/api/w/reports/${id}/action`, {
       method: 'POST',
       body: JSON.stringify({action: 'submit'})
@@ -420,6 +509,7 @@ async function submitToParentGroup(assignmentId) {
 async function resendReturnedReports(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   const ids = returnedReportIds(group);
+  if (!(await confirmPrecheckSubmit(group, ids))) return;
   for (const id of ids) {
     await api(`/api/w/reports/${id}/action`, {
       method: 'POST',

@@ -122,6 +122,57 @@
       }, 3000);
     }
 
+    // 確認モーダル（OK/キャンセル）。confirm() の代わりに全ページ共通のデザインで表示する。
+    // message は textContent（whitespace-pre-wrap）で描画するため改行可・HTML不可（XSS安全）。
+    function showConfirmModal({title = '確認', message = '', confirmLabel = 'OK', cancelLabel = 'キャンセル'} = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 z-[1300] flex items-center justify-center bg-slate-900/50 p-4';
+        const panel = document.createElement('div');
+        panel.className = 'w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl';
+        const head = document.createElement('div');
+        head.className = 'border-b border-slate-200 px-5 py-4 font-semibold text-slate-800';
+        head.textContent = title;
+        const body = document.createElement('div');
+        body.className = 'whitespace-pre-wrap px-5 py-4 text-sm leading-relaxed text-slate-700';
+        body.textContent = message;
+        const footer = document.createElement('div');
+        footer.className = 'flex justify-end gap-2 px-5 pb-5';
+        const close = result => { overlay.remove(); resolve(result); };
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50';
+        cancelBtn.textContent = cancelLabel;
+        cancelBtn.addEventListener('click', () => close(false));
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700';
+        okBtn.textContent = confirmLabel;
+        okBtn.addEventListener('click', () => close(true));
+        footer.append(cancelBtn, okBtn);
+        panel.append(head, body, footer);
+        overlay.appendChild(panel);
+        overlay.addEventListener('click', event => { if (event.target === overlay) close(false); });
+        document.body.appendChild(overlay);
+        okBtn.focus();
+      });
+    }
+
+    // 担当業務・副担当業務（分）に1〜9分単位の手入力（10分単位でない値）があるか。
+    // サーバ（workflow/engine.has_minute_level_input）と同一ルール。提出時に事務の事前確認フローへ
+    // 切り替わる報告書の判定・ポップアップ表示に使う。休憩・採点・交通費、有給/欠勤行は対象外。
+    function workReportHasMinuteLevelInput(report) {
+      const lines = (report?.form_data && Array.isArray(report.form_data.lines)) ? report.form_data.lines : [];
+      return lines.some(line => {
+        if (!line || line.kind === 'paid_leave' || line.kind === 'absent') return false;
+        return Object.entries(line).some(([key, value]) => {
+          if (!/^(task_minutes_\d+|sub_minutes_\d+|teach_minutes)$/.test(key)) return false;
+          const minutes = Number(value);
+          return Number.isFinite(minutes) && minutes % 10 !== 0;
+        });
+      });
+    }
+
     function roleDisplayName(role) {
       if (role === 'tutor') return '講師';
       if (role === 'school') return '学校';

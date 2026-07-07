@@ -3,6 +3,7 @@
 遷移ルールは definitions.TRANSITIONS のみを参照する。
 """
 import calendar
+import re
 from datetime import date, datetime, timezone
 
 from sqlalchemy import select
@@ -104,6 +105,51 @@ def exceeds_monthly_limit(db: Session, report: WorkReport) -> bool:
     return False
 
 
+# 担当業務・副担当業務の分数キー（デフォルトフォームの teach_minutes を含む）。
+# 休憩時間・採点（分）・交通費は事前確認の判定対象にしない。
+_MINUTE_INPUT_KEY_RE = re.compile(r"^(task_minutes_\d+|sub_minutes_\d+|teach_minutes)$")
+_LEAVE_KINDS = {"paid_leave", "absent"}
+
+
+def has_minute_level_input(report: WorkReport) -> bool:
+    """担当業務・副担当業務（分）に1〜9分単位の手入力（10分単位でない値）があるか。
+
+    自動計算はコマ数×50分（50の倍数）を入力するため、1の位が1〜9の値は
+    講師が1分単位で手修正した報告書とみなし、提出時に事務の事前確認を挟む。
+    有給・欠勤（kind）の行は勤務時間を持たないため対象外。
+    クライアント（tutor承認管理・報告書一覧のポップアップ判定）と同一ルール。
+    """
+    lines = (getattr(report, "form_data", None) or {}).get("lines") or []
+    for line in lines:
+        if not isinstance(line, dict) or line.get("kind") in _LEAVE_KINDS:
+            continue
+        for key, value in line.items():
+            if not _MINUTE_INPUT_KEY_RE.match(str(key)):
+                continue
+            try:
+                minutes = int(value or 0)
+            except (TypeError, ValueError):
+                continue
+            if minutes % 10 != 0:
+                return True
+    return False
+
+
+# 事前確認の発動理由（提出イベントのコメントに自動記録し、運営のタイムラインに表示する）
+PRECHECK_REASON_OVER_LIMIT = "担当業務の月分が契約の固定分を超過"
+PRECHECK_REASON_MINUTE_INPUT = "担当業務・副担当業務に1〜9分単位の手入力あり"
+
+
+def precheck_reasons(db: Session, report: WorkReport) -> list[str]:
+    """事務の事前確認（awaiting_office_precheck）が必要な理由の一覧。空なら通常フロー。"""
+    reasons = []
+    if exceeds_monthly_limit(db, report):
+        reasons.append(PRECHECK_REASON_OVER_LIMIT)
+    if has_minute_level_input(report):
+        reasons.append(PRECHECK_REASON_MINUTE_INPUT)
+    return reasons
+
+
 def apply_transition(
     db: Session,
     report: WorkReport,
@@ -144,23 +190,21 @@ def apply_transition(
     next_approver_role = transition.next_approver_role
 
     # 学校スキップ設定が有効な紐付けは、講師提出時に学校確認を飛ばして事務確認へ進める。
-    # 月分超過の報告でも学校スキップ校は事務確認1回（通常スキップフローと同形）とする。
-    if (
-        action == WorkAction.SUBMIT
-        and to_status == WorkStatus.AWAITING_SCHOOL
-        and _skips_school_approval(db, report)
-    ):
-        to_status = WorkStatus.AWAITING_OFFICE
-        next_approver_role = "office"
-    # 担当業務の月分が契約の月分固定を超過した報告は、学校確認の前に事務の事前確認を挟む
-    # （超過フロー: 講師→事務→学校→事務→営業）
-    elif (
-        action == WorkAction.SUBMIT
-        and to_status == WorkStatus.AWAITING_SCHOOL
-        and exceeds_monthly_limit(db, report)
-    ):
-        to_status = WorkStatus.AWAITING_OFFICE_PRECHECK
-        next_approver_role = "office"
+    # 事前確認対象（月分超過・1〜9分手入力）の報告でも学校スキップ校は事務確認1回（通常スキップフローと同形）とする。
+    if action == WorkAction.SUBMIT and to_status == WorkStatus.AWAITING_SCHOOL:
+        if _skips_school_approval(db, report):
+            to_status = WorkStatus.AWAITING_OFFICE
+            next_approver_role = "office"
+        else:
+            # 月分超過、または担当業務・副担当業務への1〜9分単位の手入力がある報告は、
+            # 学校確認の前に事務の事前確認を挟む（事前確認フロー: 講師→事務→学校→事務→営業）。
+            # 発動理由は提出イベントのコメントへ自動記録し、運営の進捗タイムラインで確認できるようにする。
+            reasons = precheck_reasons(db, report)
+            if reasons:
+                to_status = WorkStatus.AWAITING_OFFICE_PRECHECK
+                next_approver_role = "office"
+                reason_note = "【事前確認】" + "／".join(reasons)
+                comment = f"{comment}\n{reason_note}" if (comment and comment.strip()) else reason_note
 
     report.status = to_status
     report.current_approver_role = next_approver_role

@@ -161,6 +161,17 @@ class WorkReport(Base):
         return None
 
     @property
+    def precheck_approved_at(self) -> datetime | None:
+        """事務の事前確認が承認された日時（awaiting_office_precheck からの approve イベント）。
+
+        事前確認フロー（月分超過・1〜9分手入力）では、この日時が講師画面の「学校へ依頼日時」になる。
+        """
+        for event in self.events:
+            if event.action == "approve" and event.from_status == "awaiting_office_precheck":
+                return event.created_at
+        return None
+
+    @property
     def submitted_to_school_at(self) -> datetime | None:
         """講師が学校または運営へ提出した日時。"""
         return self.submitted_at

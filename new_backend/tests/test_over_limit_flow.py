@@ -167,9 +167,13 @@ class TestOverLimitFlow:
         assert res.json()["status"] == WorkStatus.AWAITING_OFFICE_PRECHECK
 
     def test_no_workload_case_keeps_normal_flow(self, client, db, setup):
-        """ケース未登録の契約は分数に関係なく通常フロー。"""
+        """ケース未登録の契約は分数（10分単位）に関係なく通常フロー。
+
+        ※99990は10分単位の値。1〜9分単位の手入力は別トリガー（test_minute_input_flow.py）で
+        事前確認フローになるため、このテストでは10分単位の大きな値を使う。
+        """
         contract = _create_contract(client, setup, workload_cases=[])
-        report_id = _create_report(client, contract, 99999)
+        report_id = _create_report(client, contract, 99990)
         res = _action(client, "tutor@ol.example.com", report_id, "submit", "tutor")
         assert res.json()["status"] == WorkStatus.AWAITING_SCHOOL
 
