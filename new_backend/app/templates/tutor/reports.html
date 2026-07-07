@@ -609,17 +609,26 @@ async function selectSchool(schoolId) {
   resetReportForm(true);
   renderCurrentList();
 }
-const SUBJECT_PERIOD_HINT = '1〜10の数値のみ入力可、それ以外は入力不可';
+const SUBJECT_PERIOD_HINT = '1〜10から担当した時限を選択します。選択したコマ数×50分が右隣の担当業務（分）へ、（コマ数−1）×10分が休憩時間（分）へ自動入力されます。自動入力後の分数は1分単位で修正できます（担当時限を選び直すと自動値で上書きされます）。';
+const TIME_RANGE_HINT = '業務開始〜終了時間は自動計算のため手動入力できません。開始は8:40固定、終了は担当時限より右の時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計を開始時間に加算した時刻です。往復交通費（円）・採点の回数は加算しません。';
+const WORK_START_TIME = '08:40';           // 業務開始時間（固定・手動入力不可）
+const MINUTES_PER_PERIOD = 50;             // 担当時限1コマあたりの担当業務（分）
+const BREAK_MINUTES_PER_EXTRA_PERIOD = 10; // 休憩時間（分）＝（コマ数−1）×10
+const DAY_END_MINUTES = 23 * 60 + 59;      // 終了時間は同日23:59まで（超過は計算不可として保存をブロック）
 function columnLabel(column) {
   if (column.key === 'subject_period') return '担当時限';
   return column.label;
+}
+// 「！」アイコン：クリックで入力ルールをツールチップ表示する（ヘッダー用）。
+function fieldHintButtonHtml(hint, ariaLabel = '入力ルールを表示') {
+  return `<button type="button" class="field-hint-btn ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 align-middle text-[10px] font-bold leading-none text-white hover:bg-amber-500" data-hint="${escapeHtml(hint)}" aria-label="${escapeHtml(ariaLabel)}">!</button>`;
 }
 // ヘッダーセルの内部HTML。担当時限は項目名が長いため、ラベルを短くし
 // 「！」アイコンのクリックで入力ルールをツールチップ表示する。
 function columnHeaderHtml(column) {
   const label = escapeHtml(columnLabel(column));
   if (column.key === 'subject_period') {
-    return `${label}<button type="button" class="field-hint-btn ml-1 inline-flex h-4 w-4 items-center justify-center rounded-full bg-amber-400 align-middle text-[10px] font-bold leading-none text-white hover:bg-amber-500" data-hint="${escapeHtml(SUBJECT_PERIOD_HINT)}" aria-label="入力ルールを表示">!</button>`;
+    return `${label}${fieldHintButtonHtml(SUBJECT_PERIOD_HINT)}`;
   }
   return label;
 }
@@ -635,7 +644,8 @@ function renderLineHeader(form) {
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
-        headers.push('<th class="w-72 px-1 py-2 text-left">業務開始〜終了時間</th>');
+        // 自動計算表示のため入力セレクト時代（w-72）より狭くできる
+        headers.push(`<th class="w-36 px-1 py-2 text-left">業務開始〜終了時間${fieldHintButtonHtml(TIME_RANGE_HINT, '自動計算ルールを表示')}</th>`);
         index += 1;
       } else {
         headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
@@ -688,17 +698,15 @@ function renderCell(column, line) {
     </td>`;
   }
   if (column.key === 'start') {
+    // 業務開始〜終了時間は自動計算（手動入力不可）。開始8:40固定＋担当時限より右の分数合計。
+    // 値は従来どおり hidden の start / end（HH:MM）に保持して保存する（report_view・PDF・CSVと互換）。
+    const startVal = line.start || '';
+    const endVal = line.end || '';
+    const range = (startVal || endVal) ? `${startVal}〜${endVal}` : '';
     return `<td class="relative px-1 py-1" data-time-range>
-      <div class="flex items-center gap-1">
-        <input type="hidden" data-field="start" value="${escapeHtml(line.start || '')}">
-        ${timeSelectHtml('start', line.start)}
-        <span class="text-slate-500">〜</span>
-        <input type="hidden" data-field="end" value="${escapeHtml(line.end || '')}">
-        ${timeSelectHtml('end', line.end)}
-        <button type="button" data-end-offset-btn title="終了時刻を開始からの経過時間で設定" class="flex h-9 w-8 shrink-0 items-center justify-center rounded border border-slate-300 text-slate-500 hover:border-emerald-500 hover:text-emerald-600 focus:outline-none">
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        </button>
-      </div>
+      <input type="hidden" data-field="start" value="${escapeHtml(startVal)}">
+      <input type="hidden" data-field="end" value="${escapeHtml(endVal)}">
+      <div data-time-display title="${escapeHtml(TIME_RANGE_HINT)}" class="flex h-9 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 text-sm ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
     </td>`;
   }
   if (column.key === 'end') return '';
@@ -738,6 +746,7 @@ function renderCell(column, line) {
 function buildLineRows(lines) {
   const form = selectedFormDefinition();
   const columns = form.columns || DEFAULT_FORM_DEFINITION.columns;
+  const minuteKeys = new Set(timeMinuteKeys(columns));
   renderLineHeader(form);
   lineRows.innerHTML = lines.map((line, index) => `<tr class="border-t border-slate-100" data-index="${index}">
     <td class="px-1 py-1 text-center text-slate-600">${index + 1}</td>
@@ -748,6 +757,8 @@ function buildLineRows(lines) {
       if (input.dataset.field === 'date') {
         input.closest('tr').querySelector('[data-weekday]').textContent = weekdayParen(input.value);
       }
+      // 分数の手動修正（1分単位）に業務開始〜終了時間を連動させる
+      if (minuteKeys.has(input.dataset.field)) recomputeRowTimes(input.closest('tr'), true);
       updateLineSummary();
     });
     if (input.dataset.field === 'date') {
@@ -758,26 +769,18 @@ function buildLineRows(lines) {
       });
     }
   });
-  lineRows.querySelectorAll('.line-time-select').forEach(sel => {
-    sel.addEventListener('change', () => {
-      const cell = sel.closest('[data-time-range]');
-      syncTimeField(cell, sel.dataset.timePart);
-      validateTimeRange(cell);
-      updateLineSummary();
-    });
-  });
   lineRows.querySelectorAll('[data-period-btn]').forEach(btn => {
     btn.addEventListener('click', () => openPeriodPopover(btn));
   });
   lineRows.querySelectorAll('[data-note-btn]').forEach(btn => {
     btn.addEventListener('click', () => openNoteModal(btn));
   });
-  lineRows.querySelectorAll('[data-end-offset-btn]').forEach(btn => {
-    btn.addEventListener('click', () => openEndOffsetPopover(btn));
-  });
   lineRows.querySelectorAll('.line-kind-select').forEach(sel => {
     sel.addEventListener('change', () => {
-      applyRowKind(sel.closest('tr'));
+      const row = sel.closest('tr');
+      applyRowKind(row);
+      // 有給・欠勤は時間を持たない／勤務へ戻したときは分数から再計算する
+      recomputeRowTimes(row);
       updateLineSummary();
     });
   });
@@ -803,16 +806,15 @@ function applyRowKind(row) {
   if (kind === 'paid_leave') row.classList.add('bg-amber-50');
   else if (kind === 'absent') row.classList.add('bg-rose-50');
   if (leave) {
-    // 業務関連の値をクリア（隠しフィールド・数値入力）し、見える時刻セレクト・担当時限ボタンも初期化
+    // 業務関連の値をクリア（隠しフィールド・数値入力）し、担当時限ボタンの表示も初期化
     rowWorkControls(row).forEach(el => { el.value = ''; });
-    row.querySelectorAll('select.line-time-select').forEach(sel => { sel.value = ''; });
     const periodCell = row.querySelector('[data-period-cell]');
     if (periodCell) refreshPeriodCell(periodCell);
   }
   // フォーム全体が読取専用のとき（!formEditable）は setReportInputsDisabled の制御を尊重し、ここでも無効のまま
   const disabled = leave || !formEditable;
   rowWorkControls(row).forEach(el => { el.disabled = disabled; });
-  row.querySelectorAll('select.line-time-select, [data-period-btn], [data-end-offset-btn]').forEach(el => { el.disabled = disabled; });
+  row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = disabled; });
 }
 function applyAllRowKinds() {
   lineRows.querySelectorAll('tr').forEach(applyRowKind);
@@ -863,6 +865,7 @@ function copyPreviousLine() {
   dateKeys.forEach(key => { copied[key] = ''; });
   lines[targetIndex] = copied;
   buildLineRows(lines);
+  recomputeAllRowTimes();
   clearFormMessage();
   showToast(`${lastFilled + 1}回目の内容を${targetIndex + 1}回目にコピーしました。日付を入力してください。`, 'success');
   const dateInput = lineRows.querySelector(`tr[data-index="${targetIndex}"] [data-field="date"]`);
@@ -885,45 +888,78 @@ function showTimePopup(cell, message) {
   cell.appendChild(popup);
   setTimeout(() => popup.remove(), 2500);
 }
-// 時刻は「時」「分(5分刻み)」のセレクトで入力（5分以外は選択不可。既存システムと同方式）。
-// 値は data-field=start/end の hidden（HH:MM）に同期して保存する。
-const TIME_MINUTES = ['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'];
-function timeSelectHtml(field, value) {
-  const [rawH, rawM] = (value && String(value).includes(':')) ? String(value).split(':') : ['', ''];
-  const h = rawH;
-  const m = rawM === '' ? '' : (TIME_MINUTES.includes(rawM) ? rawM : String(Math.min(55, Math.round(Number(rawM) / 5) * 5)).padStart(2, '0'));
-  const hourOpts = ['<option value="">--</option>'].concat(
-    Array.from({length: 24}, (_, i) => { const hh = String(i).padStart(2, '0'); return `<option value="${hh}"${hh === h ? ' selected' : ''}>${hh}</option>`; })
-  ).join('');
-  const minOpts = ['<option value="">--</option>'].concat(
-    TIME_MINUTES.map(mm => `<option value="${mm}"${mm === m ? ' selected' : ''}>${mm}</option>`)
-  ).join('');
-  const cls = 'line-time-select h-9 w-[52px] rounded border border-slate-300 px-1 text-sm focus:border-emerald-500 focus:outline-none';
-  return `<select data-time-part="${field}" data-time-unit="hour" class="${cls}">${hourOpts}</select>`
-    + '<span class="text-slate-400">:</span>'
-    + `<select data-time-part="${field}" data-time-unit="min" class="${cls}">${minOpts}</select>`;
+// 業務開始〜終了時間の自動計算（手動入力不可）。
+// 開始は WORK_START_TIME（8:40）固定、終了は「担当時限より右の時間（分）列の合計」を開始に加算した時刻。
+// 分数の手動修正（1分単位）にも連動する。値は hidden の start / end（HH:MM）に保持して保存する。
+function timeMinuteKeys(columns = activeColumnDefinition()) {
+  // 合計対象＝担当時限より右の「分」列（担当業務・副担当業務・採点の分・休憩時間）。
+  // 往復交通費（円）と採点の回数は時間ではないため除外する。
+  const periodIndex = columns.findIndex(column => column.key === 'subject_period');
+  const keys = [];
+  columns.slice(periodIndex + 1).forEach(column => {
+    if (column.type === 'count_minutes') keys.push(column.minutes_key);
+    else if (column.type === 'number' && column.key !== 'commute_fee') keys.push(column.key);
+  });
+  return keys;
 }
-function syncTimeField(cell, field) {
-  const hour = cell.querySelector(`select[data-time-part="${field}"][data-time-unit="hour"]`).value;
-  const min = cell.querySelector(`select[data-time-part="${field}"][data-time-unit="min"]`).value;
-  cell.querySelector(`[data-field="${field}"]`).value = (hour !== '' && min !== '') ? `${hour}:${min}` : '';
+// 担当時限（コマ数）の自動入力先＝右隣の担当業務（分）列。休憩・交通費は自動入力先にしない。
+function periodAutoFillKey(columns = activeColumnDefinition()) {
+  const periodIndex = columns.findIndex(column => column.key === 'subject_period');
+  const next = periodIndex === -1 ? null : columns[periodIndex + 1];
+  if (!next) return null;
+  if (next.type === 'count_minutes') return next.minutes_key;
+  if (next.type === 'number' && next.key !== 'break_minutes' && next.key !== 'commute_fee') return next.key;
+  return null;
 }
-function setTimeField(cell, field, hhmm) {
-  const [h, m] = (hhmm && hhmm.includes(':')) ? hhmm.split(':') : ['', ''];
-  cell.querySelector(`select[data-time-part="${field}"][data-time-unit="hour"]`).value = h;
-  cell.querySelector(`select[data-time-part="${field}"][data-time-unit="min"]`).value = m;
-  cell.querySelector(`[data-field="${field}"]`).value = (h !== '' && m !== '') ? `${h}:${m}` : '';
+function lineMinutesTotal(line, keys = timeMinuteKeys()) {
+  return keys.reduce((sum, key) => sum + numberValue(line[key]), 0);
 }
-function validateTimeRange(cell) {
+function rowMinutesTotal(row, keys = timeMinuteKeys()) {
+  return keys.reduce((sum, key) => {
+    const input = row.querySelector(`[data-field="${key}"]`);
+    return sum + (input ? numberValue(input.value) : 0);
+  }, 0);
+}
+function recomputeRowTimes(row, notify = false) {
+  const cell = row.querySelector('[data-time-range]');
   if (!cell) return;
-  const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
-  const end = timeToMinutes(cell.querySelector('[data-field="end"]').value);
-  if (start === null || end === null) return;
-  if (end < start) {
-    setTimeField(cell, 'end', '');
-    showTimePopup(cell, '業務終了時間は業務開始時間より早く設定できません');
-    updateLineSummary();
+  const kind = row.querySelector('[data-field="kind"]')?.value || '';
+  const total = isLeaveKind(kind) ? 0 : rowMinutesTotal(row);
+  const startMinutes = timeToMinutes(WORK_START_TIME);
+  const overflow = total > 0 && startMinutes + total > DAY_END_MINUTES;
+  const start = (total > 0 && !overflow) ? WORK_START_TIME : '';
+  const end = start ? minutesToTime(startMinutes + total) : '';
+  cell.querySelector('[data-field="start"]').value = start;
+  cell.querySelector('[data-field="end"]').value = end;
+  const display = cell.querySelector('[data-time-display]');
+  if (display) {
+    display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可' : '自動計算');
+    display.classList.toggle('font-medium', !!start);
+    display.classList.toggle('text-slate-800', !!start);
+    display.classList.toggle('text-slate-400', !start && !overflow);
+    display.classList.toggle('text-rose-600', overflow);
+    display.classList.toggle('border-rose-300', overflow);
+    display.classList.toggle('bg-rose-50', overflow);
+    display.classList.toggle('border-slate-200', !overflow);
+    display.classList.toggle('bg-slate-50', !overflow);
   }
+  if (overflow && notify) showTimePopup(cell, '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
+}
+function recomputeAllRowTimes() {
+  lineRows.querySelectorAll('tr').forEach(row => recomputeRowTimes(row));
+}
+// 担当時限の選択コマ数 → 右隣の担当業務（分）＝コマ数×50、休憩時間（分）＝（コマ数−1）×10 を自動入力する。
+// 自動入力後の分数は1分単位で手動修正できる（担当時限を選び直すと自動値で上書きされる）。
+function applyPeriodAutoFill(row) {
+  const hidden = row.querySelector('[data-field="subject_period"]');
+  if (!hidden) return;
+  const count = parseSubjectPeriods(hidden.value).length;
+  const taskKey = periodAutoFillKey();
+  const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
+  if (taskInput) taskInput.value = count > 0 ? String(count * MINUTES_PER_PERIOD) : '';
+  const breakInput = row.querySelector('[data-field="break_minutes"]');
+  if (breakInput) breakInput.value = count > 0 ? String((count - 1) * BREAK_MINUTES_PER_EXTRA_PERIOD) : '';
+  recomputeRowTimes(row, true);
 }
 // 担当時限：複数選択（1〜10）。値は「1・3・6」の文字列で保持（report_view/PDF/既存単一値と互換）。
 function parseSubjectPeriods(value) {
@@ -962,6 +998,8 @@ function openPeriodPopover(btn) {
   const commit = () => {
     hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
     refreshPeriodCell(cell);
+    // コマ数から担当業務（分）・休憩時間（分）を自動入力し、業務開始〜終了時間へ連動させる
+    applyPeriodAutoFill(cell.closest('tr'));
     updateLineSummary();
   };
   popover.querySelectorAll('[data-period-toggle]').forEach(tb => {
@@ -979,38 +1017,9 @@ function openPeriodPopover(btn) {
   });
   popover.querySelector('[data-period-close]').addEventListener('click', closePeriodPopovers);
 }
-// 終了時刻：時計アイコンから開始時刻＋経過時間で設定（横幅を取らないポップオーバー）
-const END_OFFSETS = [[30, '＋30分'], [60, '＋1時間'], [180, '＋3時間'], [300, '＋5時間']];
-function closeEndOffsetPopovers() {
-  document.querySelectorAll('.end-offset-popover').forEach(el => el.remove());
-}
-function openEndOffsetPopover(btn) {
-  const cell = btn.closest('[data-time-range]');
-  const alreadyOpen = cell.querySelector('.end-offset-popover');
-  closeEndOffsetPopovers();
-  if (alreadyOpen) return;
-  const popover = document.createElement('div');
-  popover.className = 'end-offset-popover absolute right-2 top-full z-30 mt-1 w-28 rounded-lg border border-slate-300 bg-white p-1 shadow-lg';
-  popover.innerHTML = END_OFFSETS.map(([m, label]) => `<button type="button" data-offset="${m}" class="block w-full rounded px-2 py-1.5 text-left text-sm text-slate-700 hover:bg-emerald-50">${label}</button>`).join('');
-  cell.appendChild(popover);
-  popover.querySelectorAll('[data-offset]').forEach(b => {
-    b.addEventListener('click', () => {
-      const start = timeToMinutes(cell.querySelector('[data-field="start"]').value);
-      if (start === null) {
-        closeEndOffsetPopovers();
-        showTimePopup(cell, '先に業務開始時間を入力してください');
-        return;
-      }
-      setTimeField(cell, 'end', minutesToTime(start + Number(b.dataset.offset)));
-      closeEndOffsetPopovers();
-      updateLineSummary();
-    });
-  });
-}
-// ポップオーバーの外側クリックで閉じる（担当時限・終了時刻オフセット）
+// ポップオーバーの外側クリックで閉じる（担当時限）
 document.addEventListener('click', event => {
   if (!event.target.closest('[data-period-cell]')) closePeriodPopovers();
-  if (!event.target.closest('[data-time-range]')) closeEndOffsetPopovers();
 });
 // 内容：記入ありはメモ帳アイコン、未記入は薄い「＋」アイコン。クリックでモーダルに全文を表示し、
 // 編集可能な状態のときは編集できる。全文はアイコンのツールチップ（title）でも確認できる。
@@ -1207,6 +1216,8 @@ function renderFormAvailability() {
     setReportInputsDisabled(false);
     applyContractLocks();
     applyAllRowKinds();
+    // 編集可能な報告書は業務開始〜終了時間を自動計算値へ正規化する（読取専用時は保存値のまま表示）
+    recomputeAllRowTimes();
     const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
     showFormMessage(`学校から差戻しされています。修正のうえ承認管理画面から再依頼してください。${reason}`, true);
     return;
@@ -1214,6 +1225,7 @@ function renderFormAvailability() {
   setReportInputsDisabled(false);
   applyContractLocks();
   applyAllRowKinds();
+  recomputeAllRowTimes();
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
 }
 // 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする。
@@ -1338,6 +1350,14 @@ reportForm.addEventListener('submit', async e => {
   const invalidTime = lines.some(line => line.start && line.end && line.end < line.start);
   if (invalidTime) {
     showFormMessage('業務終了時間が業務開始時間より早い行があります', true);
+    return;
+  }
+  // 業務開始〜終了時間は自動計算のため、計算不可（分の合計が同日23:59を超過）の行は保存できない
+  const minuteKeys = timeMinuteKeys();
+  const overflowIndex = lines.findIndex(line =>
+    !isLeaveKind(line.kind) && lineMinutesTotal(line, minuteKeys) > 0 && (!line.start || !line.end));
+  if (overflowIndex !== -1) {
+    showFormMessage(`${overflowIndex + 1}回目：時間（分）の合計が長すぎるため業務開始〜終了時間を計算できません。分数を修正してください。`, true);
     return;
   }
   const duplicateDate = findDuplicateLineDate(lines);
