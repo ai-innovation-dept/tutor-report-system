@@ -34,6 +34,10 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
         前回の記入分をコピー
       </button>
+      <button type="button" id="copyLastMonthBtn" onclick="copyLastMonthLines()" title="選択中の学校の先月の報告書から明細をコピーします（日付は同じ第N曜日で当月へ変換）" class="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        先月の記入分をコピー
+      </button>
     </div>
   </section>
 
@@ -930,6 +934,82 @@ function copyPreviousLine() {
   const dateInput = lineRows.querySelector(`tr[data-index="${targetIndex}"] [data-field="date"]`);
   if (dateInput && !dateInput.disabled) dateInput.focus();
 }
+// 対象月（YYYY-MM）の前月を返す
+function prevMonthOf(month) {
+  const [y, m] = month.split('-').map(Number);
+  const d = new Date(y, m - 2, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+// 日付（YYYY-MM-DD）を「同じ第N曜日」の対象月（YYYY-MM）の日付へ変換する。
+// 例: 2026-06-03（6月の第1水曜）→ 2026-07-01（7月の第1水曜）。
+// 対象月に第N曜日が存在しない場合（第5週など）は null を返す。
+function mapDateToMonthByWeekday(dateStr, targetMonth) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return null;
+  const weekday = d.getDay();
+  const nth = Math.floor((d.getDate() - 1) / 7) + 1;
+  const [ty, tm] = targetMonth.split('-').map(Number);
+  const firstWeekday = new Date(ty, tm - 1, 1).getDay();
+  const day = 1 + ((weekday - firstWeekday + 7) % 7) + (nth - 1) * 7;
+  if (day > new Date(ty, tm, 0).getDate()) return null;
+  return `${ty}-${String(tm).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+// 先月の記入分をコピー: 選択中の学校の先月報告書の明細（種別含む）を、日付を「同じ第N曜日」で
+// 当月へ変換して反映する。メタ項目（要望連絡事項・定期代等）はコピーしない。
+// 反映のみでサーバ保存はしない（保存は従来どおり画面下の保存/更新ボタン）。
+async function copyLastMonthLines() {
+  if (!formEditable) return;
+  if (!selectedAssignmentId) {
+    showFormMessage('先に派遣先事業所（学校）を選択してください', true);
+    return;
+  }
+  const sourceMonth = prevMonthOf(selectedMonth);
+  const source = allReports.find(r => r.assignment_id === selectedAssignmentId && r.target_month === sourceMonth);
+  const sourceLines = (Array.isArray(source?.form_data?.lines) ? source.form_data.lines : []).filter(lineHasData);
+  if (!sourceLines.length) {
+    showFormMessage(`先月（${monthLabel(sourceMonth)}）の報告書に記入がないため、コピーできません。`, true);
+    return;
+  }
+  if (collectLines().some(lineHasData)) {
+    const ok = await showConfirmModal({
+      title: '先月の記入分をコピー',
+      message: `入力中の明細を先月（${monthLabel(sourceMonth)}）の内容で置き換えます。\n日付は同じ曜日の並び（第N曜日）で${monthLabel(selectedMonth)}の日付へ変換されます。\n\nこのままコピーしますか？`,
+      confirmLabel: 'コピーする',
+      cancelLabel: 'キャンセル'
+    });
+    if (!ok) return;
+  }
+  const form = selectedFormDefinition();
+  let unmapped = 0;
+  const copied = sourceLines.map(line => {
+    const next = {...emptyLine(form), ...line};
+    if (line.date) {
+      const mapped = mapDateToMonthByWeekday(line.date, selectedMonth);
+      if (!mapped) unmapped += 1;
+      next.date = mapped || '';
+    } else {
+      next.date = '';
+    }
+    // 業務開始〜終了時間は分数から自動再計算するためコピーしない
+    next.start = '';
+    next.end = '';
+    return next;
+  });
+  // 変換後の日付順に並べ替える（日付が空欄の行は末尾・元の順序を維持）
+  const lines = [
+    ...copied.filter(line => line.date).sort((a, b) => a.date.localeCompare(b.date)),
+    ...copied.filter(line => !line.date),
+  ];
+  const max = form.max_lines || LINE_COUNT;
+  while (lines.length < max) lines.push(emptyLine(form));
+  buildLineRows(lines.slice(0, max));
+  recomputeAllRowTimes();
+  clearFormMessage();
+  showToast(`先月（${monthLabel(sourceMonth)}）の記入分をコピーしました。内容を確認して「${saveButton.textContent}」で保存してください。`, 'success');
+  if (unmapped) {
+    showFormMessage(`${unmapped}件の行は${monthLabel(selectedMonth)}に同じ第N曜日が存在しないため、日付を空欄にしています。日付を入力してください。`, true);
+  }
+}
 function timeToMinutes(value) {
   if (!value) return null;
   const [hours, minutes] = value.split(':').map(Number);
@@ -1594,9 +1674,11 @@ function setReportInputsDisabled(disabled) {
     // 内容ボタンは読取専用時も「閲覧」のためクリックできるよう無効化しない
     if (el.id !== 'monthFilter' && !el.hasAttribute('data-note-btn')) el.disabled = disabled;
   });
-  // 「前回の記入分をコピー」はフォーム外（報告書タブ行の右端）にあるため個別に無効化する
+  // コピー系ボタンはフォーム外（報告書タブ行の右端）にあるため個別に無効化する
   const copyBtn = document.getElementById('copyPrevLineBtn');
   if (copyBtn) copyBtn.disabled = disabled;
+  const copyLastMonthBtn = document.getElementById('copyLastMonthBtn');
+  if (copyLastMonthBtn) copyLastMonthBtn.disabled = disabled;
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
   // 上のループでスマホ明細リスト内のボタンも無効化されるため、編集可否を反映して描画し直す
@@ -1628,6 +1710,8 @@ function renderFormAvailability() {
     formPanel.classList.add('hidden');
     const copyBtn = document.getElementById('copyPrevLineBtn');
     if (copyBtn) copyBtn.classList.add('hidden');
+    const copyLastMonthBtn = document.getElementById('copyLastMonthBtn');
+    if (copyLastMonthBtn) copyLastMonthBtn.classList.add('hidden');
     return;
   }
   formPanel.classList.remove('hidden');
