@@ -32,8 +32,10 @@
     let separationLocks = {office_tutor_ids: [], sales_tutor_ids: []};
     const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
     // 勤怠区分（種別）。講師フォーム・PDFと共有する不変キー。空＝勤務。
-    const ATTENDANCE_LABELS = {'': '勤務', work: '勤務', paid_leave: '有給休暇', absent: '欠勤'};
+    const ATTENDANCE_LABELS = {'': '勤務', work: '勤務', paid_leave: '有給休暇', absent: '欠勤', personal_reason: '自己都合', school_event: '学校行事'};
     function isLeaveKind(value) { return value === 'paid_leave' || value === 'absent'; }
+    // 自己都合・学校行事: 担当時限・担当業務（分）は0固定だが、副業務等の分は合計に含める（講師フォームと同一）。
+    function isNoMainDutyKind(value) { return value === 'personal_reason' || value === 'school_event'; }
 
     // 講師の報告書フォームと同じ列・値・集計で表示するため、保存済みの列定義スナップショット
     // (form_data.meta.column_definition) を使う。無い旧データは従来の静的列にフォールバックする。
@@ -108,6 +110,8 @@
         const k = line.kind || '';
         if (k === 'paid_leave') return '<span class="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-xs font-medium text-amber-800">有給</span>';
         if (k === 'absent') return '<span class="inline-block rounded bg-rose-100 px-1.5 py-0.5 text-xs font-medium text-rose-800">欠勤</span>';
+        if (k === 'personal_reason') return '<span class="inline-block whitespace-nowrap rounded bg-violet-100 px-1.5 py-0.5 text-xs font-medium text-violet-800">自己都合</span>';
+        if (k === 'school_event') return '<span class="inline-block whitespace-nowrap rounded bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-800">学校行事</span>';
         return '<span class="text-slate-400">勤務</span>';
       }
       if (column.type === 'timerange') {
@@ -162,10 +166,14 @@
       currentReport = report;
       const meta = (report.form_data && report.form_data.meta) || {};
       const lines = (report.form_data && Array.isArray(report.form_data.lines) ? report.form_data.lines : []).filter(hasData);
-      // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する（講師フォームと同一）
-      const workLines = lines.filter(line => !isLeaveKind(line.kind));
+      // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として集計する（講師フォームと同一）。
+      // 自己都合・学校行事の行も勤務日数に含めず回数として集計するが、副業務等の分は合計に含める。
+      const sumLines = lines.filter(line => !isLeaveKind(line.kind));
+      const workLines = sumLines.filter(line => !isNoMainDutyKind(line.kind));
       const paidLeaveCount = lines.filter(line => line.kind === 'paid_leave').length;
       const absentCount = lines.filter(line => line.kind === 'absent').length;
+      const personalReasonCount = lines.filter(line => line.kind === 'personal_reason').length;
+      const schoolEventCount = lines.filter(line => line.kind === 'school_event').length;
       const cols = displayColumns(report);
       const summable = snapshotColumns(report).filter(c => c.summable);
 
@@ -182,14 +190,16 @@
         `<div>勤務日数：<span class="font-semibold">${workLines.length}</span>日</div>`,
         `<div>有給休暇：<span class="font-semibold text-amber-700">${paidLeaveCount}</span>回</div>`,
         `<div>欠勤：<span class="font-semibold text-rose-700">${absentCount}</span>回</div>`,
+        `<div>自己都合：<span class="font-semibold text-violet-700">${personalReasonCount}</span>回</div>`,
+        `<div>学校行事：<span class="font-semibold text-sky-700">${schoolEventCount}</span>回</div>`,
       ];
       summable.forEach(c => {
         if (c.type === 'count_minutes') {
-          const cnt = workLines.reduce((sum, line) => sum + num(line[c.count_key]), 0);
-          const mn = workLines.reduce((sum, line) => sum + num(line[c.minutes_key]), 0);
+          const cnt = sumLines.reduce((sum, line) => sum + num(line[c.count_key]), 0);
+          const mn = sumLines.reduce((sum, line) => sum + num(line[c.minutes_key]), 0);
           summaryParts.push(`<div>${escapeHtml(c.label)}：<span class="font-semibold">${cnt.toLocaleString()}</span>${escapeHtml(c.unit || '回')} / <span class="font-semibold">${mn.toLocaleString()}</span>分</div>`);
         } else {
-          const sum = workLines.reduce((acc, line) => acc + num(line[c.key]), 0);
+          const sum = sumLines.reduce((acc, line) => acc + num(line[c.key]), 0);
           summaryParts.push(`<div>${escapeHtml(c.label)}：<span class="font-semibold">${sum.toLocaleString()}</span></div>`);
         }
       });

@@ -16,21 +16,35 @@ def current_month() -> str:
 
 # 勤怠区分（種別）。明細行の "kind" キーで保持する。空＝勤務（既定）。
 # 講師フォーム(reports.html)・参照ビュー(report_view.html)・PDF(export_service)で共有する不変キー。
-ATTENDANCE_LABELS = {"": "勤務", "work": "勤務", "paid_leave": "有給休暇", "absent": "欠勤"}
+ATTENDANCE_LABELS = {
+    "": "勤務",
+    "work": "勤務",
+    "paid_leave": "有給休暇",
+    "absent": "欠勤",
+    "personal_reason": "自己都合",
+    "school_event": "学校行事",
+}
 
 
 def is_leave_kind(kind) -> bool:
-    """有給休暇または欠勤の区分か。"""
+    """有給休暇または欠勤の区分か（勤務時間を一切持たない行）。"""
     return kind in ("paid_leave", "absent")
 
 
-def attendance_counts(lines) -> dict[str, int]:
-    """明細行から有給休暇の取得回数・欠勤回数・勤務日数を数える。
+def is_no_main_duty_kind(kind) -> bool:
+    """自己都合または学校行事の区分か（担当時限・担当業務は0固定、副業務等は入力可）。"""
+    return kind in ("personal_reason", "school_event")
 
-    有給休暇/欠勤の行は勤務日数に含めない。勤務日数は「勤務区分かつ何らかの記入がある行」。
+
+def attendance_counts(lines) -> dict[str, int]:
+    """明細行から種別（有給休暇/欠勤/自己都合/学校行事）ごとの回数と勤務日数を数える。
+
+    種別付きの行は勤務日数に含めない。勤務日数は「勤務区分かつ何らかの記入がある行」。
     """
     paid_leave = 0
     absent = 0
+    personal_reason = 0
+    school_event = 0
     work_days = 0
     for line in lines or []:
         if not isinstance(line, dict):
@@ -40,9 +54,19 @@ def attendance_counts(lines) -> dict[str, int]:
             paid_leave += 1
         elif kind == "absent":
             absent += 1
+        elif kind == "personal_reason":
+            personal_reason += 1
+        elif kind == "school_event":
+            school_event += 1
         elif any(str(value).strip() for key, value in line.items() if key != "kind"):
             work_days += 1
-    return {"paid_leave": paid_leave, "absent": absent, "work_days": work_days}
+    return {
+        "paid_leave": paid_leave,
+        "absent": absent,
+        "personal_reason": personal_reason,
+        "school_event": school_event,
+        "work_days": work_days,
+    }
 
 
 def get_report_or_404(db: Session, report_id) -> WorkReport:

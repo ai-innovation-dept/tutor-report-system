@@ -128,8 +128,12 @@ const ACTION_LABELS = {
 const ATTENDANCE_KIND_OPTIONS = [
   {value: '', label: '勤務'},
   {value: 'paid_leave', label: '有給'},
-  {value: 'absent', label: '欠勤'}
+  {value: 'absent', label: '欠勤'},
+  {value: 'personal_reason', label: '自己都合'},
+  {value: 'school_event', label: '学校行事'}
 ];
+// 自己都合・学校行事で0固定にする担当業務（分）の列キー（講師フォームと同一ルール）
+const MAIN_DUTY_KEY_RE = /^(task_minutes_\d+|teach_minutes)$/;
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 // 事務担当が報告書を修正できるステータス（受付の編集可能3ステータスに対応）
@@ -740,6 +744,10 @@ async function submitOfficeEdit() {
     // 有給休暇・欠勤に変更した行は業務セルをクリアする（日付・内容・種別は残す）
     if (updated.kind === 'paid_leave' || updated.kind === 'absent') {
       workKeys.forEach(key => { updated[key] = (typeof updated[key] === 'number') ? 0 : ''; });
+    } else if (updated.kind === 'personal_reason' || updated.kind === 'school_event') {
+      // 自己都合・学校行事は担当時限をクリアし担当業務（分）を0にする（副業務等の入力値は保持）
+      workKeys.forEach(key => { if (MAIN_DUTY_KEY_RE.test(key)) updated[key] = 0; });
+      if ('subject_period' in updated) updated.subject_period = '';
     }
     return updated;
   });
@@ -804,19 +812,21 @@ function reportCard(report) {
     </div>
   </div>`;
 }
-// グループ（紐付け×講師×月）の明細から勤務日数・有給取得回数・欠勤回数を集計する
+// グループ（紐付け×講師×月）の明細から勤務日数・種別（有給/欠勤/自己都合/学校行事）ごとの回数を集計する
 function attendanceCounts(reports) {
-  let work = 0, paid = 0, absent = 0;
+  let work = 0, paid = 0, absent = 0, personal = 0, schoolEvent = 0;
   (reports || []).forEach(report => {
     const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
     lines.forEach(line => {
       const kind = line.kind || '';
       if (kind === 'paid_leave') paid += 1;
       else if (kind === 'absent') absent += 1;
+      else if (kind === 'personal_reason') personal += 1;
+      else if (kind === 'school_event') schoolEvent += 1;
       else if (Object.entries(line).some(([k, v]) => k !== 'kind' && String(v ?? '').trim() !== '')) work += 1;
     });
   });
-  return {work, paid, absent};
+  return {work, paid, absent, personal, schoolEvent};
 }
 function attendanceSummaryHtml(reports) {
   const c = attendanceCounts(reports);
@@ -824,6 +834,8 @@ function attendanceSummaryHtml(reports) {
     <div>勤務日数：<span class="font-semibold">${c.work}</span>日</div>
     <div>有給休暇：<span class="font-semibold text-amber-700">${c.paid}</span>回</div>
     <div>欠勤：<span class="font-semibold text-rose-700">${c.absent}</span>回</div>
+    <div>自己都合：<span class="font-semibold text-violet-700">${c.personal}</span>回</div>
+    <div>学校行事：<span class="font-semibold text-sky-700">${c.schoolEvent}</span>回</div>
   </div>`;
 }
 function showDetails(key) {

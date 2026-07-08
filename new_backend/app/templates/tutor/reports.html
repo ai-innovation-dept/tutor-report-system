@@ -225,13 +225,20 @@ const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const LINE_COUNT = 26;
 const EDITABLE_STATUSES = new Set(['draft', 'returned_to_tutor', 'returned_to_sales']);
 // 勤怠区分（種別）: 空＝勤務（既定）。有給休暇・欠勤の行は勤務時間を持たず、月内の取得回数・欠勤回数として集計する。
-// 値（'paid_leave' / 'absent'）は report_view・PDF・事務修正と共有する不変キー。
+// 自己都合・学校行事の行は担当時限・担当業務（分）を持たない（0分固定）が、副業務等はその日の実績を手動入力できる。
+// 値（'paid_leave' / 'absent' / 'personal_reason' / 'school_event'）は report_view・PDF・事務修正と共有する不変キー。
 const ATTENDANCE_KINDS = [
   {value: '', label: '勤務'},
   {value: 'paid_leave', label: '有給'},
-  {value: 'absent', label: '欠勤'}
+  {value: 'absent', label: '欠勤'},
+  {value: 'personal_reason', label: '自己都合'},
+  {value: 'school_event', label: '学校行事'}
 ];
 function isLeaveKind(value) { return value === 'paid_leave' || value === 'absent'; }
+// 自己都合・学校行事: 担当時限＝選択不可、担当業務（分）＝0固定。その他（副業務・採点・休憩・交通費）は手動入力可。
+function isNoMainDutyKind(value) { return value === 'personal_reason' || value === 'school_event'; }
+// 担当業務（分）の列キー（契約の動的列 task_minutes_N とデフォルト列 teach_minutes）
+const MAIN_DUTY_FIELD_RE = /^(task_minutes_\d+|teach_minutes)$/;
 let formEditable = true;       // 報告書フォームが編集可能か（内容モーダルの編集/閲覧切替に使用）
 let activeNoteCell = null;     // 内容モーダルで編集中の内容セル
 const DEFAULT_FORM_DEFINITION = {
@@ -688,8 +695,8 @@ function renderCell(column, line) {
     const options = ATTENDANCE_KINDS.map(item =>
       `<option value="${item.value}"${item.value === kind ? ' selected' : ''}>${item.label}</option>`).join('');
     return `<td class="relative px-1 py-1">
-      <div class="relative">
-        <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-[120px]')} pr-8">
+      <div class="relative w-[124px]">
+        <input type="date" data-field="date" value="${escapeHtml(line.date || '')}" class="${inputClasses('w-full')} pr-8">
         <span data-weekday class="pointer-events-none absolute inset-y-0 right-1.5 flex items-center text-xs text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
       </div>
     </td>
@@ -778,6 +785,10 @@ function buildLineRows(lines) {
   lineRows.querySelectorAll('.line-kind-select').forEach(sel => {
     sel.addEventListener('change', () => {
       const row = sel.closest('tr');
+      // 勤務へ戻したとき、自己都合・学校行事で0固定にしていた担当業務（分）の残り0をクリアする
+      if (!sel.value) {
+        rowWorkControls(row).forEach(el => { if (MAIN_DUTY_FIELD_RE.test(el.dataset.field) && el.value === '0') el.value = ''; });
+      }
       applyRowKind(row);
       // 有給・欠勤は時間を持たない／勤務へ戻したときは分数から再計算する
       recomputeRowTimes(row);
@@ -796,25 +807,37 @@ function rowWorkControls(row) {
   });
 }
 // 有給休暇／欠勤の行は勤務時間等を持たないため、業務セルを無効化し値をクリアする。
-// 行の背景色で勤務（無色）／有給（amber）／欠勤（rose）を視覚的に区別する。
+// 自己都合／学校行事の行は担当時限を選択不可・担当業務（分）を0固定にし、副業務等は手動入力のまま残す。
+// 行の背景色で勤務（無色）／有給（amber）／欠勤（rose）／自己都合（violet）／学校行事（sky）を視覚的に区別する。
+const KIND_ROW_BG = {paid_leave: 'bg-amber-50', absent: 'bg-rose-50', personal_reason: 'bg-violet-50', school_event: 'bg-sky-50'};
 function applyRowKind(row) {
   if (!row) return;
   const kindSelect = row.querySelector('[data-field="kind"]');
   const kind = kindSelect ? kindSelect.value : '';
   const leave = isLeaveKind(kind);
-  row.classList.remove('bg-amber-50', 'bg-rose-50');
-  if (kind === 'paid_leave') row.classList.add('bg-amber-50');
-  else if (kind === 'absent') row.classList.add('bg-rose-50');
+  const noMainDuty = isNoMainDutyKind(kind);
+  row.classList.remove(...Object.values(KIND_ROW_BG));
+  if (KIND_ROW_BG[kind]) row.classList.add(KIND_ROW_BG[kind]);
   if (leave) {
     // 業務関連の値をクリア（隠しフィールド・数値入力）し、担当時限ボタンの表示も初期化
     rowWorkControls(row).forEach(el => { el.value = ''; });
+  } else if (noMainDuty) {
+    // 担当時限をクリアし、担当業務（分）は0として更新する（副業務等の値は保持）
+    const periodHidden = row.querySelector('[data-field="subject_period"]');
+    if (periodHidden) periodHidden.value = '';
+    rowWorkControls(row).forEach(el => { if (MAIN_DUTY_FIELD_RE.test(el.dataset.field)) el.value = '0'; });
+  }
+  if (leave || noMainDuty) {
     const periodCell = row.querySelector('[data-period-cell]');
     if (periodCell) refreshPeriodCell(periodCell);
   }
   // フォーム全体が読取専用のとき（!formEditable）は setReportInputsDisabled の制御を尊重し、ここでも無効のまま
-  const disabled = leave || !formEditable;
-  rowWorkControls(row).forEach(el => { el.disabled = disabled; });
-  row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = disabled; });
+  rowWorkControls(row).forEach(el => {
+    const field = el.dataset.field;
+    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+    el.disabled = lockedByKind || !formEditable;
+  });
+  row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = leave || noMainDuty || !formEditable; });
 }
 function applyAllRowKinds() {
   lineRows.querySelectorAll('tr').forEach(applyRowKind);
@@ -1110,6 +1133,8 @@ function updateLineSummary() {
   let days = 0;
   let paidLeave = 0;
   let absent = 0;
+  let personalReason = 0;
+  let schoolEvent = 0;
   const sums = {};
   columns.forEach(column => {
     if (column.type === 'count_minutes') { sums[column.count_key] = 0; sums[column.minutes_key] = 0; }
@@ -1119,7 +1144,10 @@ function updateLineSummary() {
     // 有給休暇・欠勤の行は勤務日数・時間に含めず、取得回数・欠勤回数として数える
     if (line.kind === 'paid_leave') { paidLeave += 1; return; }
     if (line.kind === 'absent') { absent += 1; return; }
-    if (lineHasData(line)) days += 1;
+    // 自己都合・学校行事も勤務日数に含めず回数として数える（副業務等の分は下の合計に含める）
+    if (line.kind === 'personal_reason') personalReason += 1;
+    else if (line.kind === 'school_event') schoolEvent += 1;
+    else if (lineHasData(line)) days += 1;
     columns.forEach(column => {
       if (column.type === 'count_minutes') {
         sums[column.count_key] += numberValue(line[column.count_key]);
@@ -1132,7 +1160,9 @@ function updateLineSummary() {
   const parts = [
     `<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`,
     `<div>有給休暇：<span class="font-semibold text-amber-700">${paidLeave}</span>回</div>`,
-    `<div>欠勤：<span class="font-semibold text-rose-700">${absent}</span>回</div>`
+    `<div>欠勤：<span class="font-semibold text-rose-700">${absent}</span>回</div>`,
+    `<div>自己都合：<span class="font-semibold text-violet-700">${personalReason}</span>回</div>`,
+    `<div>学校行事：<span class="font-semibold text-sky-700">${schoolEvent}</span>回</div>`
   ];
   columns.forEach(column => {
     if (column.type === 'count_minutes') {
@@ -1347,9 +1377,9 @@ reportForm.addEventListener('submit', async e => {
     showFormMessage('少なくとも1行入力してください', true);
     return;
   }
-  const leaveWithoutDate = lines.some(line => isLeaveKind(line.kind) && !line.date);
-  if (leaveWithoutDate) {
-    showFormMessage('有給休暇・欠勤の行は日付を入力してください', true);
+  const kindWithoutDate = lines.some(line => line.kind && !line.date);
+  if (kindWithoutDate) {
+    showFormMessage('種別（有給休暇・欠勤・自己都合・学校行事）を選択した行は日付を入力してください', true);
     return;
   }
   const invalidPeriod = lines.some(line => parseSubjectPeriods(line.subject_period).some(p => {

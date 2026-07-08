@@ -563,19 +563,21 @@ function reportCard(report) {
     </div>
   </div>`;
 }
-// グループ（紐付け×講師×月）の明細から勤務日数・有給取得回数・欠勤回数を集計する
+// グループ（紐付け×講師×月）の明細から勤務日数・種別（有給/欠勤/自己都合/学校行事）ごとの回数を集計する
 function attendanceCounts(reports) {
-  let work = 0, paid = 0, absent = 0;
+  let work = 0, paid = 0, absent = 0, personal = 0, schoolEvent = 0;
   (reports || []).forEach(report => {
     const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
     lines.forEach(line => {
       const kind = line.kind || '';
       if (kind === 'paid_leave') paid += 1;
       else if (kind === 'absent') absent += 1;
+      else if (kind === 'personal_reason') personal += 1;
+      else if (kind === 'school_event') schoolEvent += 1;
       else if (Object.entries(line).some(([k, v]) => k !== 'kind' && String(v ?? '').trim() !== '')) work += 1;
     });
   });
-  return {work, paid, absent};
+  return {work, paid, absent, personal, schoolEvent};
 }
 function attendanceSummaryHtml(reports) {
   const c = attendanceCounts(reports);
@@ -583,6 +585,8 @@ function attendanceSummaryHtml(reports) {
     <div>勤務日数：<span class="font-semibold">${c.work}</span>日</div>
     <div>有給休暇：<span class="font-semibold text-amber-700">${c.paid}</span>回</div>
     <div>欠勤：<span class="font-semibold text-rose-700">${c.absent}</span>回</div>
+    <div>自己都合：<span class="font-semibold text-violet-700">${c.personal}</span>回</div>
+    <div>学校行事：<span class="font-semibold text-sky-700">${c.schoolEvent}</span>回</div>
   </div>`;
 }
 function showDetails(key) {

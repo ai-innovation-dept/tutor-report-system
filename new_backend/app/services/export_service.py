@@ -7,7 +7,7 @@ from datetime import date, datetime
 
 from app.forms.definitions import get_form
 from app.models.work import WorkReport
-from app.services.report_service import ATTENDANCE_LABELS, is_leave_kind
+from app.services.report_service import ATTENDANCE_LABELS, is_leave_kind, is_no_main_duty_kind
 
 _PDF_FONT_NAME = "WorkReportFont"
 _PDF_FONT_REGISTERED = False
@@ -139,6 +139,10 @@ def _kind_cell_value(line: dict) -> str:
         return "有給"
     if kind == "absent":
         return "欠勤"
+    if kind == "personal_reason":
+        return "自己都合"
+    if kind == "school_event":
+        return "学校行事"
     has_data = any(str(value).strip() for key, value in line.items() if key != "kind")
     return "勤務" if has_data else ""
 
@@ -185,7 +189,8 @@ def _col_widths(display_cols: list[dict], mm, avail_width):
             widths.append(None)
             note_index = len(widths) - 1
         elif ctype == "kind":
-            widths.append(14 * mm)
+            # 「自己都合」「学校行事」4文字（8pt×4=32pt）＋左右パディング12ptが収まる幅にする
+            widths.append(16 * mm)
         elif ctype == "timerange":
             widths.append(28 * mm)
         elif ctype == "count_minutes":
@@ -218,27 +223,34 @@ def _col_widths(display_cols: list[dict], mm, avail_width):
 
 
 def _summary_parts(report: WorkReport, lines: list[dict]) -> list[str]:
-    """勤怠サマリ（勤務日数/有給/欠勤）＋集計可能列の合計。参照ビューの summary と同一。"""
+    """勤怠サマリ（勤務日数/有給/欠勤/自己都合/学校行事）＋集計可能列の合計。参照ビューの summary と同一。"""
     filtered = [line for line in lines if _has_data(line)]
-    work_lines = [line for line in filtered if not is_leave_kind(line.get("kind"))]
+    # 分の合計対象＝有給/欠勤（値を持たない）以外の行。自己都合・学校行事の副業務等の分も含める。
+    sum_lines = [line for line in filtered if not is_leave_kind(line.get("kind"))]
+    # 勤務日数＝勤務区分の行のみ。自己都合・学校行事は回数として数える。
+    work_lines = [line for line in sum_lines if not is_no_main_duty_kind(line.get("kind"))]
     paid = sum(1 for line in filtered if line.get("kind") == "paid_leave")
     absent = sum(1 for line in filtered if line.get("kind") == "absent")
+    personal = sum(1 for line in filtered if line.get("kind") == "personal_reason")
+    school_event = sum(1 for line in filtered if line.get("kind") == "school_event")
     parts = [
         f"勤務日数：{len(work_lines)}日",
         f"有給休暇：{paid}回",
         f"欠勤：{absent}回",
+        f"自己都合：{personal}回",
+        f"学校行事：{school_event}回",
     ]
-    # 集計はスナップショット列の summable 列のみ。勤務行（有給/欠勤を除く）で合計する。
+    # 集計はスナップショット列の summable 列のみ。有給/欠勤を除く行で合計する。
     for col in _snapshot_columns(report):
         if not col.get("summable"):
             continue
         if col.get("type") == "count_minutes":
-            cnt = sum(_int(line.get(col.get("count_key"))) for line in work_lines)
-            mn = sum(_int(line.get(col.get("minutes_key"))) for line in work_lines)
+            cnt = sum(_int(line.get(col.get("count_key"))) for line in sum_lines)
+            mn = sum(_int(line.get(col.get("minutes_key"))) for line in sum_lines)
             unit = col.get("unit") or "回"
             parts.append(f"{col.get('label')}：{cnt:,}{unit} / {mn:,}分")
         else:
-            total = sum(_int(line.get(col.get("key"))) for line in work_lines)
+            total = sum(_int(line.get(col.get("key"))) for line in sum_lines)
             parts.append(f"{col.get('label')}：{total:,}")
     return parts
 

@@ -163,6 +163,26 @@ class TestMinuteInputFlow:
         res = _action(client, "tutor@mi.example.com", report_id, "submit", "tutor")
         assert res.json()["status"] == WorkStatus.AWAITING_SCHOOL
 
+    def test_no_main_duty_row_sub_minutes_trigger(self, client, db, setup):
+        """自己都合・学校行事（kind）の行は担当業務0固定だが、副業務への1〜9分手入力は判定対象。"""
+        contract = _create_contract(client, setup)
+        report_id = _create_report(client, contract, [
+            {"date": "2026-06-01", "task_minutes_1": 150},
+            {"date": "2026-06-02", "kind": "school_event", "task_minutes_1": 0, "sub_minutes_1": 37},
+        ])
+        res = _action(client, "tutor@mi.example.com", report_id, "submit", "tutor")
+        assert res.json()["status"] == WorkStatus.AWAITING_OFFICE_PRECHECK
+
+    def test_no_main_duty_row_round_minutes_stay_normal_flow(self, client, db, setup):
+        """自己都合（kind）の行が担当業務0・副業務10分単位なら通常フロー（学校確認待ち）。"""
+        contract = _create_contract(client, setup)
+        report_id = _create_report(client, contract, [
+            {"date": "2026-06-01", "task_minutes_1": 150},
+            {"date": "2026-06-02", "kind": "personal_reason", "task_minutes_1": 0, "sub_minutes_1": 30},
+        ])
+        res = _action(client, "tutor@mi.example.com", report_id, "submit", "tutor")
+        assert res.json()["status"] == WorkStatus.AWAITING_SCHOOL
+
     def test_default_form_teach_minutes_triggers(self, client, db, setup):
         """デフォルト列（teach_minutes＝担当業務）でも判定される。"""
         contract = _create_contract(client, setup)

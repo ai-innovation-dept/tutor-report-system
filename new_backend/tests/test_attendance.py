@@ -1,7 +1,9 @@
-"""勤怠区分（有給休暇・欠勤）の集計とPDF反映のテスト。"""
+"""勤怠区分（有給休暇・欠勤・自己都合・学校行事）の集計とPDF反映のテスト。"""
 import pytest
 
-from app.services.report_service import attendance_counts, is_leave_kind
+from app.services.report_service import attendance_counts, is_leave_kind, is_no_main_duty_kind
+
+_EMPTY_COUNTS = {"paid_leave": 0, "absent": 0, "personal_reason": 0, "school_event": 0, "work_days": 0}
 
 
 def test_attendance_counts_basic():
@@ -10,9 +12,13 @@ def test_attendance_counts_basic():
         {"kind": "paid_leave", "date": "2026-06-02"},
         {"kind": "absent", "date": "2026-06-03"},
         {"kind": "paid_leave", "date": "2026-06-04"},
+        {"kind": "personal_reason", "date": "2026-06-05"},
+        {"kind": "school_event", "date": "2026-06-06", "sub_minutes_1": 60},
         {"kind": "", "date": "", "teach_minutes": ""},  # 空行は勤務日数に含めない
     ]
-    assert attendance_counts(lines) == {"paid_leave": 2, "absent": 1, "work_days": 1}
+    assert attendance_counts(lines) == {
+        "paid_leave": 2, "absent": 1, "personal_reason": 1, "school_event": 1, "work_days": 1,
+    }
 
 
 def test_attendance_counts_missing_kind_is_work():
@@ -24,11 +30,13 @@ def test_attendance_counts_missing_kind_is_work():
     assert counts["work_days"] == 2
     assert counts["paid_leave"] == 0
     assert counts["absent"] == 0
+    assert counts["personal_reason"] == 0
+    assert counts["school_event"] == 0
 
 
 def test_attendance_counts_handles_non_dict_and_empty():
-    assert attendance_counts([]) == {"paid_leave": 0, "absent": 0, "work_days": 0}
-    assert attendance_counts(None) == {"paid_leave": 0, "absent": 0, "work_days": 0}
+    assert attendance_counts([]) == _EMPTY_COUNTS
+    assert attendance_counts(None) == _EMPTY_COUNTS
     assert attendance_counts(["x", None, {"kind": "absent", "date": "2026-06-03"}])["absent"] == 1
 
 
@@ -38,6 +46,18 @@ def test_is_leave_kind():
     assert not is_leave_kind("")
     assert not is_leave_kind("work")
     assert not is_leave_kind(None)
+    assert not is_leave_kind("personal_reason")
+    assert not is_leave_kind("school_event")
+
+
+def test_is_no_main_duty_kind():
+    assert is_no_main_duty_kind("personal_reason")
+    assert is_no_main_duty_kind("school_event")
+    assert not is_no_main_duty_kind("")
+    assert not is_no_main_duty_kind("work")
+    assert not is_no_main_duty_kind("paid_leave")
+    assert not is_no_main_duty_kind("absent")
+    assert not is_no_main_duty_kind(None)
 
 
 def test_build_report_pdf_includes_attendance_rows():
@@ -98,6 +118,9 @@ def _dynamic_report():
                  "task_minutes_1": 60, "sub_minutes_1": 0, "scoring_count": 0,
                  "scoring_minutes": 0, "break_minutes": 0, "commute_fee": 500, "note": ""},
                 {"date": "2026-06-03", "kind": "paid_leave"},
+                # 学校行事: 担当業務0固定・副業務等は入力可（分は合計に含め、勤務日数には含めない）
+                {"date": "2026-06-04", "kind": "school_event", "task_minutes_1": 0,
+                 "sub_minutes_1": 40, "commute_fee": 500},
                 {"date": "", "kind": ""},  # 未記入行 → 除外
             ],
         },
@@ -127,12 +150,14 @@ def test_pdf_summary_sums_dynamic_columns():
     report = _dynamic_report()
     parts = _summary_parts(report, report.form_data["lines"])
     joined = "　".join(parts)
-    assert "勤務日数：2日" in joined  # 有給1日・未記入1行は勤務日数に含めない
+    assert "勤務日数：2日" in joined  # 有給1日・学校行事1日・未記入1行は勤務日数に含めない
     assert "有給休暇：1回" in joined
-    assert "数学指導（分）：150" in joined  # 90 + 60
-    assert "英語補習（分）：30" in joined   # 30 + 0
+    assert "自己都合：0回" in joined
+    assert "学校行事：1回" in joined
+    assert "数学指導（分）：150" in joined  # 90 + 60 + 0（学校行事は0固定）
+    assert "英語補習（分）：70" in joined   # 30 + 0 + 40（学校行事の副業務も合計に含める）
     assert "採点（回）：5回 / 30分" in joined
-    assert "往復交通費（円）：1,000" in joined  # 500 + 500
+    assert "往復交通費（円）：1,500" in joined  # 500 + 500 + 500（学校行事の交通費も含める）
 
 
 def test_build_report_pdf_dynamic_columns_smoke():
@@ -216,6 +241,7 @@ def test_build_reports_csv_positional_wide():
                  "scoring_count": 5, "scoring_minutes": 30, "break_minutes": 10,
                  "commute_fee": 500, "note": "メモ"},
                 {"date": "2026-06-03", "kind": "paid_leave"},
+                {"date": "2026-06-04", "kind": "personal_reason", "task_minutes_1": 0, "sub_minutes_1": 30},
                 {"date": "", "kind": ""},  # 未記入行 → 除外
             ],
         },
@@ -226,9 +252,10 @@ def test_build_reports_csv_positional_wide():
     rows = [line for line in text.splitlines() if line]
     assert rows[0].startswith("講師番号,講師名,派遣先,お客様ID,対象月,日付,曜日,種別,業務開始,業務終了,担当時限")
     assert "担当業務1_名称" in rows[0] and "副業務5_分" in rows[0] and "採点_回数" in rows[0]
-    assert len(rows) == 3  # ヘッダ + 勤務日 + 有給日（未記入行は除外）
+    assert len(rows) == 4  # ヘッダ + 勤務日 + 有給日 + 自己都合日（未記入行は除外）
     assert "T1001,大橋悟史,渋谷高校,C001,2026-06,2026-06-01," in text
     assert "数学指導,90" in text
     assert "英語補習,30" in text
     assert "採点,5,30" in text
     assert "有給休暇" in text
+    assert "自己都合" in text
