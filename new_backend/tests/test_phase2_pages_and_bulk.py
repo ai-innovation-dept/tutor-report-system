@@ -88,6 +88,17 @@ class TestPhase2Pages:
         assert res.status_code == 302
         assert res.headers["location"] == "/login"
 
+    def test_tutor_reports_page_has_mobile_line_ui(self, client, users):
+        """講師の報告書一覧にスマホ入力UI（明細リスト＋詳細シート）が含まれる。
+        md未満では明細テーブルを隠してリスト表示し、行タップでシートを開いて入力する。"""
+        _login(client, "p2-tutor@example.com")
+        res = client.get("/tutor/reports")
+        assert res.status_code == 200
+        assert 'id="mobileLineList"' in res.text
+        assert 'id="lineSheetOverlay"' in res.text
+        # 明細テーブルはPC（md以上）のみ表示
+        assert 'class="hidden overflow-x-auto rounded-lg border border-slate-200 md:block"' in res.text
+
 
 class TestPhase2Api:
     def test_office_bulk_approve_moves_to_awaiting_sales(self, client, users):

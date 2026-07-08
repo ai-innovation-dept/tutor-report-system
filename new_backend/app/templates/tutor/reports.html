@@ -16,6 +16,13 @@
     #reportForm input.meta-input[type=date] { -webkit-appearance: none; appearance: none; width: 100%; }
     #reportForm input.meta-input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
   }
+  /* 明細詳細シート（スマホ入力用 画面②）: 数値スピナー非表示＋日付入力のiOS対応（明細セルと同方針） */
+  #lineSheetOverlay input[type=number]::-webkit-inner-spin-button,
+  #lineSheetOverlay input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #lineSheetOverlay input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  #lineSheetOverlay input[type=date] { -webkit-appearance: none; appearance: none; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
+  #lineSheetOverlay input[type=date]::-webkit-date-and-time-value { text-align: left; margin: 0; }
+  #lineSheetOverlay input[type=date]::-webkit-calendar-picker-indicator { display: none; }
 </style>
 <div>
   <!-- 当月の報告書（学校ごと）の横タブ。「＋別の学校の報告書を作成」も同じ行から操作できる -->
@@ -113,12 +120,17 @@
 
         </div>
 
-        <div class="overflow-x-auto rounded-lg border border-slate-200">
+        <!-- 明細テーブル（PC）。スマホ（md未満）では非表示にし、下のリスト＋詳細シートで入力する。
+             非表示でも各行の入力要素が値を保持し続けるため、保存・集計・自動計算の実装は共通のまま。 -->
+        <div class="hidden overflow-x-auto rounded-lg border border-slate-200 md:block">
           <table class="min-w-[1144px] w-full text-sm">
             <thead id="lineHead" class="bg-slate-50 text-xs font-medium text-slate-600"></thead>
             <tbody id="lineRows"></tbody>
           </table>
         </div>
+        <!-- 明細リスト（スマホ 画面①）: 記入済みの行だけを 日付・開始・終了・交通費・事由 で一覧表示。
+             行タップで詳細シート（画面②）を開いて入力する。 -->
+        <div id="mobileLineList" class="md:hidden"></div>
 
         <div id="summaryArea" class="flex flex-wrap gap-x-6 gap-y-1 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"></div>
 
@@ -178,7 +190,8 @@
           <div class="mt-3 text-xs text-slate-500">実費の方が安い場合は購入不可</div>
         </div>
 
-        <div class="flex flex-wrap gap-2">
+        <!-- スマホでは保存ボタンを画面下部へ吸着表示する（明細をシートで入力したあと迷わず保存できるように） -->
+        <div class="sticky bottom-0 z-10 -mx-3 flex flex-wrap gap-2 border-t border-slate-200 bg-white/95 px-3 py-3 backdrop-blur sm:-mx-4 sm:px-4 md:static md:z-auto md:mx-0 md:border-0 md:bg-transparent md:p-0 md:backdrop-blur-none">
           <button class="rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white transition hover:bg-emerald-700" id="saveButton">保存</button>
           <button type="button" class="rounded-lg border border-slate-300 px-4 py-2 font-medium text-slate-700 transition hover:bg-slate-50" onclick="resetReportForm(true)">取消</button>
         </div>
@@ -199,6 +212,24 @@
         <button type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeNoteModal()">キャンセル</button>
         <button type="button" id="noteModalSave" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700" onclick="saveNoteModal()">確定</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- 明細詳細シート（スマホ 画面②）: 1日分の明細をまとめて入力するフルスクリーンシート。
+     保存でフォームの該当行へ反映して閉じる（サーバへの保存は従来どおり画面下の「保存/更新」ボタン）。
+     本文はフォーム外に置き、collectLines/setReportInputsDisabled の対象にならないようにしている。 -->
+<div id="lineSheetOverlay" class="fixed inset-0 z-[1150] hidden items-center justify-center bg-slate-900/60 md:p-4" onclick="closeLineSheet()">
+  <div class="flex h-full w-full flex-col bg-white md:h-auto md:max-h-[92vh] md:max-w-lg md:rounded-xl md:border md:border-slate-200 md:shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+      <h2 id="lineSheetTitle" class="font-semibold text-slate-800">明細入力</h2>
+      <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeLineSheet()">✕ 閉じる</button>
+    </div>
+    <div id="lineSheetBody" class="flex-1 space-y-4 overflow-y-auto p-4"></div>
+    <div id="lineSheetError" class="hidden border-t border-rose-200 bg-rose-50 px-4 py-2 text-sm text-rose-700"></div>
+    <div class="flex gap-2 border-t border-slate-200 p-3">
+      <button type="button" id="lineSheetCancel" class="flex-1 rounded-lg border border-slate-300 bg-white px-4 py-2.5 font-medium text-slate-700 transition hover:bg-slate-50" onclick="closeLineSheet()">キャンセル</button>
+      <button type="button" id="lineSheetSave" class="flex-1 rounded-lg bg-emerald-600 px-4 py-2.5 font-medium text-white transition hover:bg-emerald-700" onclick="saveLineSheet()">保存</button>
     </div>
   </div>
 </div>
@@ -891,6 +922,11 @@ function copyPreviousLine() {
   recomputeAllRowTimes();
   clearFormMessage();
   showToast(`${lastFilled + 1}回目の内容を${targetIndex + 1}回目にコピーしました。日付を入力してください。`, 'success');
+  // スマホでは明細テーブルが非表示のため、コピー先行の詳細シートを開いて日付入力へ誘導する
+  if (window.matchMedia('(max-width: 767px)').matches) {
+    openLineSheet(targetIndex);
+    return;
+  }
   const dateInput = lineRows.querySelector(`tr[data-index="${targetIndex}"] [data-field="date"]`);
   if (dateInput && !dateInput.disabled) dateInput.focus();
 }
@@ -943,15 +979,28 @@ function rowMinutesTotal(row, keys = timeMinuteKeys()) {
     return sum + (input ? numberValue(input.value) : 0);
   }, 0);
 }
+// 分数合計から業務開始〜終了時間を求める共通計算（明細行・詳細シートで共用する唯一のルール）。
+// 開始は WORK_START_TIME 固定。合計0分は未計算（空）、同日23:59超過は overflow=true（計算不可）。
+function computeAutoTimes(total) {
+  const startMinutes = timeToMinutes(WORK_START_TIME);
+  const overflow = total > 0 && startMinutes + total > DAY_END_MINUTES;
+  const start = (total > 0 && !overflow) ? WORK_START_TIME : '';
+  const end = start ? minutesToTime(startMinutes + total) : '';
+  return {start, end, overflow};
+}
+// 担当時限のコマ数から自動入力する 担当業務（分）・休憩時間（分）（明細行・詳細シートで共用）。
+function periodAutoFillValues(count) {
+  return {
+    task: count > 0 ? String(count * MINUTES_PER_PERIOD) : '',
+    breakMinutes: count > 0 ? String((count - 1) * BREAK_MINUTES_PER_EXTRA_PERIOD) : ''
+  };
+}
 function recomputeRowTimes(row, notify = false) {
   const cell = row.querySelector('[data-time-range]');
   if (!cell) return;
   const kind = row.querySelector('[data-field="kind"]')?.value || '';
   const total = isLeaveKind(kind) ? 0 : rowMinutesTotal(row);
-  const startMinutes = timeToMinutes(WORK_START_TIME);
-  const overflow = total > 0 && startMinutes + total > DAY_END_MINUTES;
-  const start = (total > 0 && !overflow) ? WORK_START_TIME : '';
-  const end = start ? minutesToTime(startMinutes + total) : '';
+  const {start, end, overflow} = computeAutoTimes(total);
   cell.querySelector('[data-field="start"]').value = start;
   cell.querySelector('[data-field="end"]').value = end;
   const display = cell.querySelector('[data-time-display]');
@@ -970,6 +1019,8 @@ function recomputeRowTimes(row, notify = false) {
 }
 function recomputeAllRowTimes() {
   lineRows.querySelectorAll('tr').forEach(row => recomputeRowTimes(row));
+  // 業務開始〜終了時間の一括再計算をスマホの明細リスト表示にも反映する
+  renderMobileList();
 }
 // 担当時限の選択コマ数 → 右隣の担当業務（分）＝コマ数×50、休憩時間（分）＝（コマ数−1）×10 を自動入力する。
 // 自動入力後の分数は1分単位で手動修正できる（担当時限を選び直すと自動値で上書きされる）。
@@ -977,11 +1028,12 @@ function applyPeriodAutoFill(row) {
   const hidden = row.querySelector('[data-field="subject_period"]');
   if (!hidden) return;
   const count = parseSubjectPeriods(hidden.value).length;
+  const auto = periodAutoFillValues(count);
   const taskKey = periodAutoFillKey();
   const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
-  if (taskInput) taskInput.value = count > 0 ? String(count * MINUTES_PER_PERIOD) : '';
+  if (taskInput) taskInput.value = auto.task;
   const breakInput = row.querySelector('[data-field="break_minutes"]');
-  if (breakInput) breakInput.value = count > 0 ? String((count - 1) * BREAK_MINUTES_PER_EXTRA_PERIOD) : '';
+  if (breakInput) breakInput.value = auto.breakMinutes;
   recomputeRowTimes(row, true);
 }
 // 担当時限：複数選択（1〜10）。値は「1・3・6」の文字列で保持（report_view/PDF/既存単一値と互換）。
@@ -1085,6 +1137,349 @@ function closeNoteModal() {
   overlay.classList.remove('flex');
   activeNoteCell = null;
 }
+
+// ===== スマホ入力UI（画面①: 明細リスト / 画面②: 明細詳細シート） =====
+// md未満では明細テーブルを隠し、記入済み行を「日付・開始・終了・交通費・事由」のリストで表示する。
+// 行タップでフルスクリーンの詳細シートを開き、保存でフォームの該当行（非表示のテーブル入力）へ反映する。
+// テーブルの行入力が唯一のデータ源のため、保存・集計・自動計算・提出判定はPC表示と完全に共通。
+const KIND_LABELS = Object.fromEntries(ATTENDANCE_KINDS.map(item => [item.value, item.label]));
+const KIND_TEXT_COLOR = {paid_leave: 'text-amber-700', absent: 'text-rose-700', personal_reason: 'text-violet-700', school_event: 'text-sky-700'};
+const CIRCLED_NUMBERS = '①②③④⑤⑥⑦⑧⑨⑩';
+let activeSheetIndex = null;
+// リストの日付表示「06/03(水)」
+function mobileDateLabel(value) {
+  if (!value) return '';
+  const [, m, d] = String(value).split('-');
+  return `${m}/${d}${weekdayParen(value)}`;
+}
+// 担当時限の時間帯「08:40〜09:30」。開始8:40から（50分授業＋10分休憩）の繰り返しで導出する。
+function periodTimeRange(n) {
+  const start = timeToMinutes(WORK_START_TIME) + (n - 1) * (MINUTES_PER_PERIOD + BREAK_MINUTES_PER_EXTRA_PERIOD);
+  return `${minutesToTime(start)}〜${minutesToTime(start + MINUTES_PER_PERIOD)}`;
+}
+function renderMobileList() {
+  const wrap = document.getElementById('mobileLineList');
+  if (!wrap) return;
+  const lines = collectLines();
+  const filled = lines.map((line, index) => ({line, index})).filter(item => lineHasData(item.line));
+  const header = `<div class="flex items-center gap-1 border-b border-slate-200 bg-slate-50 px-2 py-2 text-[11px] font-medium text-slate-500">
+    <span class="w-[88px] shrink-0">日付</span>
+    <span class="w-12 shrink-0 text-center">開始</span>
+    <span class="w-12 shrink-0 text-center">終了</span>
+    <span class="w-14 shrink-0 text-right">交通費</span>
+    <span class="min-w-0 flex-1 pl-2">事由</span>
+  </div>`;
+  const rows = filled.map(({line, index}) => {
+    const kind = line.kind || '';
+    const fee = line.commute_fee === '' || line.commute_fee == null ? '' : Number(line.commute_fee).toLocaleString();
+    return `<button type="button" data-line-open="${index}" class="flex w-full items-center gap-1 px-2 py-3 text-left text-sm transition active:bg-emerald-50 ${KIND_ROW_BG[kind] || 'bg-white'}">
+      <span class="w-[88px] shrink-0 whitespace-nowrap font-medium text-emerald-700 underline decoration-emerald-300 underline-offset-2">${line.date ? escapeHtml(mobileDateLabel(line.date)) : '<span class="text-slate-400">日付未設定</span>'}</span>
+      <span class="w-12 shrink-0 text-center text-slate-700">${escapeHtml(line.start || '')}</span>
+      <span class="w-12 shrink-0 text-center text-slate-700">${escapeHtml(line.end || '')}</span>
+      <span class="w-14 shrink-0 text-right text-slate-700">${escapeHtml(fee)}</span>
+      <span class="min-w-0 flex-1 truncate pl-2 ${KIND_TEXT_COLOR[kind] || 'text-slate-600'}">${escapeHtml(kind ? (KIND_LABELS[kind] || '') : '')}</span>
+    </button>`;
+  }).join('');
+  const empty = `<div class="px-3 py-6 text-center text-sm text-slate-500">まだ入力がありません。<br>下の「＋ 日付を追加」から入力してください。</div>`;
+  const hasEmptyRow = lines.some(line => !lineHasData(line));
+  const addButton = (formEditable && hasEmptyRow)
+    ? `<button type="button" data-line-add class="mt-2 flex w-full items-center justify-center gap-1 rounded-lg border border-dashed border-emerald-300 bg-emerald-50/60 px-3 py-3 text-sm font-medium text-emerald-700 transition active:bg-emerald-100">＋ 日付を追加</button>`
+    : '';
+  wrap.innerHTML = `<div class="divide-y divide-slate-100 overflow-hidden rounded-lg border border-slate-200">${header}${filled.length ? rows : empty}</div>${addButton}
+    <p class="mt-1.5 text-[11px] leading-relaxed text-slate-400">日付をタップすると詳細を入力できます。入力後は画面下の「${escapeHtml(saveButton.textContent)}」で確定してください。</p>`;
+}
+function sheetInputClass(extra = '') {
+  return `rounded-lg border border-slate-300 px-3 py-2.5 text-base focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${extra}`;
+}
+function sheetFieldLabel(text) {
+  return `<div class="mb-1 text-sm font-medium text-slate-600">${escapeHtml(text)}</div>`;
+}
+// 数値・テキストなど汎用1入力の明細列をシート用フィールドにする
+function sheetSimpleField(column, value, disabled) {
+  return `<div>${sheetFieldLabel(columnLabel(column))}
+    <input type="${inputType(column)}" ${inputAttributes(column)} data-sheet-field="${escapeHtml(column.key)}" value="${escapeHtml(value ?? '')}" ${disabled ? 'disabled' : ''} class="${sheetInputClass('w-full')}">
+  </div>`;
+}
+// 採点など count_minutes 列（回数／分のペア入力）
+function sheetCountMinutesField(column, line, disabledMap) {
+  return `<div>${sheetFieldLabel(columnLabel(column))}
+    <div class="flex items-center gap-2">
+      <input type="number" min="0" step="1" inputmode="numeric" data-sheet-field="${escapeHtml(column.count_key)}" value="${escapeHtml(line[column.count_key] ?? '')}" ${disabledMap[column.count_key] ? 'disabled' : ''} class="${sheetInputClass('w-24')}">
+      <span class="shrink-0 text-sm text-slate-500">${escapeHtml(column.unit || '回')} /</span>
+      <input type="number" min="0" step="1" inputmode="numeric" data-sheet-field="${escapeHtml(column.minutes_key)}" value="${escapeHtml(line[column.minutes_key] ?? '')}" ${disabledMap[column.minutes_key] ? 'disabled' : ''} class="${sheetInputClass('w-24')}">
+      <span class="shrink-0 text-sm text-slate-500">分</span>
+    </div>
+  </div>`;
+}
+function sheetGroupBox(title, innerHtml) {
+  if (!innerHtml) return '';
+  return `<div class="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+    <div class="mb-2 text-sm font-semibold text-slate-700">${escapeHtml(title)}</div>
+    <div class="space-y-3">${innerHtml}</div>
+  </div>`;
+}
+// シートを開く。値・活殺（種別ロック／読取専用）はフォームの該当行から読み取って初期化する。
+function openLineSheet(index) {
+  const row = lineRows.querySelector(`tr[data-index="${index}"]`);
+  if (!row) return;
+  activeSheetIndex = index;
+  const columns = activeColumnDefinition();
+  const line = {};
+  const disabledMap = {};
+  row.querySelectorAll('[data-field]').forEach(input => {
+    line[input.dataset.field] = input.value;
+    disabledMap[input.dataset.field] = input.disabled;
+  });
+  const kind = line.kind || '';
+  const parts = [];
+  // 日付（明細行と同じく曜日をボックス内へ併記）
+  if (columns.some(column => column.key === 'date')) {
+    parts.push(`<div>${sheetFieldLabel('日付')}
+      <div class="relative">
+        <input type="date" data-sheet-field="date" value="${escapeHtml(line.date || '')}" ${disabledMap.date ? 'disabled' : ''} class="${sheetInputClass('w-full pr-12')}">
+        <span data-sheet-weekday class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-sm text-slate-600">${escapeHtml(weekdayParen(line.date))}</span>
+      </div>
+    </div>`);
+  }
+  // 種別（勤務／有給／欠勤／自己都合／学校行事）
+  if (row.querySelector('[data-field="kind"]')) {
+    const options = ATTENDANCE_KINDS.map(item =>
+      `<option value="${item.value}"${item.value === kind ? ' selected' : ''}>${item.label}</option>`).join('');
+    parts.push(`<div>${sheetFieldLabel('種別')}
+      <select data-sheet-field="kind" ${disabledMap.kind ? 'disabled' : ''} class="${sheetInputClass('w-full')}">${options}</select>
+    </div>`);
+  }
+  // 担当時限（時間帯つきトグル。選択でコマ数×50分→担当業務、（コマ数−1）×10分→休憩へ自動入力）
+  const hasPeriod = columns.some(column => column.key === 'subject_period');
+  if (hasPeriod) {
+    const selected = new Set(parseSubjectPeriods(line.subject_period));
+    const periodDisabled = Boolean(row.querySelector('[data-period-btn]')?.disabled);
+    const buttons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
+      const on = selected.has(String(n));
+      return `<button type="button" data-sheet-period="${n}" ${periodDisabled ? 'disabled' : ''} class="flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? 'border-emerald-600 bg-emerald-600 font-medium text-white' : 'border-slate-300 bg-white text-slate-700'}">
+        <span class="text-base leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-xs">${periodTimeRange(n)}</span>
+      </button>`;
+    }).join('');
+    parts.push(`<div>${sheetFieldLabel('担当時限')}
+      <input type="hidden" data-sheet-field="subject_period" value="${escapeHtml(line.subject_period || '')}" ${disabledMap.subject_period ? 'disabled' : ''}>
+      <div class="grid grid-cols-2 gap-1.5" data-sheet-periods>${buttons}</div>
+      <p class="mt-1 text-[11px] leading-relaxed text-slate-400">選択すると担当業務（分）・休憩時間（分）が自動入力されます（1分単位で修正できます）。</p>
+    </div>`);
+  }
+  // 列を「担当業務」「休憩」「管理業務（副担当業務）」「交通費」「内容」へ振り分け（列定義は契約により可変）
+  const mainCols = [];
+  const subCols = [];
+  let breakCol = null;
+  let feeCol = null;
+  let noteCol = null;
+  columns.forEach(column => {
+    if (['date', 'start', 'end', 'subject_period'].includes(column.key)) return;
+    if (column.key === 'note') { noteCol = column; return; }
+    if (column.key === 'break_minutes') { breakCol = column; return; }
+    if (column.key === 'commute_fee') { feeCol = column; return; }
+    if (column.type !== 'count_minutes' && MAIN_DUTY_FIELD_RE.test(column.key)) { mainCols.push(column); return; }
+    subCols.push(column);
+  });
+  parts.push(sheetGroupBox('担当業務', mainCols.map(column => sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('')));
+  if (breakCol) parts.push(sheetSimpleField(breakCol, line[breakCol.key], disabledMap[breakCol.key]));
+  parts.push(sheetGroupBox('管理業務（副担当業務）', subCols.map(column => column.type === 'count_minutes'
+    ? sheetCountMinutesField(column, line, disabledMap)
+    : sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('')));
+  // 業務開始〜終了時間（自動計算・読取専用）
+  parts.push(`<div>${sheetFieldLabel('業務開始〜終了時間（自動計算）')}
+    <div data-sheet-time title="${escapeHtml(TIME_RANGE_HINT)}" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-base text-slate-400">自動計算</div>
+  </div>`);
+  if (feeCol) parts.push(sheetSimpleField(feeCol, line[feeCol.key], disabledMap[feeCol.key]));
+  if (noteCol) {
+    parts.push(`<div>${sheetFieldLabel(columnLabel(noteCol))}
+      <textarea data-sheet-field="note" rows="3" ${disabledMap.note ? 'disabled' : ''} class="${sheetInputClass('w-full')}">${escapeHtml(line.note || '')}</textarea>
+    </div>`);
+  }
+  document.getElementById('lineSheetTitle').textContent = `${index + 1}回目の明細`;
+  const body = document.getElementById('lineSheetBody');
+  body.innerHTML = parts.filter(Boolean).join('');
+  body.scrollTop = 0;
+  hideSheetError();
+  // 編集不可（過去月・承認済みなど）のときは保存を隠し「閉じる」だけにする
+  document.getElementById('lineSheetSave').classList.toggle('hidden', !formEditable);
+  document.getElementById('lineSheetCancel').textContent = formEditable ? 'キャンセル' : '閉じる';
+  bindSheetEvents(body);
+  recomputeSheetTime();
+  const overlay = document.getElementById('lineSheetOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.body.classList.add('overflow-hidden');
+}
+function closeLineSheet() {
+  const overlay = document.getElementById('lineSheetOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  document.body.classList.remove('overflow-hidden');
+  activeSheetIndex = null;
+}
+function showSheetError(message) {
+  const el = document.getElementById('lineSheetError');
+  el.textContent = message;
+  el.classList.remove('hidden');
+}
+function hideSheetError() {
+  const el = document.getElementById('lineSheetError');
+  el.textContent = '';
+  el.classList.add('hidden');
+}
+function sheetField(key) {
+  return document.getElementById('lineSheetBody').querySelector(`[data-sheet-field="${key}"]`);
+}
+// シート内の業務入力（種別・日付・内容以外）。applyRowKind の rowWorkControls と同じ区分。
+function sheetWorkControls() {
+  return [...document.getElementById('lineSheetBody').querySelectorAll('[data-sheet-field]')].filter(el => {
+    const field = el.dataset.sheetField;
+    return field !== 'kind' && field !== 'date' && field !== 'note';
+  });
+}
+function refreshSheetPeriodButtons() {
+  const body = document.getElementById('lineSheetBody');
+  const hidden = sheetField('subject_period');
+  if (!hidden) return;
+  const selected = new Set(parseSubjectPeriods(hidden.value));
+  body.querySelectorAll('[data-sheet-period]').forEach(btn => {
+    const on = selected.has(btn.dataset.sheetPeriod);
+    btn.classList.toggle('border-emerald-600', on);
+    btn.classList.toggle('bg-emerald-600', on);
+    btn.classList.toggle('font-medium', on);
+    btn.classList.toggle('text-white', on);
+    btn.classList.toggle('border-slate-300', !on);
+    btn.classList.toggle('bg-white', !on);
+    btn.classList.toggle('text-slate-700', !on);
+  });
+}
+// 種別に応じたシート内の活殺・値の制御（明細行の applyRowKind と同一ルール）
+function applySheetKind() {
+  const kind = sheetField('kind')?.value || '';
+  const leave = isLeaveKind(kind);
+  const noMainDuty = isNoMainDutyKind(kind);
+  sheetWorkControls().forEach(el => {
+    const field = el.dataset.sheetField;
+    if (leave) el.value = '';
+    else if (noMainDuty && MAIN_DUTY_FIELD_RE.test(field)) el.value = '0';
+    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+    el.disabled = lockedByKind || !formEditable;
+  });
+  if (leave || noMainDuty) {
+    const hidden = sheetField('subject_period');
+    if (hidden) hidden.value = '';
+  }
+  document.getElementById('lineSheetBody').querySelectorAll('[data-sheet-period]').forEach(btn => {
+    btn.disabled = leave || noMainDuty || !formEditable;
+  });
+  refreshSheetPeriodButtons();
+  recomputeSheetTime();
+}
+// 業務開始〜終了時間のプレビュー（明細行と同じ computeAutoTimes を使用）
+function recomputeSheetTime() {
+  const display = document.getElementById('lineSheetBody').querySelector('[data-sheet-time]');
+  if (!display) return;
+  const kind = sheetField('kind')?.value || '';
+  const total = isLeaveKind(kind) ? 0 : timeMinuteKeys().reduce((sum, key) => {
+    const input = sheetField(key);
+    return sum + (input ? numberValue(input.value) : 0);
+  }, 0);
+  const {start, end, overflow} = computeAutoTimes(total);
+  display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可（同日23:59まで）' : '自動計算');
+  display.classList.toggle('font-medium', !!start);
+  display.classList.toggle('text-slate-800', !!start);
+  display.classList.toggle('text-slate-400', !start && !overflow);
+  display.classList.toggle('text-rose-600', overflow);
+  display.classList.toggle('border-rose-300', overflow);
+  display.classList.toggle('bg-rose-50', overflow);
+  display.classList.toggle('border-slate-200', !overflow);
+  display.classList.toggle('bg-slate-50', !overflow);
+}
+function bindSheetEvents(body) {
+  const dateInput = sheetField('date');
+  if (dateInput) {
+    dateInput.addEventListener('input', () => {
+      const span = body.querySelector('[data-sheet-weekday]');
+      if (span) span.textContent = weekdayParen(dateInput.value);
+      hideSheetError();
+    });
+    // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
+    dateInput.addEventListener('click', () => {
+      if (typeof dateInput.showPicker === 'function') { try { dateInput.showPicker(); } catch (_) {} }
+    });
+  }
+  const kindSelect = sheetField('kind');
+  if (kindSelect) {
+    kindSelect.addEventListener('change', () => {
+      // 勤務へ戻したとき、自己都合・学校行事で0固定にしていた担当業務（分）の残り0をクリアする（明細行と同じ挙動）
+      if (!kindSelect.value) {
+        sheetWorkControls().forEach(el => { if (MAIN_DUTY_FIELD_RE.test(el.dataset.sheetField) && el.value === '0') el.value = ''; });
+      }
+      applySheetKind();
+      hideSheetError();
+    });
+  }
+  body.querySelectorAll('[data-sheet-period]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const hidden = sheetField('subject_period');
+      if (!hidden) return;
+      const selected = new Set(parseSubjectPeriods(hidden.value));
+      const n = btn.dataset.sheetPeriod;
+      if (selected.has(n)) selected.delete(n); else selected.add(n);
+      hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
+      refreshSheetPeriodButtons();
+      // コマ数→担当業務（分）・休憩時間（分）の自動入力（明細行の applyPeriodAutoFill と同一ルール）
+      const auto = periodAutoFillValues(selected.size);
+      const taskKey = periodAutoFillKey();
+      const taskInput = taskKey ? sheetField(taskKey) : null;
+      if (taskInput) taskInput.value = auto.task;
+      const breakInput = sheetField('break_minutes');
+      if (breakInput) breakInput.value = auto.breakMinutes;
+      recomputeSheetTime();
+    });
+  });
+  body.querySelectorAll('input[type="number"][data-sheet-field]').forEach(input => {
+    input.addEventListener('input', recomputeSheetTime);
+  });
+}
+// シートの内容をフォームの該当行へ反映して閉じる（サーバ保存は画面下の「保存/更新」ボタンで行う）
+function saveLineSheet() {
+  if (!formEditable) { closeLineSheet(); return; }
+  if (activeSheetIndex == null) return;
+  const row = lineRows.querySelector(`tr[data-index="${activeSheetIndex}"]`);
+  if (!row) { closeLineSheet(); return; }
+  const dateValue = sheetField('date')?.value || '';
+  const kindValue = sheetField('kind')?.value || '';
+  if (dateValue) {
+    const duplicated = [...lineRows.querySelectorAll('input[data-field="date"]')]
+      .some(other => other.closest('tr') !== row && other.value === dateValue);
+    if (duplicated) {
+      showSheetError(`同じ日付の行がすでにあります（${dateLabel(dateValue)}）。日付を修正してください。`);
+      return;
+    }
+  }
+  if (kindValue && !dateValue) {
+    showSheetError('種別（有給休暇・欠勤・自己都合・学校行事）を選択した場合は日付を入力してください。');
+    return;
+  }
+  document.getElementById('lineSheetBody').querySelectorAll('[data-sheet-field]').forEach(el => {
+    const target = row.querySelector(`[data-field="${el.dataset.sheetField}"]`);
+    if (target) target.value = el.value;
+  });
+  // 行側の表示（曜日・担当時限・内容アイコン・種別ロック・自動計算時間）を反映後の値で更新する
+  const weekdaySpan = row.querySelector('[data-weekday]');
+  if (weekdaySpan) weekdaySpan.textContent = weekdayParen(dateValue);
+  const periodCell = row.querySelector('[data-period-cell]');
+  if (periodCell) refreshPeriodCell(periodCell);
+  const noteCell = row.querySelector('[data-note-cell]');
+  if (noteCell) refreshNoteCell(noteCell);
+  applyRowKind(row);
+  recomputeRowTimes(row);
+  updateLineSummary();
+  const savedIndex = activeSheetIndex;
+  closeLineSheet();
+  showToast(`${savedIndex + 1}回目に反映しました。画面下の「${saveButton.textContent}」で確定してください。`, 'success');
+}
 function collectLines() {
   const numericKeys = new Set();
   (selectedFormDefinition().columns || []).forEach(column => {
@@ -1173,6 +1568,8 @@ function updateLineSummary() {
   });
   const area = document.getElementById('summaryArea');
   if (area) area.innerHTML = parts.join('');
+  // スマホの明細リストは行入力から描画するため、集計と同じタイミングで常に追従させる
+  renderMobileList();
 }
 function renderTaskReference() {
   const el = document.getElementById('taskReference');
@@ -1202,6 +1599,9 @@ function setReportInputsDisabled(disabled) {
   if (copyBtn) copyBtn.disabled = disabled;
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
+  // 上のループでスマホ明細リスト内のボタンも無効化されるため、編集可否を反映して描画し直す
+  // （読取専用でも行タップで詳細シートを閲覧できるようにする）
+  renderMobileList();
 }
 function showFormMessage(message, isError = false) {
   formMessage.textContent = message;
@@ -1456,6 +1856,22 @@ document.getElementById('dispatchPlaceSchool').addEventListener('change', event 
   selectSchool(event.target.value);
 });
 document.getElementById('newReportBtn').addEventListener('click', startNewReport);
+// スマホ明細リスト: 行タップで詳細シートを開く／「＋ 日付を追加」で最初の空き行のシートを開く
+document.getElementById('mobileLineList').addEventListener('click', event => {
+  const openBtn = event.target.closest('[data-line-open]');
+  if (openBtn) {
+    openLineSheet(Number(openBtn.dataset.lineOpen));
+    return;
+  }
+  if (event.target.closest('[data-line-add]')) {
+    const emptyIndex = collectLines().findIndex(line => !lineHasData(line));
+    if (emptyIndex === -1) {
+      showToast('空き行がありません。', 'error');
+      return;
+    }
+    openLineSheet(emptyIndex);
+  }
+});
 
 // 「！」ヒントアイコン: クリックでツールチップ表示、外側クリックで閉じる。
 // ヘッダーは動的描画のためイベント委譲で拾う。
