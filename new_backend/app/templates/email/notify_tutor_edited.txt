@@ -2,7 +2,7 @@
 
 差戻し中の業務連絡表が講師（{actor_name}）により修正・保存されました。
 
-生徒名：{student_name}
+学校名：{student_name}
 対象月：{target_month}
 
 【修正内容】

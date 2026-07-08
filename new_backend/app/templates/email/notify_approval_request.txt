@@ -1,6 +1,6 @@
 {parent_name} 様
 {tutor_name} より {target_month} 分の指導実績報告書の承認依頼が届きました。
-対象生徒：{student_name}
+対象学校：{student_name}
 件数：{count} 件
 合計時間：{total_hours}
 以下のURLからご確認承認をお願いいたします。

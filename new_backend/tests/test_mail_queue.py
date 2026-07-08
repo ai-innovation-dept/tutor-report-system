@@ -143,3 +143,24 @@ def test_forgot_password_enqueues_instead_of_sending():
 
     rows = _pending(TEST_ENGINE)
     assert any(r.to_email == "reset@new.example.com" and r.status == "pending" for r in rows)
+
+
+# ---------------------------------------------------------------------------
+# 文言: EMPS の通知メールは「学校」ラベルを使う（2026-07-08 改修）
+# ---------------------------------------------------------------------------
+
+def test_email_templates_use_school_label_not_student():
+    """通知メール本文のラベルは 対象学校／学校名／担当学校。
+    「生徒」は指導報告・指導時間確認票（legacy）側のステークホルダのため、
+    EMPS のメールテンプレートには登場させない（student_name には学校名が入る）。"""
+    from pathlib import Path
+
+    template_dir = Path(__file__).resolve().parents[1] / "app" / "templates" / "email"
+    texts = {path.name: path.read_text(encoding="utf-8") for path in template_dir.glob("*.txt")}
+    assert texts, "email templates not found"
+    for name, text in texts.items():
+        assert "生徒" not in text, f"{name} に「生徒」表記が残っています"
+    # 例: 事務宛て提出通知（【業務連絡表】報告書が提出されました）の本文
+    assert "対象学校：{student_name}" in texts["notify_submitted_to_admin.txt"]
+    assert "対象学校：{student_name}" in texts["notify_approval_request.txt"]
+    assert "学校名：{student_name}" in texts["notify_office_edited.txt"]

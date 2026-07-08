@@ -8,4 +8,4 @@
 このURLの有効期限は72時間です
 担当講師より指導実績の確認承認をお願いいたします
 担当講師：{tutor_name}
-担当生徒：{student_name}
+担当学校：{student_name}

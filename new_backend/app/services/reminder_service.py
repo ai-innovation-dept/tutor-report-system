@@ -186,7 +186,8 @@ def _enqueue_stale_notification(db: Session, report: WorkReport, users: list[Use
         "warn": "【業務連絡表】未処理報告の警告",
         "escalate": "【業務連絡表】未処理報告の強制確認",
     }
-    student_name = report.assignment.student_name if report.assignment else "生徒未設定"
+    # EMPS では student_name に学校名が入る（生徒は指導報告・指導時間確認票side/legacyのステークホルダ）
+    student_name = report.assignment.student_name if report.assignment else "学校未設定"
     body = f"{student_name}の{report.target_month}月分報告が未処理です。ステータス: {report.status}"
     for user in users:
         record_notification(db, user, report, f"stale_report_{level}", subject_by_level[level], body)

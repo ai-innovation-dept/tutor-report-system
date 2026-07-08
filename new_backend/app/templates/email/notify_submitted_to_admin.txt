@@ -1,6 +1,6 @@
 受付担当 様
 {tutor_name} より {target_month} 分の報告書が提出されました。
-対象生徒：{student_name}
+対象学校：{student_name}
 件数：{count} 件
 合計時間：{total_hours}
 以下のURLから受付処理をお願いいたします。
