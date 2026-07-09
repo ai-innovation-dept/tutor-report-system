@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # 送信失敗時の最大試行回数（これに達したら failed として打ち切る）。
     MAIL_MAX_ATTEMPTS: int = 5
     REMINDER_DAYS_BEFORE_MONTH_END: int = 3
+    # 学校承認の進捗メール（営業向けダイジェスト）を送る日＝「対象月の月末 + この日数」。
+    # 例: 3 なら 6月分は 7/3 に送信。対象は全員承認が揃っていない学校のみ（月1回）。
+    NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END: int = 3
 
     model_config = {"env_file": "../.env", "extra": "ignore"}
 

@@ -258,6 +258,13 @@ async def send_transition_notifications(
     for group_reports in grouped_reports.values():
         await _send_group_notification(db, action, group_reports, actor, comment)
 
+    if action == WorkAction.APPROVE:
+        # 学校承認（awaiting_school → awaiting_office）で契約講師全員の承認が揃った学校を
+        # 営業へ通知する（循環importを避けるため遅延import）。
+        from app.services.school_progress_service import send_school_all_approved_notifications
+
+        await send_school_all_approved_notifications(db, reports)
+
 
 async def _send_group_notification(
     db: Session,

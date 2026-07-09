@@ -4,7 +4,7 @@
 
 > メモ: Claude Code の個人メモリ（`~/.claude/...`）はアカウント/PCに紐づくため引き継がれない。引継ぎに必要な文脈はすべて本ファイル（リポジトリ）に集約している。
 
-最終更新: 2026-07-09（EMPS-2026-0709-01 保留追記）
+最終更新: 2026-07-09（EMPS-2026-0709-01 実装完了：学校承認完了の即時営業通知＋月末+N日の進捗ダイジェスト）
 
 ---
 
@@ -197,19 +197,19 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 
 継続の壁打ち／作業依頼で参照するための保留案件。**引き継ぐ場合は問い合わせ番号で照会すること。**
 
-### 【EMPS-2026-0709-01】学校承認→事務通知の設計変更（全講師の学校承認完了で通知）
+### 【EMPS-2026-0709-01】学校承認→営業通知（全講師の学校承認完了で通知）
 
-- **状態**: 🟡 保留（設計壁打ち中・未実装。2026-07-09時点）
-- **要件**: EMPS で「1つの学校に紐づく契約講師**全員**の当月報告書が学校承認を通過してから」事務へ承認依頼通知を出す。1講師のみの学校はその1件で通知。学校確認スキップ校（`skip_parent_approval`）は**対象外**（ユーザー確認済み）。
-- **調査結論（データ面）**: 学校↔講師の紐づきは**既存DBで保持済み・新規テーブル不要**。
-  - `assignments`（共有）＝ `tutor_id`＋`parent_id`(学校)＋`student_name`。学校指定で全講師を引ける。
-  - `work_assignment_profiles`（＝契約管理の実体）＝ 1契約＝1(tutor, school)。`school_id`/`tutor_id`/`assignment_id`/`is_active`/`contract_start`/`contract_end`。
-  - 「ある学校の当月全報告書」＝ `work_reports JOIN assignments ON assignment_id WHERE parent_id=学校 AND target_month=当月`（同結合は学校エクスポート `api/reports.py:404` で既出）。`WorkReport.school_approved_at` プロパティで学校承認通過を判定可。
-- **現状の重要事実**: 通常フローでは学校承認時（`awaiting_school`→`awaiting_office`）に**事務へメールは飛んでいない**（講師宛て「学校が承認しました」のみ）。事務は `office/queue.html` の「事務確認待ち」列で `awaiting_office` を見て**メール無しでも即処理できる**。よって本件は「全事務一斉送信の廃止」ではなく「全講師承認が揃ったら事務へ通知を**新規追加**」が実体。
-- **確定した論点**: 案3（月末＋N日に1回だけ、契約講師の承認済み/未承認の進捗メール）は案1のデッドロック（当月授業なし＝報告書も承認も存在しない講師がいると全員承認が永久に揃わない）を補完する締切トリガー、という理解でユーザー合意。「授業なし講師」が普通に居るため、案1の即時通知はほぼ発火せず**案3が実質的な主経路**になる見込み。
-- **未決の論点（次回ここから）**:
-  1. 即時通知（案1 happy path）を残すか＝案A（残す＋発火校は締切通知しない）／案B（締切通知一本化。**当方推奨**）。
-  2. 進捗メールの宛先（事務のみ？ `admin_master` も含める？）。
-  3. N（月末＋何日）＝本機能専用のグローバル設定（`.env`）想定。当方仮定は+3日。
-  4. 進捗メールの状態粒度（承認済み/学校確認待ち/未提出、＋差戻し中を別出しするか）。
-- **関連ファイル**: `services/notification_service.py`・`services/workflow_service.py`・`workflow/definitions.py`・`models/work.py`・`models/shared.py`・`templates/office/queue.html`・`api/reports.py`。
+- **状態**: ✅ 実装完了（2026-07-09。new 332 / legacy 231 テスト通過）
+- **確定仕様（ユーザー承認済み）**:
+  1. **即時通知（案A）**: 1つの学校に紐づく**有効契約の講師全員**の当月報告書が学校承認を通過した時点で、**営業（`sales` ロールの有効ユーザー全員）**へ完了メールを1通送る（1講師のみの学校はその1件で発火）。差戻し→再承認で全員承認が再成立した場合は再送する。
+  2. **締切進捗メール**: 「対象月の月末＋N日」（`.env` の `NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END`、既定 3）にちょうど当たる日の朝9時ジョブで、**全員承認が揃っていない学校のみ**を載せたダイジェストを営業全員へ1通送る。学校ごとに「承認済み／未承認」の講師を列挙し、未承認側は内訳（**未提出・学校確認待ち・事務事前確認中・差戻し中・当月授業なし**）を明示。**当月授業なし＝当月の報告書レコードが存在しない（未作成）講師**。月1回のみ（`work_notifications` の `school_monthly_progress` ログで重複送信防止）。
+  3. **除外**: 学校確認スキップ校（学校ユーザーの `skip_parent_approval`）・無効契約（`is_active=False`）・契約期間が当月に掛からない契約・退会済み講師。
+  4. 通知先の「営業担当者」は sales ロール全員（契約の `our_staff`＝弊社担当は自由入力でアカウント非連動のため学校別の送り分けは不可、既存の営業向け承認依頼メールと同じ宛先解決）。
+- **実装のポイント**:
+  - 集計・送信の本体は `new_backend/app/services/school_progress_service.py`（唯一の判定ロジック。即時／締切の両方が `school_month_progress()` を共用）。
+  - 即時通知のフックは `notification_service.send_transition_notifications`（approve 時に遅延 import で呼ぶ）。API の単体承認・一括承認の両方を通る。
+  - 締切ジョブは `reminder_service.run_reminder_job`（毎日 09:00 cron）に組込み。**対象日以外は何もしない**。サーバー停止で当日を逃した月は自動送信されない（必要なら `enqueue_monthly_school_progress(db, today=対象日)` を手動実行）。
+  - 「学校承認済み」= 現在ステータスが `awaiting_office` / `awaiting_sales` / `returned_to_office` / `approved`。
+  - メールテンプレ: `templates/email/notify_school_all_approved.txt`・`notify_school_monthly_progress.txt`（リンク先は `/sales/queue`）。
+  - テスト: `new_backend/tests/test_school_progress.py`（14件。MAIL_BACKEND=console のため実送信ゼロ）。
+- **本番反映の注意**: `.env` に `NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END` 未設定なら既定3が適用（設定追加は任意）。デプロイ後、学校承認で全員が揃うと営業へ実メールが飛ぶ（意図どおりの動作）。

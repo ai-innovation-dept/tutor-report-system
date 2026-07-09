@@ -224,6 +224,10 @@ def run_reminder_job() -> None:
     try:
         enqueue_month_end_reminders(db)
         enqueue_school_approval_reminders(db)
+        # 月末+N日の学校承認進捗メール（営業向け）。対象日以外は何もしない。
+        from app.services.school_progress_service import enqueue_monthly_school_progress
+
+        enqueue_monthly_school_progress(db)
         db.commit()
     finally:
         db.close()
