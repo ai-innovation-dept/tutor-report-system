@@ -305,22 +305,27 @@ def _report_header_values(
     school_name: str,
     tutor_name: str,
 ) -> tuple[str, list[tuple[str, str]]]:
-    """参照画面と同じタイトル・基本情報をPDFヘッダー用に返す。"""
+    """参照画面と同じタイトル・基本情報をPDFヘッダー用に返す。
+
+    講師フォームのヘッダー項目（事業所の名称・組織単位／教室名／所在地／氏名／講師番号／
+    お客様ID／従事業務内容）を漏れなく含める。2列で左＝事業所・右＝講師の並び。
+    弊社担当以降（〜定期代）は _report_footer_values で明細の下に出力する。
+    """
     year, month_str = report.target_month.split("-")
     meta = (report.form_data or {}).get("meta") or {}
 
     school_no = report.school_no
-    tutor_no = report.tutor_no
     school_label = f"{school_name}（{school_no}）" if school_no else school_name
-    tutor_label = f"{tutor_name}（{tutor_no}）" if tutor_no else tutor_name
 
     return (
         f"{year}年{int(month_str)}月分 業務連絡表",
         [
-            ("学校名", school_label or "-"),
-            ("講師名", tutor_label or "-"),
-            ("弊社担当", str(meta.get("our_staff") or "-")),
+            ("事業所の名称・組織単位", school_label or "-"),
+            ("氏名", tutor_name or "-"),
+            ("教室名", str(meta.get("classroom_name") or "-")),
+            ("講師番号", str(meta.get("tutor_no") or report.tutor_no or "-")),
             ("事業所の所在地", str(meta.get("dispatch_place_address") or "-")),
+            ("お客様ID", str(meta.get("customer_id") or "-")),
             ("従事業務内容", str(meta.get("work_content") or "-")),
         ],
     )
@@ -329,16 +334,119 @@ def _report_header_values(
 def _header_grid_rows(fields: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
     """基本情報を参照画面(report_view)の grid-cols-2 と同じ並びに整形する。
 
-    左→右の順で1行2項目: [学校名|講師名] [弊社担当|事業所の所在地] [従事業務内容]。
+    左→右の順で1行2項目:
+    [事業所の名称・組織単位|氏名] [教室名|講師番号] [事業所の所在地|お客様ID] [従事業務内容]。
     """
     return [fields[i:i + 2] for i in range(0, len(fields), 2)]
+
+
+def _date_ja(value) -> str:
+    """YYYY-MM-DD →「YYYY年MM月DD日」（講師フォームの formatDateJa と同表記）。不正・空は空文字。"""
+    try:
+        d = date.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return ""
+    return f"{d.year}年{d.month:02d}月{d.day:02d}日"
+
+
+def _task_reference_text(report: WorkReport) -> str:
+    """委託業務（契約より）の参照表示。講師フォーム(renderTaskReference)と同じ文字列を組み立てる。
+
+    列定義スナップショットから 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)
+    を抽出する。契約由来の列が無い（デフォルト列の旧データ）場合は空文字。
+    """
+    lines: list[str] = []
+    for column in _snapshot_columns(report):
+        if not isinstance(column, dict):
+            continue
+        key = str(column.get("key") or "")
+        is_sub = key.startswith("sub_minutes_")
+        is_main = key.startswith("task_minutes_")
+        if not (is_sub or is_main or column.get("type") == "count_minutes"):
+            continue
+        kind = "【副】" if is_sub else ("【担当】" if is_main else "")
+        text = f"{kind}{column.get('label') or ''}"
+        if column.get("task_id"):
+            text += f" / 委託業務ID:{column['task_id']}"
+        if column.get("contract_id"):
+            text += f" / 個別契約ID:{column['contract_id']}"
+        lines.append(text)
+    return "\n".join(lines)
+
+
+def _commuter_pass_text(meta: dict) -> str:
+    """定期代セクション（期間選択・金額／区間／購入日／期間from〜to）の表示文字列。
+
+    講師フォームと同じ4項目を1行ずつ出力し、全項目未記入（購入なし）は「記入なし」。
+    """
+    months = str(meta.get("commuter_pass_months") or "").strip()
+    amount = str(meta.get("commuter_pass_amount") if meta.get("commuter_pass_amount") is not None else "").strip()
+    period = " / ".join(part for part in (
+        f"{months}ヶ月" if months else "",
+        f"{_int(amount):,}円" if amount else "",
+    ) if part)
+    from_date = _date_ja(meta.get("commuter_pass_from"))
+    to_date = _date_ja(meta.get("commuter_pass_to"))
+    rows = [
+        ("期間選択・金額", period),
+        ("区間（経路）", str(meta.get("commuter_pass_route") or "").strip()),
+        ("購入日", _date_ja(meta.get("commuter_pass_purchase_date"))),
+        ("期間（from〜to）", f"{from_date} 〜 {to_date}" if (from_date or to_date) else ""),
+    ]
+    if not any(value for _, value in rows):
+        return "記入なし"
+    return "\n".join(f"{label}：{value or '-'}" for label, value in rows)
+
+
+def _report_footer_values(report: WorkReport) -> list[tuple[str, str]]:
+    """明細の下に出力する項目（弊社担当〜定期代）。講師フォームの並び・記載内容と同一にする。"""
+    meta = (report.form_data or {}).get("meta") or {}
+    return [
+        ("弊社担当", str(meta.get("our_staff") or "-")),
+        ("委託業務（契約より）", _task_reference_text(report) or "-"),
+        ("スケジュール欄", str(meta.get("note_schedule") or "-")),
+        ("要望連絡事項", str(meta.get("requests") or "-")),
+        ("定期代（購入時のみ記入）", _commuter_pass_text(meta)),
+    ]
+
+
+def _report_footer_story(report: WorkReport, font_name: str, styles) -> list:
+    """明細下の項目（弊社担当・委託業務・スケジュール欄・要望連絡事項・定期代）をラベル｜値の表で出力する。"""
+    from xml.sax.saxutils import escape
+
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
+
+    rows = [
+        [
+            Paragraph(escape(label), styles["HeaderLabel"]),
+            Paragraph(escape(value).replace("\n", "<br/>"), styles["HeaderValue"]),
+        ]
+        for label, value in _report_footer_values(report)
+    ]
+    avail_width = landscape(A4)[0] - 24 * mm
+    label_w = 42 * mm
+    table = Table(rows, colWidths=[label_w, avail_width - label_w], hAlign="LEFT")
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0, 0), (-1, -1), font_name),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 0),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 2.5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 2.5),
+        ("LINEBELOW", (0, 0), (-1, -2), 0.3, colors.HexColor("#dddddd")),
+    ]))
+    return [Spacer(1, 4 * mm), table]
 
 
 def _report_header_story(report: WorkReport, school_name: str, tutor_name: str, font_name: str, styles) -> list:
     """参照画面(report_view)のヘッダーと同じレイアウトのPDFヘッダーを生成する。
 
     タイトル（例: 2026年6月分 業務連絡表。画面の「（参照）」表記は付けない）の下に、
-    基本情報5項目を画面と同じ2列グリッド（罫線・背景なし、ラベル灰色・値濃色）で配置する。
+    基本情報7項目（事業所の名称・組織単位〜従事業務内容）を画面と同じ2列グリッド
+    （罫線・背景なし、ラベル灰色・値濃色）で配置する。
     """
     from xml.sax.saxutils import escape
 
@@ -360,7 +468,8 @@ def _report_header_story(report: WorkReport, school_name: str, tutor_name: str, 
         rows.append(cells)
 
     avail_width = landscape(A4)[0] - 24 * mm
-    label_w = 26 * mm
+    # 最長ラベル「事業所の名称・組織単位」（11文字×9pt≒35mm＋右パディング）が折り返さずに収まる幅
+    label_w = 39 * mm
     value_w = avail_width / 2 - label_w
     table = Table(rows, colWidths=[label_w, value_w, label_w, value_w], hAlign="LEFT")
     table.setStyle(TableStyle([
@@ -409,6 +518,7 @@ def build_report_pdf(report: WorkReport, school_name: str, tutor_name: str) -> b
                             topMargin=16 * mm, bottomMargin=16 * mm, title="指導実績")
     story = _report_header_story(report, school_name, tutor_name, font_name, styles)
     story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
+    story.extend(_report_footer_story(report, font_name, styles))
     doc.build(story)
     return buf.getvalue()
 
@@ -444,6 +554,7 @@ def build_reports_pdf(reports: list[tuple[WorkReport, str, str]], target_month: 
             story.append(PageBreak())
         story.extend(_report_header_story(report, school_name, tutor_name, font_name, styles))
         story.extend(_report_table_story(report, font_name, styles, cell_style, header_style))
+        story.extend(_report_footer_story(report, font_name, styles))
 
     doc.build(story)
     return buf.getvalue()

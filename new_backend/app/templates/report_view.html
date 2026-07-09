@@ -77,6 +77,53 @@
       const text = String(value || '').replace(/\s+/g, ' ').trim();
       return text.length > 10 ? text.slice(0, 10) + '…' : text;
     }
+    function textOrDash(value) {
+      const text = String(value ?? '').trim();
+      return text ? escapeHtml(text) : '-';
+    }
+    // 複数行テキスト（従事業務内容・委託業務・スケジュール欄・要望連絡事項）を講師フォームの
+    // 読取専用ボックスと同じ見た目で折り返し表示する。
+    function multilineBox(value) {
+      const text = String(value ?? '').trim();
+      return `<div class="mt-1 min-h-[38px] whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-800">${text ? escapeHtml(text) : '<span class="text-slate-400">記入なし</span>'}</div>`;
+    }
+    // YYYY-MM-DD →「YYYY年MM月DD日」（講師フォームの formatDateJa と同表記）
+    function formatDateJa(value) {
+      if (!value) return '';
+      const [y, m, d] = String(value).split('-');
+      return (y && m && d) ? `${y}年${m}月${d}日` : String(value);
+    }
+    // 委託業務（契約より）: 講師フォーム(renderTaskReference)と同じく列定義スナップショットから
+    // 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)を導出する。
+    function taskReferenceText(report) {
+      return snapshotColumns(report).filter(c =>
+        c.type === 'count_minutes'
+        || String(c.key || '').startsWith('task_minutes_')
+        || String(c.key || '').startsWith('sub_minutes_')
+      ).map(c => {
+        const key = String(c.key || '');
+        const kind = key.startsWith('sub_minutes_') ? '【副】' : (key.startsWith('task_minutes_') ? '【担当】' : '');
+        let text = `${kind}${c.label || ''}`;
+        if (c.task_id) text += ` / 委託業務ID:${c.task_id}`;
+        if (c.contract_id) text += ` / 個別契約ID:${c.contract_id}`;
+        return text;
+      }).join('\n');
+    }
+    // 定期代セクション（期間選択・金額／区間／購入日／期間from〜to）。講師フォームと同じ4項目。
+    function commuterPassRows(meta) {
+      const months = String(meta.commuter_pass_months || '').trim();
+      const amount = String(meta.commuter_pass_amount ?? '').trim();
+      const period = [months ? `${months}ヶ月` : '', amount ? `${Number(amount).toLocaleString()}円` : '']
+        .filter(Boolean).join(' / ');
+      const from = formatDateJa(meta.commuter_pass_from);
+      const to = formatDateJa(meta.commuter_pass_to);
+      return [
+        ['期間選択・金額', period],
+        ['区間（経路）', String(meta.commuter_pass_route || '').trim()],
+        ['購入日', formatDateJa(meta.commuter_pass_purchase_date)],
+        ['期間（from〜to）', (from || to) ? `${from} 〜 ${to}` : ''],
+      ];
+    }
 
     function snapshotColumns(report) {
       const cols = report && report.form_data && report.form_data.meta && report.form_data.meta.column_definition;
@@ -215,13 +262,20 @@
               ? `<a href="/api/w/reports/${reportId}/export" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700">PDFでダウンロード</a>`
               : `<span class="cursor-not-allowed rounded-lg bg-slate-300 px-3 py-2 text-sm font-medium text-white opacity-70" title="最終承認の完了後にダウンロードできます">PDFでダウンロード</span>`}
           </div>
-          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-cols-2">
-            <div class="flex gap-2"><dt class="text-slate-500">学校名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}${report.school_no ? `（${escapeHtml(report.school_no)}）` : ''}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">講師名</dt><dd class="font-medium text-slate-800">${escapeHtml(report.tutor_name || '-')}${report.tutor_no ? `（${escapeHtml(report.tutor_no)}）` : ''}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">弊社担当</dt><dd class="text-slate-800">${escapeHtml(meta.our_staff || '-')}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">事業所の所在地</dt><dd class="text-slate-800">${escapeHtml(meta.dispatch_place_address || '-')}</dd></div>
-            <div class="flex gap-2"><dt class="text-slate-500">従事業務内容</dt><dd class="text-slate-800">${escapeHtml(meta.work_content || '-')}</dd></div>
+          <!-- 基本情報: 講師フォームのヘッダー項目（事業所の名称・組織単位〜従事業務内容）を漏れなく表示する。
+               sm以上は grid-flow-col で 左列＝事業所情報・右列＝講師情報 の2列に分ける。 -->
+          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-3">
+            <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">事業所の名称・組織単位</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}${report.school_no ? `（${escapeHtml(report.school_no)}）` : ''}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">教室名</dt><dd class="text-slate-800">${textOrDash(meta.classroom_name)}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">事業所の所在地</dt><dd class="text-slate-800">${textOrDash(meta.dispatch_place_address)}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">氏名</dt><dd class="font-medium text-slate-800">${textOrDash(report.tutor_name)}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">講師番号</dt><dd class="text-slate-800">${textOrDash(meta.tutor_no || report.tutor_no)}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">お客様ID</dt><dd class="text-slate-800">${textOrDash(meta.customer_id)}</dd></div>
           </dl>
+          <div class="mt-2 text-sm">
+            <div class="text-slate-500">従事業務内容</div>
+            ${multilineBox(meta.work_content)}
+          </div>
         </section>
         <section class="overflow-x-auto rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
           <table class="w-full border-collapse text-sm">
@@ -229,6 +283,35 @@
             <tbody>${bodyRows}</tbody>
           </table>
           <div class="mt-3 flex flex-wrap gap-x-6 gap-y-1 px-1 text-sm text-slate-700">${summaryParts.join('')}</div>
+        </section>
+        <!-- 連絡事項・定期代: 講師フォームの明細より下の項目（弊社担当〜定期代セクション）を漏れなく表示する。 -->
+        <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 class="font-semibold text-slate-800">連絡事項・定期代</h2>
+          <div class="mt-3 grid grid-cols-1 gap-4 text-sm md:grid-cols-2">
+            <div>
+              <div class="flex gap-2"><span class="text-slate-500">弊社担当</span><span class="text-slate-800">${textOrDash(meta.our_staff)}</span></div>
+              <div class="mt-3">
+                <div class="text-slate-500">委託業務（契約より）</div>
+                ${multilineBox(taskReferenceText(report))}
+              </div>
+              <div class="mt-3">
+                <div class="text-slate-500">スケジュール欄</div>
+                ${multilineBox(meta.note_schedule)}
+              </div>
+              <div class="mt-3">
+                <div class="text-slate-500">要望連絡事項</div>
+                ${multilineBox(meta.requests)}
+              </div>
+            </div>
+            <div>
+              <div class="rounded-lg border border-slate-200 p-3">
+                <div class="font-medium text-slate-800">定期代<span class="ml-2 text-xs font-normal text-slate-500">購入時のみ記入</span></div>
+                <dl class="mt-2 space-y-1">
+                  ${commuterPassRows(meta).map(([label, value]) => `<div class="flex gap-2"><dt class="w-32 shrink-0 text-slate-500">${escapeHtml(label)}</dt><dd class="text-slate-800">${textOrDash(value)}</dd></div>`).join('')}
+                </dl>
+              </div>
+            </div>
+          </div>
         </section>` + schoolActionAreaHtml(report) + staffActionAreaHtml(report);
       content.querySelectorAll('.note-view-btn').forEach(btn => {
         btn.addEventListener('click', () => openNoteView(btn.dataset.note || ''));
