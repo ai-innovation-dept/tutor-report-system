@@ -4,7 +4,7 @@
 
 > メモ: Claude Code の個人メモリ（`~/.claude/...`）はアカウント/PCに紐づくため引き継がれない。引継ぎに必要な文脈はすべて本ファイル（リポジトリ）に集約している。
 
-最終更新: 2026-07-09
+最終更新: 2026-07-09（EMPS-2026-0709-01 保留追記）
 
 ---
 
@@ -190,3 +190,26 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 - [ ] 必要に応じて本番で `seed_production --yes` を実行しサンプル 6 ユーザーに統一。
 - [ ] （任意）legacy 用の 保護者/受付/再鑑 サンプルが必要なら別エイリアスで追加。
 - [ ] （任意）送信量が増えるなら SendGrid / SES へ移行。
+
+---
+
+## 8. 保留中の検討事項（問い合わせ番号つき）
+
+継続の壁打ち／作業依頼で参照するための保留案件。**引き継ぐ場合は問い合わせ番号で照会すること。**
+
+### 【EMPS-2026-0709-01】学校承認→事務通知の設計変更（全講師の学校承認完了で通知）
+
+- **状態**: 🟡 保留（設計壁打ち中・未実装。2026-07-09時点）
+- **要件**: EMPS で「1つの学校に紐づく契約講師**全員**の当月報告書が学校承認を通過してから」事務へ承認依頼通知を出す。1講師のみの学校はその1件で通知。学校確認スキップ校（`skip_parent_approval`）は**対象外**（ユーザー確認済み）。
+- **調査結論（データ面）**: 学校↔講師の紐づきは**既存DBで保持済み・新規テーブル不要**。
+  - `assignments`（共有）＝ `tutor_id`＋`parent_id`(学校)＋`student_name`。学校指定で全講師を引ける。
+  - `work_assignment_profiles`（＝契約管理の実体）＝ 1契約＝1(tutor, school)。`school_id`/`tutor_id`/`assignment_id`/`is_active`/`contract_start`/`contract_end`。
+  - 「ある学校の当月全報告書」＝ `work_reports JOIN assignments ON assignment_id WHERE parent_id=学校 AND target_month=当月`（同結合は学校エクスポート `api/reports.py:404` で既出）。`WorkReport.school_approved_at` プロパティで学校承認通過を判定可。
+- **現状の重要事実**: 通常フローでは学校承認時（`awaiting_school`→`awaiting_office`）に**事務へメールは飛んでいない**（講師宛て「学校が承認しました」のみ）。事務は `office/queue.html` の「事務確認待ち」列で `awaiting_office` を見て**メール無しでも即処理できる**。よって本件は「全事務一斉送信の廃止」ではなく「全講師承認が揃ったら事務へ通知を**新規追加**」が実体。
+- **確定した論点**: 案3（月末＋N日に1回だけ、契約講師の承認済み/未承認の進捗メール）は案1のデッドロック（当月授業なし＝報告書も承認も存在しない講師がいると全員承認が永久に揃わない）を補完する締切トリガー、という理解でユーザー合意。「授業なし講師」が普通に居るため、案1の即時通知はほぼ発火せず**案3が実質的な主経路**になる見込み。
+- **未決の論点（次回ここから）**:
+  1. 即時通知（案1 happy path）を残すか＝案A（残す＋発火校は締切通知しない）／案B（締切通知一本化。**当方推奨**）。
+  2. 進捗メールの宛先（事務のみ？ `admin_master` も含める？）。
+  3. N（月末＋何日）＝本機能専用のグローバル設定（`.env`）想定。当方仮定は+3日。
+  4. 進捗メールの状態粒度（承認済み/学校確認待ち/未提出、＋差戻し中を別出しするか）。
+- **関連ファイル**: `services/notification_service.py`・`services/workflow_service.py`・`workflow/definitions.py`・`models/work.py`・`models/shared.py`・`templates/office/queue.html`・`api/reports.py`。
