@@ -779,6 +779,8 @@ _EDIT_FIELD_LABELS = {
     "start_time": "開始時刻",
     "end_time": "終了時刻",
     "break_minutes": "休憩時間",
+    "grade_level": "学年区分",
+    "grade_year": "学年数",
     "subject": "教科",
     "material_name": "使用教材/テキスト名",
     "content": "何を指導したか/単元など",

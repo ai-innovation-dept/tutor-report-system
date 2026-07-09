@@ -82,6 +82,10 @@
     // 指導内容の詳細（教科ほか7項目）。時間テーブルの下に指導日ごとのカードで表示する。
     const HOMEWORK_LABELS = {A: 'ほぼ完ぺき', B: '半分くらい', C: 'やらなかった'};
     function homeworkStatusText(v) { return v ? `${v}（${HOMEWORK_LABELS[v] || ''}）` : ''; }
+    // 学年（区分＋学年数）。両方そろっている時のみ表示（旧データは未設定のため省略）。
+    function gradeText(report) {
+      return (report.grade_level && report.grade_year) ? `${report.grade_level}${report.grade_year}年` : '';
+    }
     function nextLessonText(report) {
       const d = report.next_lesson_date ? dateLabel(report.next_lesson_date) : '';
       const t = report.next_lesson_start ? timeText(report.next_lesson_start) : '';
@@ -105,6 +109,7 @@
             ${statusBadge(report.status)}
           </div>
           <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            ${gradeText(report) ? `<div class="sm:col-span-2">${detailField('学年', gradeText(report))}</div>` : ''}
             ${detailField('教科', report.subject)}
             ${detailField('宿題／状況', homeworkStatusText(report.homework_status))}
             ${detailField('使用教材／テキスト名', report.material_name)}

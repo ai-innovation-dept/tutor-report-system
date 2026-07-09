@@ -92,6 +92,21 @@
           <span class="text-sm font-semibold text-slate-700">指導内容</span>
           <span class="text-xs text-slate-400"><span class="text-red-500">＊</span> は必須</span>
         </div>
+        <div class="block text-sm">
+          <span class="mb-1 block text-slate-700">学年 <span class="text-red-500">＊</span></span>
+          <div class="grid grid-cols-2 gap-3">
+            <select name="grade_level" id="gradeLevel" required aria-label="学年区分" class="h-10 w-full rounded-lg border border-slate-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+              <option value="" disabled selected>区分を選択</option>
+              <option value="小">小</option>
+              <option value="中">中</option>
+              <option value="高">高</option>
+            </select>
+            <div class="flex items-center gap-1.5">
+              <input name="grade_year" id="gradeYear" type="number" inputmode="numeric" min="1" max="6" step="1" placeholder="学年" required aria-label="学年数" class="h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+              <span class="shrink-0 text-slate-600">年</span>
+            </div>
+          </div>
+        </div>
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">教科 <span class="text-red-500">＊</span></span>
           <input name="subject" id="subject" placeholder="例：数学" maxlength="100" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
@@ -360,7 +375,7 @@ let reportInputsDisabled = true;
 function setReportInputsDisabled(disabled) {
   reportInputsDisabled = disabled;
   [lessonDate, startHour, startMin, endHour, endMin, breakMinutes,
-   subject, materialName, content, learningStatus, nextHomework,
+   gradeLevel, gradeYear, subject, materialName, content, learningStatus, nextHomework,
    nextLessonDate, nextLessonStart, saveButton].forEach(el => {
     el.disabled = disabled;
   });
@@ -380,6 +395,12 @@ function setHomeworkStatus(value) {
 }
 function updateNextLessonDateLabel() {
   nextLessonDateLabel.textContent = nextLessonDate.value ? dateLabel(nextLessonDate.value) : '';
+}
+// 学年数の上限は区分で変わる（小＝6・中/高＝3・未選択＝6）。区分変更時に上限を更新し、超過値はクランプする。
+function updateGradeYearBounds() {
+  const max = (gradeLevel.value === '中' || gradeLevel.value === '高') ? 3 : 6;
+  gradeYear.max = String(max);
+  if (gradeYear.value && Number(gradeYear.value) > max) gradeYear.value = String(max);
 }
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
@@ -472,6 +493,9 @@ function formPayload() {
   // 生徒(assignment)プルダウンはフォーム外に配置しているため明示的に付与する（編集時は呼び出し側で削除）
   data.assignment_id = assignment.value;
   data.break_minutes = Number(data.break_minutes || 0);
+  // 学年：区分の空文字は null 化、学年数は数値化（空文字は null）。API は int|null を想定。
+  data.grade_level = data.grade_level || null;
+  data.grade_year = (data.grade_year !== '' && data.grade_year != null) ? Number(data.grade_year) : null;
   // 任意項目（次回の予定/指導日・開始時刻）の空文字は null 化する。
   // "" のまま送るとサーバの date/time パースでエラーになるため。
   data.next_lesson_date = data.next_lesson_date || null;
@@ -570,6 +594,7 @@ function resetReportForm(keepAssignment = false) {
   saveButton.textContent = '保存';
   setEndTimeDisabled(true);
   updateNextLessonDateLabel();
+  updateGradeYearBounds();
   updateComputedFields();
   updateCopyLastButton();
 }
@@ -598,8 +623,8 @@ function updateCopyLastButton() {
 function copyLastReport() {
   const source = lastReportForAssignment(assignment.value);
   if (!source || copyLastButton.disabled) return;
-  const hasInput = subject.value.trim() || materialName.value.trim() || content.value.trim()
-    || learningStatus.value.trim() || nextHomework.value.trim() || getHomeworkStatus();
+  const hasInput = gradeLevel.value || gradeYear.value || subject.value.trim() || materialName.value.trim()
+    || content.value.trim() || learningStatus.value.trim() || nextHomework.value.trim() || getHomeworkStatus();
   if (hasInput && !confirm('入力中の指導内容を前回の内容で上書きします。よろしいですか。')) return;
   setTimeSelects(startHour, startMin, source.start_time);
   syncStartTime();
@@ -608,6 +633,9 @@ function copyLastReport() {
   syncEndTime();
   breakMinutes.value = snapBreakMinutes(source.break_minutes);
   // 指導内容の各項目をコピー（次回の予定/指導日・開始時刻は指導日固有のためコピーしない）
+  gradeLevel.value = source.grade_level || '';
+  gradeYear.value = (source.grade_year ?? '') === '' ? '' : String(source.grade_year);
+  updateGradeYearBounds();
   subject.value = source.subject || '';
   materialName.value = source.material_name || '';
   content.value = source.content || '';
@@ -632,6 +660,9 @@ function editReport(id) {
   setTimeSelects(endHour, endMin, r.end_time);
   syncEndTime();
   breakMinutes.value = snapBreakMinutes(r.break_minutes);
+  gradeLevel.value = r.grade_level || '';
+  gradeYear.value = (r.grade_year ?? '') === '' ? '' : String(r.grade_year);
+  updateGradeYearBounds();
   subject.value = r.subject || '';
   materialName.value = r.material_name || '';
   content.value = r.content || '';
@@ -769,6 +800,7 @@ endMin.addEventListener('change', onEndChange);
 breakMinutes.addEventListener('change', updateComputedFields);
 lessonDate.addEventListener('input', updateComputedFields);
 nextLessonDate.addEventListener('change', updateNextLessonDateLabel);
+gradeLevel.addEventListener('change', updateGradeYearBounds);
 buildTimeSelectOptions();
 window.authReady.then(user => {
   if (!user) return;

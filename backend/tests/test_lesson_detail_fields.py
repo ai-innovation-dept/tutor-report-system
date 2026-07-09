@@ -22,6 +22,8 @@ def _full_payload(assignment_id, lesson_date):
         "start_time": "18:00",
         "end_time": "19:00",
         "break_minutes": 0,
+        "grade_level": "中",                        # 学年区分（小/中/高）
+        "grade_year": 2,                            # 学年数
         "subject": "数学",                          # 教科
         "material_name": "青チャート p.20〜25",      # (a)
         "content": "二次関数（平方完成）",            # (b)
@@ -39,6 +41,8 @@ def test_create_report_with_detail_fields(client, db):
     res = client.post("/api/reports", headers=_headers(client), json=_full_payload(assignment.id, today))
     assert res.status_code == 200, res.text
     body = res.json()
+    assert body["grade_level"] == "中"
+    assert body["grade_year"] == 2
     assert body["subject"] == "数学"
     assert body["material_name"] == "青チャート p.20〜25"
     assert body["content"] == "二次関数（平方完成）"
@@ -49,6 +53,8 @@ def test_create_report_with_detail_fields(client, db):
     assert str(body["next_lesson_start"]).startswith("18:30")
     # DB にも保存されている
     report = db.query(LessonReport).filter(LessonReport.id == UUID(body["id"])).one()
+    assert report.grade_level == "中"
+    assert report.grade_year == 2
     assert report.material_name == "青チャート p.20〜25"
     assert report.homework_status == "B"
     assert report.next_lesson_start is not None
@@ -77,6 +83,40 @@ def test_invalid_homework_status_rejected(client, db):
     assert res.status_code == 422
 
 
+def test_grade_is_optional_at_api(client, db):
+    """学年の必須化は入力UI（フロント required）で行うため、API/スキーマ層は未指定でも作成できる（既存互換）。"""
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    payload = _full_payload(assignment.id, today)
+    payload.pop("grade_level")
+    payload.pop("grade_year")
+    res = client.post("/api/reports", headers=_headers(client), json=payload)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["grade_level"] is None
+    assert body["grade_year"] is None
+
+
+def test_invalid_grade_year_rejected(client, db):
+    """学年数は 1〜6 の範囲のみ許可（範囲外は 422）。"""
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    payload = _full_payload(assignment.id, today)
+    payload["grade_year"] = 7
+    res = client.post("/api/reports", headers=_headers(client), json=payload)
+    assert res.status_code == 422
+
+
+def test_invalid_grade_level_rejected(client, db):
+    """学年区分は 小/中/高 のみ許可（それ以外は 422）。"""
+    assignment = db.query(Assignment).first()
+    today = get_current_jst_date()
+    payload = _full_payload(assignment.id, today)
+    payload["grade_level"] = "大"
+    res = client.post("/api/reports", headers=_headers(client), json=payload)
+    assert res.status_code == 422
+
+
 def test_patch_updates_detail_fields(client, db):
     assignment = db.query(Assignment).first()
     today = get_current_jst_date()
@@ -84,12 +124,16 @@ def test_patch_updates_detail_fields(client, db):
     assert created.status_code == 200, created.text
     rid = created.json()["id"]
     res = client.patch(f"/api/reports/{rid}", headers=_headers(client), json={
+        "grade_level": "高",
+        "grade_year": 3,
         "learning_status": "理解が進み、応用に入れる。",
         "homework_status": "A",
         "material_name": "新しい教材",
     })
     assert res.status_code == 200, res.text
     body = res.json()
+    assert body["grade_level"] == "高"
+    assert body["grade_year"] == 3
     assert body["learning_status"] == "理解が進み、応用に入れる。"
     assert body["homework_status"] == "A"
     assert body["material_name"] == "新しい教材"

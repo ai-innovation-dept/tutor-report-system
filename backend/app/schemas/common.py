@@ -200,6 +200,8 @@ class ReportCreate(BaseModel):
     start_time: time
     end_time: time
     break_minutes: int = Field(default=0, ge=0)
+    grade_level: Literal["小", "中", "高"] | None = None                # 学年区分（必須はUI側で強制）
+    grade_year: int | None = Field(default=None, ge=1, le=6)           # 学年数（小1〜6・中/高1〜3）
     subject: str | None = Field(default=None, max_length=100)           # 教科
     material_name: str | None = Field(default=None, max_length=2000)    # (a) 使用教材/テキスト名
     content: str = Field(min_length=1, max_length=2000)               # (b) 何を指導したか/単元など
@@ -224,6 +226,8 @@ class ReportPatch(BaseModel):
     start_time: time | None = None
     end_time: time | None = None
     break_minutes: int | None = Field(default=None, ge=0)
+    grade_level: Literal["小", "中", "高"] | None = None
+    grade_year: int | None = Field(default=None, ge=1, le=6)
     subject: str | None = Field(default=None, max_length=100)
     material_name: str | None = Field(default=None, max_length=2000)
     content: str | None = Field(default=None, min_length=1, max_length=2000)
@@ -289,6 +293,8 @@ class ReportOut(BaseModel):
     start_time: time
     end_time: time
     break_minutes: int
+    grade_level: str | None = None            # 学年区分 小/中/高
+    grade_year: int | None = None             # 学年数
     subject: str | None                       # 教科
     material_name: str | None = None          # (a) 使用教材/テキスト名
     content: str                              # (b) 何を指導したか/単元など

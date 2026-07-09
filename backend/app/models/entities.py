@@ -159,6 +159,9 @@ class LessonReport(Base):
     end_time: Mapped[time] = mapped_column(Time)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
     # 指導報告の内容項目（2026-07 再構築）。subject=「教科」・content=「(b) 何を指導したか/単元など」として流用。
+    # 学年は「教科」の前に置く先頭項目（区分＝小/中/高＋学年数）。必須の強制は入力UI側で行う。
+    grade_level: Mapped[str | None] = mapped_column(String(2), nullable=True)  # 学年区分 小/中/高
+    grade_year: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 学年数（小1〜6・中/高1〜3）
     subject: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 教科
     content: Mapped[str] = mapped_column(Text)  # (b) 何を指導したか/単元など
     material_name: Mapped[str | None] = mapped_column(Text, nullable=True)  # (a) 使用教材/テキスト名
