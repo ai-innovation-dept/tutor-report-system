@@ -20,6 +20,7 @@ from app.schemas.contracts import (
     ContractCreate,
     ContractForTutorOut,
     ContractOut,
+    ContractPeriodSlot,
     ContractTask,
     ContractUpdate,
     ContractWorkloadCase,
@@ -36,9 +37,10 @@ _DETAIL_FIELDS = (
     "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
 )
-# CSVは報告書の表示項目フラグを扱わないため、CSV upsert の更新では既存値を保持する（ドロワー管理）。
-_CSV_PRESERVED_FLAGS = (
+# CSVは報告書の表示項目フラグ・コマ設定を扱わないため、CSV upsert の更新では既存値を保持する（ドロワー管理）。
+_CSV_PRESERVED_FIELDS = (
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
+    "period_slots",
 )
 
 
@@ -100,6 +102,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         scoring_contract_id=profile.scoring_contract_id,
         tasks=_tasks_from_columns(profile),
         sub_tasks=_tasks_from_columns(profile, prefix="sub_", max_count=MAX_SUB_TASKS),
+        period_slots=_period_slots_from_json(profile),
         is_active=profile.is_active,
         created_at=profile.created_at,
         updated_at=profile.updated_at,
@@ -139,11 +142,16 @@ def _workload_cases_from_json(profile: WorkAssignmentProfile) -> list[ContractWo
     return [ContractWorkloadCase(**case) for case in (profile.workload_cases or []) if isinstance(case, dict)]
 
 
+def _period_slots_from_json(profile: WorkAssignmentProfile) -> list[ContractPeriodSlot]:
+    return [ContractPeriodSlot(**slot) for slot in (profile.period_slots or []) if isinstance(slot, dict)]
+
+
 def _apply_payload(profile: WorkAssignmentProfile, payload: ContractCreate) -> None:
     """契約詳細フィールドと委託業務をプロファイルへ反映する（作成・upsertで共用）。"""
     for field in _DETAIL_FIELDS:
         setattr(profile, field, getattr(payload, field))
     profile.workload_cases = _workload_cases_to_json(payload)
+    profile.period_slots = [slot.model_dump() for slot in payload.period_slots]
     _tasks_to_columns(profile, payload.tasks)
     _tasks_to_columns(profile, payload.sub_tasks, prefix="sub_", max_count=MAX_SUB_TASKS)
 
@@ -229,8 +237,8 @@ def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
         _apply_payload(profile, payload)
     else:
         profile.is_active = True
-        # 既存契約の表示項目フラグ（CSV対象外）を保持してから上書きする
-        preserved = {field: getattr(profile, field) for field in _CSV_PRESERVED_FLAGS}
+        # 既存契約の表示項目フラグ・コマ設定（CSV対象外）を保持してから上書きする
+        preserved = {field: getattr(profile, field) for field in _CSV_PRESERVED_FIELDS}
         _apply_payload(profile, payload)
         for field, value in preserved.items():
             setattr(profile, field, value)
@@ -343,6 +351,7 @@ def list_contracts_for_tutor(
             work_content=p.work_content,
             tasks=_tasks_from_columns(p),
             sub_tasks=_tasks_from_columns(p, prefix="sub_", max_count=MAX_SUB_TASKS),
+            period_slots=_period_slots_from_json(p),
             column_definition=build_column_definition(p),
         )
         for p in profiles
@@ -392,10 +401,19 @@ def update_contract(
             setattr(profile, field, data[field])
     if "workload_cases" in data:
         profile.workload_cases = [case.model_dump(mode="json") for case in payload.workload_cases]
+    if "period_slots" in data:
+        profile.period_slots = [slot.model_dump() for slot in payload.period_slots]
     if "tasks" in data:
         _tasks_to_columns(profile, payload.tasks)
     if "sub_tasks" in data:
         _tasks_to_columns(profile, payload.sub_tasks, prefix="sub_", max_count=MAX_SUB_TASKS)
+
+    # 部分更新（片方だけ送信）でもコマ設定×休憩非表示の組み合わせにならないよう最終状態で検証する
+    if profile.period_slots and profile.show_break_minutes is False:
+        raise HTTPException(
+            status_code=422,
+            detail="休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）",
+        )
 
     db.commit()
     return _to_out(_get_profile_loaded(db, profile.id))

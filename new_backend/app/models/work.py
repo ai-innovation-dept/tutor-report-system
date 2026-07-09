@@ -49,6 +49,10 @@ class WorkAssignmentProfile(Base):
     show_commuter_pass: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_break_minutes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_schedule_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # コマ設定（担当時限の時間割）。各要素 {"start": "HH:MM", "end": "HH:MM"}（最大10・①から順・重なり不可）。
+    # 設定がある契約は講師フォームで選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
+    # 空リストの契約は従来ロジック（開始8:40固定・1コマ50分・休憩(コマ数-1)×10分）。
+    period_slots: Mapped[list] = mapped_column(_JSONB, default=list)
     contract_start: Mapped[date | None] = mapped_column(Date, nullable=True)
     contract_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     monthly_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)

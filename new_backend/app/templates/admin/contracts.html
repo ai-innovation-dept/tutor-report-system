@@ -196,11 +196,16 @@ const TASK_KINDS = {
   main: {max: 3, label: '担当業務'},
   sub: {max: 5, label: '副業務'},
 };
+// コマ設定（担当時限の時間割）: 最大10コマ。①から順・時間の重なり不可。
+// 設定がある契約は講師の報告書で選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
+const MAX_PERIOD_SLOTS = 10;
+const PERIOD_CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
 let contracts = [];
 let tutors = [];
 let schools = [];
 let editingId = null;
 let visibleTaskCounts = {main: 1, sub: 1};
+let visiblePeriodCount = 1;
 let deleteTarget = null;
 
 function escapeHtml(value) {
@@ -284,6 +289,29 @@ function taskRow(kind, index, task, workloadCase) {
     ${kind === 'main' ? taskWorkloadInputs(index, workloadCase) : ''}
   </div>`;
 }
+// コマ設定の1行（コマ番号＋開始〜終了の時刻入力）。委託業務と同じく必要な行だけ表示して追加していく。
+function periodSlotRow(index, slot) {
+  const hidden = index > visiblePeriodCount;
+  const cls = 'w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+  return `<div class="period-slot-row flex items-center gap-2 ${hidden ? 'hidden' : ''}" data-period-index="${index}">
+    <span class="w-8 shrink-0 text-center text-base font-medium text-slate-700">${PERIOD_CIRCLED[index - 1]}</span>
+    <input data-period="start" data-index="${index}" type="time" value="${escapeHtml(slot?.start || '')}" class="${cls}">
+    <span class="text-slate-500">〜</span>
+    <input data-period="end" data-index="${index}" type="time" value="${escapeHtml(slot?.end || '')}" class="${cls}">
+  </div>`;
+}
+function periodSlotSection(slots) {
+  return `<div class="rounded-lg border border-slate-200 p-4">
+    <div class="mb-2 flex items-center justify-between">
+      <span class="text-sm font-medium text-slate-800">コマ設定（担当時限の時間割）</span>
+      <button type="button" id="periodAddBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ コマを追加</button>
+    </div>
+    <div id="periodSlotRows" class="space-y-2">
+      ${Array.from({length: MAX_PERIOD_SLOTS}, (_, i) => periodSlotRow(i + 1, slots[i])).join('')}
+    </div>
+    <p class="mt-2 text-xs text-slate-500">設定すると講師の報告書の担当時限に各コマの時間帯が表示され、スケジュール欄に「① 8:30〜9:20、…」を自動反映します。業務開始時刻・担当業務（分）・休憩時間（分）はこの時間割から自動計算されます。①から順に、時間が重ならないように設定してください（未設定の契約は従来どおり 開始8:40固定・1コマ50分）。</p>
+  </div>`;
+}
 function taskSection(kind, tasks, workloadCases) {
   const def = TASK_KINDS[kind];
   const note = kind === 'main'
@@ -304,7 +332,9 @@ function renderForm(contract) {
   const isEdit = Boolean(contract);
   const tasks = contract?.tasks || [];
   const subTasks = contract?.sub_tasks || [];
+  const periodSlots = contract?.period_slots || [];
   visibleTaskCounts = {main: Math.max(1, tasks.length), sub: Math.max(1, subTasks.length)};
+  visiblePeriodCount = Math.max(1, periodSlots.length);
   formDrawer.innerHTML = `
     <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
       <h2 class="font-semibold text-slate-800">${isEdit ? '契約を編集' : '契約を新規登録'}</h2>
@@ -333,7 +363,8 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます。</span></label>
+      ${periodSlotSection(periodSlots)}
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます（コマ設定がある場合は「① 8:30〜9:20、…」の後ろに併記されます）。</span></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
 
       ${taskSection('main', tasks, contract?.workload_cases || [])}
@@ -393,9 +424,38 @@ function renderForm(contract) {
     </form>`;
   document.getElementById('mainAddTaskBtn').addEventListener('click', () => revealNextTask('main'));
   document.getElementById('subAddTaskBtn').addEventListener('click', () => revealNextTask('sub'));
+  document.getElementById('periodAddBtn').addEventListener('click', revealNextPeriod);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
   updateAddTaskButton('main');
   updateAddTaskButton('sub');
+  updatePeriodAddButton();
+}
+function revealNextPeriod() {
+  if (visiblePeriodCount >= MAX_PERIOD_SLOTS) return;
+  visiblePeriodCount += 1;
+  formDrawer.querySelector(`.period-slot-row[data-period-index="${visiblePeriodCount}"]`)?.classList.remove('hidden');
+  updatePeriodAddButton();
+}
+function updatePeriodAddButton() {
+  const btn = document.getElementById('periodAddBtn');
+  if (btn) btn.classList.toggle('hidden', visiblePeriodCount >= MAX_PERIOD_SLOTS);
+}
+// コマ設定を収集して検証する。①から連番（途中の空き不可）・開始<終了・前のコマと重なり不可。
+function collectPeriodSlots() {
+  const slots = [];
+  let blankSeen = false;
+  for (let i = 1; i <= MAX_PERIOD_SLOTS; i++) {
+    const start = formDrawer.querySelector(`[data-period="start"][data-index="${i}"]`)?.value || '';
+    const end = formDrawer.querySelector(`[data-period="end"][data-index="${i}"]`)?.value || '';
+    if (!start && !end) { blankSeen = true; continue; }
+    if (blankSeen) return {error: `コマ設定は${PERIOD_CIRCLED[0]}から順に設定してください（途中に空きコマがあります）`};
+    if (!start || !end) return {error: `コマ${PERIOD_CIRCLED[i - 1]}は開始・終了の両方を入力してください`};
+    if (end <= start) return {error: `コマ${PERIOD_CIRCLED[i - 1]}は終了時刻を開始時刻より後にしてください`};
+    const prev = slots[slots.length - 1];
+    if (prev && start < prev.end) return {error: `コマ${PERIOD_CIRCLED[i - 1]}が前のコマと時間が重なっています`};
+    slots.push({start, end});
+  }
+  return {slots};
 }
 function revealNextTask(kind) {
   if (visibleTaskCounts[kind] >= TASK_KINDS[kind].max) return;
@@ -461,7 +521,10 @@ function showFormMessage(text) {
 function buildPayload() {
   const main = collectMainTasksAndCases();
   if (main.error) return {error: main.error};
+  const periods = collectPeriodSlots();
+  if (periods.error) return {error: periods.error};
   return {
+    period_slots: periods.slots,
     tutor_id: document.getElementById('tutorSelect').value,
     school_id: document.getElementById('schoolSelect').value,
     customer_id: document.getElementById('customerId').value.trim() || null,
@@ -495,6 +558,10 @@ async function saveContract(event) {
   if (!payload.tasks.length) { showFormMessage('担当業務①は必須です'); return; }
   if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {
     showFormMessage('月時間・週コマの適用期間は終了日を開始日以降にしてください');
+    return;
+  }
+  if (payload.period_slots.length && !payload.show_break_minutes) {
+    showFormMessage('休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）');
     return;
   }
   try {

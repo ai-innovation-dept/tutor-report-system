@@ -1,13 +1,18 @@
 """契約管理（work_assignment_profiles）の入出力スキーマ。"""
+import re
 import uuid
 from datetime import date, datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 # 委託業務は担当業務（①〜③・①必須）と副業務（①〜⑤・任意）の2区分。
 # データ上の区分名は main / sub のまま（表示名のみ担当業務／副業務）。
 MAX_MAIN_TASKS = 3
 MAX_SUB_TASKS = 5
+# コマ設定（担当時限の時間割）は最大10コマ（講師フォームの担当時限①〜⑩に対応）
+MAX_PERIOD_SLOTS = 10
+
+_SLOT_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
 class ContractTask(BaseModel):
@@ -22,6 +27,29 @@ class ContractTask(BaseModel):
             (self.task_id or "").strip(),
             (self.contract_id or "").strip(),
         ])
+
+
+class ContractPeriodSlot(BaseModel):
+    """コマ設定（担当時限の時間割）の1コマ。時刻は 'HH:MM'（例 "08:30"〜"09:20"）。
+
+    リストの並び順＝コマ番号①〜⑩。設定がある契約は講師フォームで
+    選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
+    """
+    start: str
+    end: str
+
+    @field_validator("start", "end")
+    @classmethod
+    def validate_time(cls, v: str) -> str:
+        if not _SLOT_TIME_RE.match(v or ""):
+            raise ValueError("コマの時刻は HH:MM 形式（00:00〜23:59）で指定してください")
+        return v
+
+    @model_validator(mode="after")
+    def validate_range(self) -> "ContractPeriodSlot":
+        if self.end <= self.start:
+            raise ValueError("コマの終了時刻は開始時刻より後にしてください")
+        return self
 
 
 class ContractWorkloadCase(BaseModel):
@@ -80,6 +108,25 @@ class ContractBase(BaseModel):
     scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []        # メイン業務（①必須・最大3件）
     sub_tasks: list[ContractTask] = []    # サブ業務（任意・最大5件）
+    # コマ設定（担当時限の時間割・最大10）。①から順・時間の重なり不可。
+    period_slots: list[ContractPeriodSlot] = []
+
+    @field_validator("period_slots")
+    @classmethod
+    def validate_period_slots(cls, value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
+        if len(value) > MAX_PERIOD_SLOTS:
+            raise ValueError(f"コマ設定は最大{MAX_PERIOD_SLOTS}コマです")
+        for index in range(1, len(value)):
+            if value[index].start < value[index - 1].end:
+                raise ValueError(f"コマ{index + 1}が前のコマと時間が重なっています")
+        return value
+
+    @model_validator(mode="after")
+    def validate_period_slots_with_flags(self) -> "ContractBase":
+        # 休憩時間（分）列が非表示だと「隙間→休憩」の自動計算が成立しないため併用不可
+        if self.period_slots and self.show_break_minutes is False:
+            raise ValueError("休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）")
+        return self
 
     @field_validator("tasks")
     @classmethod
@@ -140,6 +187,7 @@ class ContractForTutorOut(BaseModel):
     work_content: str | None = None
     tasks: list[ContractTask] = []
     sub_tasks: list[ContractTask] = []
+    period_slots: list[ContractPeriodSlot] = []
     column_definition: list[dict] = []
 
 
@@ -173,6 +221,7 @@ class ContractOut(BaseModel):
     scoring_contract_id: str | None = None
     tasks: list[ContractTask] = []
     sub_tasks: list[ContractTask] = []
+    period_slots: list[ContractPeriodSlot] = []
     is_active: bool
     created_at: datetime
     updated_at: datetime

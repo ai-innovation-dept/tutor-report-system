@@ -479,6 +479,11 @@ function contractMetaValues() {
   // 契約管理の値を報告書メタの初期値へ反映（新規作成時のみ defaultMeta 経由で適用）
   const contract = contractForSchool(selectedSchoolId);
   if (!contract) return {};
+  // スケジュール欄: コマ設定があれば「① 8:30〜9:20、…」を自動生成し、自由記述（shift_note）があれば併記する
+  const slots = (Array.isArray(contract.period_slots) && contract.period_slots.length) ? contract.period_slots : null;
+  const schedule = slots
+    ? [slotScheduleText(slots), contract.shift_note || ''].filter(Boolean).join('\n')
+    : (contract.shift_note || '');
   return {
     customer_id: contract.customer_id || '',
     our_staff: contract.our_staff || '',
@@ -486,7 +491,7 @@ function contractMetaValues() {
     classroom_name: contract.classroom_name || '',
     requests: workloadRequestsText(contract),
     work_content: contract.work_content || DEFAULT_WORK_CONTENT,
-    note_schedule: contract.shift_note || '',
+    note_schedule: schedule,
   };
 }
 function defaultMeta() {
@@ -653,10 +658,21 @@ async function selectSchool(schoolId) {
 }
 const SUBJECT_PERIOD_HINT = '1〜10から担当した時限を選択します。選択したコマ数×50分が右隣の担当業務（分）へ、（コマ数−1）×10分が休憩時間（分）へ自動入力されます。自動入力後の分数は1分単位で修正できます（担当時限を選び直すと自動値で上書きされます）。';
 const TIME_RANGE_HINT = '業務開始〜終了時間は自動計算のため手動入力できません。開始は8:40固定、終了は担当時限より右の時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計を開始時間に加算した時刻です。往復交通費（円）・採点の回数は加算しません。';
-const WORK_START_TIME = '08:40';           // 業務開始時間（固定・手動入力不可）
-const MINUTES_PER_PERIOD = 50;             // 担当時限1コマあたりの担当業務（分）
-const BREAK_MINUTES_PER_EXTRA_PERIOD = 10; // 休憩時間（分）＝（コマ数−1）×10
+const WORK_START_TIME = '08:40';           // 業務開始時間（コマ設定が無い契約の固定値・手動入力不可）
+const MINUTES_PER_PERIOD = 50;             // 担当時限1コマあたりの担当業務（分）（コマ設定が無い契約）
+const BREAK_MINUTES_PER_EXTRA_PERIOD = 10; // 休憩時間（分）＝（コマ数−1）×10（コマ設定が無い契約）
 const DAY_END_MINUTES = 23 * 60 + 59;      // 終了時間は同日23:59まで（超過は計算不可として保存をブロック）
+// 入力ルールのヒントは契約のコマ設定（時間割）の有無で出し分ける（実装は「コマ設定による自動計算」セクション参照）
+function subjectPeriodHint() {
+  const slots = contractPeriodSlots();
+  if (!slots) return SUBJECT_PERIOD_HINT;
+  return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択した最初のコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間から副担当業務等の分を除いた時間が自動入力されます（分は1分単位で修正できます。時限を選び直すと自動値で上書きされます）。`;
+}
+function timeRangeHint() {
+  const slots = contractPeriodSlots();
+  if (!slots) return TIME_RANGE_HINT;
+  return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択した最初のコマの開始時刻（時限未選択の行はコマ①の開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
+}
 function columnLabel(column) {
   if (column.key === 'subject_period') return '担当時限';
   return column.label;
@@ -670,7 +686,7 @@ function fieldHintButtonHtml(hint, ariaLabel = '入力ルールを表示') {
 function columnHeaderHtml(column) {
   const label = escapeHtml(columnLabel(column));
   if (column.key === 'subject_period') {
-    return `${label}${fieldHintButtonHtml(SUBJECT_PERIOD_HINT)}`;
+    return `${label}${fieldHintButtonHtml(subjectPeriodHint())}`;
   }
   return label;
 }
@@ -687,7 +703,7 @@ function renderLineHeader(form) {
       const next = columns[index + 1];
       if (next?.key === 'end') {
         // 自動計算表示のため入力セレクト時代（w-72）より狭くできる
-        headers.push(`<th class="w-36 px-1 py-2 text-left">業務開始〜終了時間${fieldHintButtonHtml(TIME_RANGE_HINT, '自動計算ルールを表示')}</th>`);
+        headers.push(`<th class="w-36 px-1 py-2 text-left">業務開始〜終了時間${fieldHintButtonHtml(timeRangeHint(), '自動計算ルールを表示')}</th>`);
         index += 1;
       } else {
         headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
@@ -748,7 +764,7 @@ function renderCell(column, line) {
     return `<td class="relative px-1 py-1" data-time-range>
       <input type="hidden" data-field="start" value="${escapeHtml(startVal)}">
       <input type="hidden" data-field="end" value="${escapeHtml(endVal)}">
-      <div data-time-display title="${escapeHtml(TIME_RANGE_HINT)}" class="flex h-9 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 text-sm ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
+      <div data-time-display title="${escapeHtml(timeRangeHint())}" class="flex h-9 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-2 text-sm ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
     </td>`;
   }
   if (column.key === 'end') return '';
@@ -794,15 +810,34 @@ function buildLineRows(lines) {
     <td class="px-1 py-1 text-center text-slate-600">${index + 1}</td>
     ${columns.map(column => renderCell(column, line)).join('')}
   </tr>`).join('');
+  const secondaryKeys = new Set(secondaryMinuteKeys(columns));
   lineRows.querySelectorAll('.line-input').forEach(input => {
     input.addEventListener('input', () => {
       if (input.dataset.field === 'date') {
         input.closest('tr').querySelector('[data-weekday]').textContent = weekdayParen(input.value);
       }
       // 分数の手動修正（1分単位）に業務開始〜終了時間を連動させる
-      if (minuteKeys.has(input.dataset.field)) recomputeRowTimes(input.closest('tr'), true);
+      if (minuteKeys.has(input.dataset.field)) {
+        const row = input.closest('tr');
+        // コマ設定契約: 副担当業務等の入力で休憩＝隙間−副担当を自動再計算し、労基下限を下回る場合は引き上げて通知する
+        if (input.dataset.field !== 'break_minutes') {
+          const required = applySlotBreakRules(row, secondaryKeys.has(input.dataset.field));
+          if (required) showTimePopup(input.closest('td'), breakBumpMessage(required));
+        }
+        recomputeRowTimes(row, true);
+      }
       updateLineSummary();
     });
+    // 休憩時間（分）の手動修正: 確定（change）時に労基下限を下回っていれば引き上げて通知する
+    if (input.dataset.field === 'break_minutes') {
+      input.addEventListener('change', () => {
+        const row = input.closest('tr');
+        const required = applySlotBreakRules(row, false);
+        if (required) showTimePopup(input.closest('td'), breakBumpMessage(required));
+        recomputeRowTimes(row, true);
+        updateLineSummary();
+      });
+    }
     if (input.dataset.field === 'date') {
       input.addEventListener('change', () => validateLineDateUnique(input));
       // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
@@ -825,6 +860,8 @@ function buildLineRows(lines) {
         rowWorkControls(row).forEach(el => { if (MAIN_DUTY_FIELD_RE.test(el.dataset.field) && el.value === '0') el.value = ''; });
       }
       applyRowKind(row);
+      // コマ設定契約: 種別変更後も休憩の労基下限を維持する（有給・欠勤は対象外）
+      applySlotBreakRules(row, false);
       // 有給・欠勤は時間を持たない／勤務へ戻したときは分数から再計算する
       recomputeRowTimes(row);
       updateLineSummary();
@@ -1060,13 +1097,20 @@ function rowMinutesTotal(row, keys = timeMinuteKeys()) {
   }, 0);
 }
 // 分数合計から業務開始〜終了時間を求める共通計算（明細行・詳細シートで共用する唯一のルール）。
-// 開始は WORK_START_TIME 固定。合計0分は未計算（空）、同日23:59超過は overflow=true（計算不可）。
-function computeAutoTimes(total) {
-  const startMinutes = timeToMinutes(WORK_START_TIME);
+// 開始は WORK_START_TIME 固定（コマ設定契約は選択コマの開始を startMinutesOverride で指定）。
+// 合計0分は未計算（空）、同日23:59超過は overflow=true（計算不可）。
+function computeAutoTimes(total, startMinutesOverride = null) {
+  const startMinutes = startMinutesOverride ?? timeToMinutes(WORK_START_TIME);
   const overflow = total > 0 && startMinutes + total > DAY_END_MINUTES;
-  const start = (total > 0 && !overflow) ? WORK_START_TIME : '';
+  const start = (total > 0 && !overflow) ? minutesToTime(startMinutes) : '';
   const end = start ? minutesToTime(startMinutes + total) : '';
   return {start, end, overflow};
+}
+// 行の業務開始（分）: コマ設定契約は選択した最初のコマの開始（時限未選択の行はコマ①の開始）、
+// コマ設定が無い契約は null（＝WORK_START_TIME 固定）を返す。
+function rowStartMinutesOverride(slots, subjectPeriod, kind) {
+  if (!slots || isLeaveKind(kind)) return null;
+  return slotSelectionMetrics(slots, subjectPeriod).startMinutes;
 }
 // 担当時限のコマ数から自動入力する 担当業務（分）・休憩時間（分）（明細行・詳細シートで共用）。
 function periodAutoFillValues(count) {
@@ -1075,12 +1119,108 @@ function periodAutoFillValues(count) {
     breakMinutes: count > 0 ? String((count - 1) * BREAK_MINUTES_PER_EXTRA_PERIOD) : ''
   };
 }
+// ===== コマ設定（契約の時間割）による自動計算 =====
+// 契約管理でコマ①〜⑩の時間帯（period_slots）が設定されている場合、担当時限の選択コマから
+// 業務開始時刻・担当業務（分）・休憩時間（分）を導出する。未設定の契約は従来ロジックのまま。
+function contractPeriodSlots() {
+  const slots = contractForSchool(selectedSchoolId)?.period_slots;
+  return (Array.isArray(slots) && slots.length) ? slots : null;
+}
+// 「08:30」→「8:30」（表示用に時の先頭0を省く）
+function slotTimeLabel(value) { return String(value || '').replace(/^0/, ''); }
+function slotRangeLabel(slot) { return `${slotTimeLabel(slot.start)}〜${slotTimeLabel(slot.end)}`; }
+// スケジュール欄への自動反映テキスト「① 8:30〜9:20、② 9:30〜10:20、…」
+function slotScheduleText(slots) {
+  return slots.map((slot, index) => `${CIRCLED_NUMBERS[index]} ${slotRangeLabel(slot)}`).join('、');
+}
+function slotDuration(slot) { return Math.max(0, timeToMinutes(slot.end) - timeToMinutes(slot.start)); }
+// 選択中の時限（"2・4"）のうちコマ設定の範囲内のものを昇順の数値配列で返す
+function selectedSlotNumbers(slots, subjectPeriod) {
+  return parseSubjectPeriods(subjectPeriod).map(Number)
+    .filter(n => Number.isInteger(n) && n >= 1 && n <= slots.length)
+    .sort((a, b) => a - b);
+}
+// コマ選択から導く自動値。startMinutes＝最初の選択コマの開始（未選択の行はコマ①の開始）、
+// taskMinutes＝選択コマの実時間の合計、gapMinutes＝選択コマ間の隙間（休憩・副担当業務へ割当可能）。
+function slotSelectionMetrics(slots, subjectPeriod) {
+  const picked = selectedSlotNumbers(slots, subjectPeriod);
+  if (!picked.length) return {selected: false, startMinutes: timeToMinutes(slots[0].start), taskMinutes: 0, gapMinutes: 0};
+  let taskMinutes = 0;
+  let gapMinutes = 0;
+  picked.forEach((n, index) => {
+    taskMinutes += slotDuration(slots[n - 1]);
+    if (index > 0) gapMinutes += Math.max(0, timeToMinutes(slots[n - 1].start) - timeToMinutes(slots[picked[index - 1] - 1].end));
+  });
+  return {selected: true, startMinutes: timeToMinutes(slots[picked[0] - 1].start), taskMinutes, gapMinutes};
+}
+// 労基法の休憩下限: 実働（休憩を除く担当＋副担当等の合計）が6時間超→45分以上・8時間超→60分以上
+function requiredBreakMinutes(workMinutes) {
+  if (workMinutes > 480) return 60;
+  if (workMinutes > 360) return 45;
+  return 0;
+}
+function mainMinuteKeys(columns = activeColumnDefinition()) {
+  return timeMinuteKeys(columns).filter(key => MAIN_DUTY_FIELD_RE.test(key));
+}
+// 副担当業務等（担当業務・休憩以外の分列＝副業務・採点の分）: コマ間の隙間を消費する時間
+function secondaryMinuteKeys(columns = activeColumnDefinition()) {
+  return timeMinuteKeys(columns).filter(key => key !== 'break_minutes' && !MAIN_DUTY_FIELD_RE.test(key));
+}
+// 休憩時間（分）の自動計算コア（明細行・詳細シートで共用する唯一のルール）。
+// recompute=true（担当時限・副担当業務の変更時）はコマ間の隙間から副担当合計を除いた残りで上書きし、
+// 常に労基下限を下回らないよう引き上げる（手動修正は次の変更まで保持される）。
+// 戻り値 {value: 書き込む休憩の分（null=変更なし）, required: 下限へ引き上げた分数（0=引き上げなし）}
+function slotBreakDecision(slots, line, recompute, columns = activeColumnDefinition()) {
+  if (!slots || isLeaveKind(line.kind)) return {value: null, required: 0};
+  const secondary = secondaryMinuteKeys(columns).reduce((sum, key) => sum + numberValue(line[key]), 0);
+  const work = secondary + mainMinuteKeys(columns).reduce((sum, key) => sum + numberValue(line[key]), 0);
+  const required = requiredBreakMinutes(work);
+  const metrics = slotSelectionMetrics(slots, line.subject_period);
+  let value = null;
+  if (recompute && metrics.selected) value = Math.max(metrics.gapMinutes - secondary, 0);
+  const current = value != null ? value : numberValue(line.break_minutes);
+  if (current < required) return {value: required, required};
+  return {value, required: 0};
+}
+function breakBumpMessage(required) {
+  return `実働が${required >= 60 ? 8 : 6}時間を超えるため、休憩時間（分）を${required}分に自動調整しました`;
+}
+function rowLineValues(row) {
+  const line = {};
+  row.querySelectorAll('[data-field]').forEach(el => { line[el.dataset.field] = el.value; });
+  return line;
+}
+// 明細行へ休憩の自動計算・労基下限を適用する。戻り値＝下限へ引き上げた分数（0=なし・通知用）
+function applySlotBreakRules(row, recompute) {
+  const slots = contractPeriodSlots();
+  const breakInput = row.querySelector('[data-field="break_minutes"]');
+  if (!slots || !breakInput) return 0;
+  const decision = slotBreakDecision(slots, rowLineValues(row), recompute);
+  if (decision.value != null) breakInput.value = String(decision.value);
+  return decision.required;
+}
+function sheetLineValues() {
+  const line = {};
+  document.getElementById('lineSheetBody').querySelectorAll('[data-sheet-field]').forEach(el => { line[el.dataset.sheetField] = el.value; });
+  return line;
+}
+// 詳細シート（スマホ）へ休憩の自動計算・労基下限を適用する（明細行の applySlotBreakRules と同一ルール）
+function applySheetSlotBreakRules(recompute) {
+  const slots = contractPeriodSlots();
+  const breakInput = sheetField('break_minutes');
+  if (!slots || !breakInput) return 0;
+  const decision = slotBreakDecision(slots, sheetLineValues(), recompute);
+  if (decision.value != null) breakInput.value = String(decision.value);
+  return decision.required;
+}
 function recomputeRowTimes(row, notify = false) {
   const cell = row.querySelector('[data-time-range]');
   if (!cell) return;
   const kind = row.querySelector('[data-field="kind"]')?.value || '';
+  const slots = contractPeriodSlots();
   const total = isLeaveKind(kind) ? 0 : rowMinutesTotal(row);
-  const {start, end, overflow} = computeAutoTimes(total);
+  const startOverride = rowStartMinutesOverride(slots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
+  const {start, end, overflow} = computeAutoTimes(total, startOverride);
   cell.querySelector('[data-field="start"]').value = start;
   cell.querySelector('[data-field="end"]').value = end;
   const display = cell.querySelector('[data-time-display]');
@@ -1095,25 +1235,38 @@ function recomputeRowTimes(row, notify = false) {
     display.classList.toggle('border-slate-200', !overflow);
     display.classList.toggle('bg-slate-50', !overflow);
   }
-  if (overflow && notify) showTimePopup(cell, '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
+  if (overflow && notify) showTimePopup(cell, slots
+    ? '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らして調整してください。'
+    : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
 }
 function recomputeAllRowTimes() {
   lineRows.querySelectorAll('tr').forEach(row => recomputeRowTimes(row));
   // 業務開始〜終了時間の一括再計算をスマホの明細リスト表示にも反映する
   renderMobileList();
 }
-// 担当時限の選択コマ数 → 右隣の担当業務（分）＝コマ数×50、休憩時間（分）＝（コマ数−1）×10 を自動入力する。
+// 担当時限の選択 → 担当業務（分）・休憩時間（分）を自動入力する。
+// コマ設定契約: 担当業務＝選択コマの実時間合計、休憩＝コマ間の隙間 − 副担当合計（労基下限あり）。
+// コマ設定なし: 担当業務＝コマ数×50、休憩＝（コマ数−1）×10。
 // 自動入力後の分数は1分単位で手動修正できる（担当時限を選び直すと自動値で上書きされる）。
 function applyPeriodAutoFill(row) {
   const hidden = row.querySelector('[data-field="subject_period"]');
   if (!hidden) return;
-  const count = parseSubjectPeriods(hidden.value).length;
-  const auto = periodAutoFillValues(count);
   const taskKey = periodAutoFillKey();
   const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
-  if (taskInput) taskInput.value = auto.task;
   const breakInput = row.querySelector('[data-field="break_minutes"]');
-  if (breakInput) breakInput.value = auto.breakMinutes;
+  const slots = contractPeriodSlots();
+  if (slots) {
+    const metrics = slotSelectionMetrics(slots, hidden.value);
+    if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
+    if (!metrics.selected && breakInput) breakInput.value = '';
+    const required = applySlotBreakRules(row, true);
+    if (required && breakInput) showTimePopup(breakInput.closest('td'), breakBumpMessage(required));
+  } else {
+    const count = parseSubjectPeriods(hidden.value).length;
+    const auto = periodAutoFillValues(count);
+    if (taskInput) taskInput.value = auto.task;
+    if (breakInput) breakInput.value = auto.breakMinutes;
+  }
   recomputeRowTimes(row, true);
 }
 // 担当時限：複数選択（1〜10）。値は「1・3・6」の文字列で保持（report_view/PDF/既存単一値と互換）。
@@ -1139,11 +1292,20 @@ function openPeriodPopover(btn) {
   const hidden = cell.querySelector('[data-field="subject_period"]');
   const selected = new Set(parseSubjectPeriods(hidden.value));
   const toggleClass = on => on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-700';
+  // コマ設定契約は設定済みコマのみを時間帯つきで表示する（未設定契約は従来の1〜10の番号のみ）
+  const slots = contractPeriodSlots();
+  const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const buttonClass = on => slots
+    ? `flex h-9 items-center justify-center gap-1 rounded border px-1 text-sm ${toggleClass(on)}`
+    : `h-8 rounded border text-sm ${toggleClass(on)}`;
+  const buttonBody = n => slots
+    ? `<span class="font-medium leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-[11px] leading-none">${escapeHtml(slotRangeLabel(slots[n - 1]))}</span>`
+    : String(n);
   const popover = document.createElement('div');
-  popover.className = 'period-popover absolute left-0 top-full z-30 mt-1 w-44 rounded-lg border border-slate-300 bg-white p-2 shadow-lg';
+  popover.className = `period-popover absolute left-0 top-full z-30 mt-1 ${slots ? 'w-64' : 'w-44'} rounded-lg border border-slate-300 bg-white p-2 shadow-lg`;
   popover.innerHTML = `
-    <div class="grid grid-cols-5 gap-1">
-      ${[1,2,3,4,5,6,7,8,9,10].map(n => `<button type="button" data-period-toggle="${n}" class="h-8 rounded border text-sm ${toggleClass(selected.has(String(n)))}">${n}</button>`).join('')}
+    <div class="grid ${slots ? 'grid-cols-2' : 'grid-cols-5'} gap-1">
+      ${numbers.map(n => `<button type="button" data-period-toggle="${n}" class="${buttonClass(selected.has(String(n)))}">${buttonBody(n)}</button>`).join('')}
     </div>
     <div class="mt-2 flex items-center justify-between">
       <button type="button" data-period-clear class="text-xs text-slate-500 hover:text-slate-700">クリア</button>
@@ -1161,13 +1323,13 @@ function openPeriodPopover(btn) {
     tb.addEventListener('click', () => {
       const n = tb.dataset.periodToggle;
       if (selected.has(n)) selected.delete(n); else selected.add(n);
-      tb.className = `h-8 rounded border text-sm ${toggleClass(selected.has(n))}`;
+      tb.className = buttonClass(selected.has(n));
       commit();
     });
   });
   popover.querySelector('[data-period-clear]').addEventListener('click', () => {
     selected.clear();
-    popover.querySelectorAll('[data-period-toggle]').forEach(tb => { tb.className = `h-8 rounded border text-sm ${toggleClass(false)}`; });
+    popover.querySelectorAll('[data-period-toggle]').forEach(tb => { tb.className = buttonClass(false); });
     commit();
   });
   popover.querySelector('[data-period-close]').addEventListener('click', closePeriodPopovers);
@@ -1329,21 +1491,26 @@ function openLineSheet(index) {
       <select data-sheet-field="kind" ${disabledMap.kind ? 'disabled' : ''} class="${sheetInputClass('w-full')}">${options}</select>
     </div>`);
   }
-  // 担当時限（時間帯つきトグル。選択でコマ数×50分→担当業務、（コマ数−1）×10分→休憩へ自動入力）
+  // 担当時限（時間帯つきトグル）。コマ設定契約は設定済みコマの時間帯、未設定契約は従来の導出時間帯を表示する。
   const hasPeriod = columns.some(column => column.key === 'subject_period');
   if (hasPeriod) {
     const selected = new Set(parseSubjectPeriods(line.subject_period));
     const periodDisabled = Boolean(row.querySelector('[data-period-btn]')?.disabled);
-    const buttons = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(n => {
+    const slots = contractPeriodSlots();
+    const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const buttons = numbers.map(n => {
       const on = selected.has(String(n));
       return `<button type="button" data-sheet-period="${n}" ${periodDisabled ? 'disabled' : ''} class="flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? 'border-emerald-600 bg-emerald-600 font-medium text-white' : 'border-slate-300 bg-white text-slate-700'}">
-        <span class="text-base leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-xs">${periodTimeRange(n)}</span>
+        <span class="text-base leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-xs">${escapeHtml(slots ? slotRangeLabel(slots[n - 1]) : periodTimeRange(n))}</span>
       </button>`;
     }).join('');
+    const hint = slots
+      ? '選択すると業務開始時刻・担当業務（分）・休憩時間（分）が自動入力されます（分は1分単位で修正できます）。'
+      : '選択すると担当業務（分）・休憩時間（分）が自動入力されます（1分単位で修正できます）。';
     parts.push(`<div>${sheetFieldLabel('担当時限')}
       <input type="hidden" data-sheet-field="subject_period" value="${escapeHtml(line.subject_period || '')}" ${disabledMap.subject_period ? 'disabled' : ''}>
       <div class="grid grid-cols-2 gap-1.5" data-sheet-periods>${buttons}</div>
-      <p class="mt-1 text-[11px] leading-relaxed text-slate-400">選択すると担当業務（分）・休憩時間（分）が自動入力されます（1分単位で修正できます）。</p>
+      <p class="mt-1 text-[11px] leading-relaxed text-slate-400">${escapeHtml(hint)}</p>
     </div>`);
   }
   // 列を「担当業務」「休憩」「管理業務（副担当業務）」「交通費」「内容」へ振り分け（列定義は契約により可変）
@@ -1367,7 +1534,7 @@ function openLineSheet(index) {
     : sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('')));
   // 業務開始〜終了時間（自動計算・読取専用）
   parts.push(`<div>${sheetFieldLabel('業務開始〜終了時間（自動計算）')}
-    <div data-sheet-time title="${escapeHtml(TIME_RANGE_HINT)}" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-base text-slate-400">自動計算</div>
+    <div data-sheet-time title="${escapeHtml(timeRangeHint())}" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-base text-slate-400">自動計算</div>
   </div>`);
   if (feeCol) parts.push(sheetSimpleField(feeCol, line[feeCol.key], disabledMap[feeCol.key]));
   if (noteCol) {
@@ -1464,7 +1631,8 @@ function recomputeSheetTime() {
     const input = sheetField(key);
     return sum + (input ? numberValue(input.value) : 0);
   }, 0);
-  const {start, end, overflow} = computeAutoTimes(total);
+  const startOverride = rowStartMinutesOverride(contractPeriodSlots(), sheetField('subject_period')?.value || '', kind);
+  const {start, end, overflow} = computeAutoTimes(total, startOverride);
   display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可（同日23:59まで）' : '自動計算');
   display.classList.toggle('font-medium', !!start);
   display.classList.toggle('text-slate-800', !!start);
@@ -1508,18 +1676,45 @@ function bindSheetEvents(body) {
       if (selected.has(n)) selected.delete(n); else selected.add(n);
       hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
       refreshSheetPeriodButtons();
-      // コマ数→担当業務（分）・休憩時間（分）の自動入力（明細行の applyPeriodAutoFill と同一ルール）
-      const auto = periodAutoFillValues(selected.size);
+      // 担当業務（分）・休憩時間（分）の自動入力（明細行の applyPeriodAutoFill と同一ルール）
+      const slots = contractPeriodSlots();
       const taskKey = periodAutoFillKey();
       const taskInput = taskKey ? sheetField(taskKey) : null;
-      if (taskInput) taskInput.value = auto.task;
       const breakInput = sheetField('break_minutes');
-      if (breakInput) breakInput.value = auto.breakMinutes;
+      if (slots) {
+        const metrics = slotSelectionMetrics(slots, hidden.value);
+        if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
+        if (!metrics.selected && breakInput) breakInput.value = '';
+        const required = applySheetSlotBreakRules(true);
+        if (required) showSheetError(breakBumpMessage(required)); else hideSheetError();
+      } else {
+        const auto = periodAutoFillValues(selected.size);
+        if (taskInput) taskInput.value = auto.task;
+        if (breakInput) breakInput.value = auto.breakMinutes;
+      }
       recomputeSheetTime();
     });
   });
+  const sheetMinuteKeys = new Set(timeMinuteKeys());
+  const sheetSecondaryKeys = new Set(secondaryMinuteKeys());
   body.querySelectorAll('input[type="number"][data-sheet-field]').forEach(input => {
-    input.addEventListener('input', recomputeSheetTime);
+    input.addEventListener('input', () => {
+      const field = input.dataset.sheetField;
+      // コマ設定契約: 副担当業務等の入力で休憩＝隙間−副担当を自動再計算し、労基下限を下回る場合は引き上げて通知する
+      if (field !== 'break_minutes' && sheetMinuteKeys.has(field)) {
+        const required = applySheetSlotBreakRules(sheetSecondaryKeys.has(field));
+        if (required) showSheetError(breakBumpMessage(required));
+      }
+      recomputeSheetTime();
+    });
+    // 休憩時間（分）の手動修正: 確定（change）時に労基下限を下回っていれば引き上げて通知する
+    if (input.dataset.sheetField === 'break_minutes') {
+      input.addEventListener('change', () => {
+        const required = applySheetSlotBreakRules(false);
+        if (required) showSheetError(breakBumpMessage(required));
+        recomputeSheetTime();
+      });
+    }
   });
 }
 // シートの内容をフォームの該当行へ反映して閉じる（サーバ保存は画面下の「保存/更新」ボタンで行う）
@@ -1873,6 +2068,26 @@ reportForm.addEventListener('submit', async e => {
   if (invalidPeriod) {
     showFormMessage('担当時限は1〜10で選択してください', true);
     return;
+  }
+  // コマ設定契約: 時限がコマ設定の範囲内か・労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか
+  const periodSlots = contractPeriodSlots();
+  if (periodSlots) {
+    const columns = activeColumnDefinition();
+    const outIndex = lines.findIndex(line => parseSubjectPeriods(line.subject_period).some(p => Number(p) > periodSlots.length));
+    if (outIndex !== -1) {
+      showFormMessage(`${outIndex + 1}回目：担当時限にコマ設定（①〜${CIRCLED_NUMBERS[periodSlots.length - 1]}）にない時限が含まれています。選び直してください。`, true);
+      return;
+    }
+    const workKeys = [...mainMinuteKeys(columns), ...secondaryMinuteKeys(columns)];
+    const shortIndex = lines.findIndex(line => {
+      if (isLeaveKind(line.kind)) return false;
+      const work = workKeys.reduce((sum, key) => sum + numberValue(line[key]), 0);
+      return numberValue(line.break_minutes) < requiredBreakMinutes(work);
+    });
+    if (shortIndex !== -1) {
+      showFormMessage(`${shortIndex + 1}回目：実働6時間超は45分以上・8時間超は60分以上の休憩が必要です。休憩時間（分）を調整してください。`, true);
+      return;
+    }
   }
   const invalidTime = lines.some(line => line.start && line.end && line.end < line.start);
   if (invalidTime) {

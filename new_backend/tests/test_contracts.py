@@ -493,6 +493,18 @@ class TestContractImport:
         assert profile.our_staff == "更新後"
         assert profile.show_break_minutes is False  # CSV取込で表示フラグは保持
 
+    def test_csv_upsert_preserves_period_slots(self, client, db, import_setup):
+        # ドロワーで設定したコマ設定は、CSV再取込しても保持される（CSVはコマ設定を扱わない）
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100")]))
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        profile.period_slots = [{"start": "08:30", "end": "09:20"}]
+        db.commit()
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100", **{cis.OUR_STAFF: "更新後"})]))
+        db.refresh(profile)
+        assert profile.our_staff == "更新後"
+        assert profile.period_slots == [{"start": "08:30", "end": "09:20"}]
+
     def test_import_requires_school_no(self, client, db, import_setup):
         row = _csv_row("T100", "")  # 学校番号なし
         res = self._upload(client, _csv_bytes([row]))
@@ -732,3 +744,117 @@ class TestClassroomAndDisplayFlags:
         body = res.json()
         assert body["show_work_content"] is False
         assert body["classroom_name"] == "新教室"
+
+
+class TestPeriodSlots:
+    """コマ設定（担当時限の時間割）。設定がある契約は講師フォームで時間割から自動計算する。"""
+
+    SLOTS = [
+        {"start": "08:30", "end": "09:20"},
+        {"start": "09:30", "end": "10:20"},
+        {"start": "10:30", "end": "11:20"},
+        {"start": "11:30", "end": "12:20"},
+    ]
+
+    def test_create_with_period_slots(self, client, db, setup):
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=self.SLOTS),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["period_slots"] == self.SLOTS
+
+    def test_default_empty(self, client, db, setup):
+        res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 201, res.text
+        assert res.json()["period_slots"] == []
+
+    def test_for_tutor_returns_period_slots(self, client, db, setup):
+        client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=self.SLOTS),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        res = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com"))
+        assert res.status_code == 200, res.text
+        assert res.json()[0]["period_slots"] == self.SLOTS
+
+    def test_start_must_be_before_end(self, client, db, setup):
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, period_slots=[{"start": "09:20", "end": "08:30"}]),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_overlap_rejected(self, client, db, setup):
+        slots = [{"start": "08:30", "end": "09:20"}, {"start": "09:10", "end": "10:00"}]
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=slots),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_max_10_slots(self, client, db, setup):
+        slots = [{"start": f"{8 + i:02d}:00", "end": f"{8 + i:02d}:50"} for i in range(11)]
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=slots),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_time_format_validated(self, client, db, setup):
+        # HH:MM 形式（ゼロ詰め2桁）のみ受理する
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, period_slots=[{"start": "8:30", "end": "09:20"}]),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_break_hidden_conflicts_with_slots(self, client, db, setup):
+        # 休憩時間を非表示にすると「隙間→休憩」の自動計算が成立しないため併用不可
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, period_slots=self.SLOTS, show_break_minutes=False),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_patch_break_hidden_rejected_when_slots_exist(self, client, db, setup):
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=self.SLOTS),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        cid = created.json()["id"]
+        res = client.patch(
+            f"/api/w/contracts/{cid}", json={"show_break_minutes": False},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+        # 拒否後は契約が変更されていない
+        body = client.get(f"/api/w/contracts/{cid}", headers=_auth(client, "master@x.example.com")).json()
+        assert body["show_break_minutes"] is True
+        assert body["period_slots"] == self.SLOTS
+
+    def test_patch_updates_preserves_and_clears_slots(self, client, db, setup):
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=self.SLOTS),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        cid = created.json()["id"]
+        headers = _auth(client, "master@x.example.com")
+        # 更新
+        res = client.patch(
+            f"/api/w/contracts/{cid}",
+            json={"period_slots": [{"start": "13:00", "end": "13:50"}]}, headers=headers,
+        )
+        assert res.status_code == 200, res.text
+        assert res.json()["period_slots"] == [{"start": "13:00", "end": "13:50"}]
+        # period_slots キーを送らないPATCHでは保持される
+        res2 = client.patch(f"/api/w/contracts/{cid}", json={"our_staff": "変更"}, headers=headers)
+        assert res2.status_code == 200, res2.text
+        assert res2.json()["period_slots"] == [{"start": "13:00", "end": "13:50"}]
+        # 空リストでクリア
+        res3 = client.patch(f"/api/w/contracts/{cid}", json={"period_slots": []}, headers=headers)
+        assert res3.status_code == 200, res3.text
+        assert res3.json()["period_slots"] == []
