@@ -1,6 +1,5 @@
 # === Phase 4: 指導報告書 CRUD START ===
 import io
-import os
 from collections import defaultdict
 from datetime import date
 from urllib.parse import quote
@@ -16,6 +15,8 @@ from app.database import get_db
 from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import GroupAdminEditIn, ReportCreate, ReportEventOut, ReportOut, ReportPatch
+from app.services.daily_report_pdf import build_daily_reports_pdf
+from app.services.pdf_fonts import register_pdf_font
 from app.services.workflow_service import notify_report_modified, notify_tutor_report_edited, separation_locks
 
 STATUS_RANK = {
@@ -294,18 +295,17 @@ def monthly_summary(tutor_id: UUID | None = None, target_month: str | None = Non
     return summaries
 
 
-@router.get("/export")
-def export_reports(
+# 指導時間確認票(/export)・指導日報(/export-daily)共通の対象選定。
+# 権限: 講師=自分の最終承認済みのみ / 保護者=自分の子の最終承認済みのみ /
+# 運営=scope指定時は最終承認済みのみ・未指定時は全状態（担当単位の参照用）。
+def _reports_for_export(
+    db: Session,
+    user: User,
     target_month: str,
-    assignment_id: UUID | None = None,
-    tutor_id: UUID | None = None,
-    scope: str | None = None,
-    format: str = "pdf",
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    if format != "pdf":
-        raise HTTPException(status_code=422, detail="format must be pdf")
+    assignment_id: UUID | None,
+    tutor_id: UUID | None,
+    scope: str | None,
+) -> tuple[list[LessonReport], Assignment | None]:
     if scope and scope not in {"all", "approved_only"}:
         raise HTTPException(status_code=422, detail="scope must be all or approved_only")
 
@@ -348,6 +348,22 @@ def export_reports(
     reports = db.scalars(stmt.order_by(LessonReport.assignment_id, LessonReport.lesson_date, LessonReport.start_time)).all()
     if not reports:
         raise HTTPException(status_code=404, detail="no reports found")
+    return reports, assignment
+
+
+@router.get("/export")
+def export_reports(
+    target_month: str,
+    assignment_id: UUID | None = None,
+    tutor_id: UUID | None = None,
+    scope: str | None = None,
+    format: str = "pdf",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if format != "pdf":
+        raise HTTPException(status_code=422, detail="format must be pdf")
+    reports, assignment = _reports_for_export(db, user, target_month, assignment_id, tutor_id, scope)
 
     year, month_str = target_month.split("-")
     month_label = f"{year}年{int(month_str):02d}月"
@@ -375,9 +391,31 @@ def export_reports(
     )
 
 
+@router.get("/export-daily")
+def export_daily_reports(
+    target_month: str,
+    assignment_id: UUID | None = None,
+    tutor_id: UUID | None = None,
+    scope: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """「指導日報」PDF（原本様式・1ページ5日分・日ごとの会員認め印つき）をダウンロードする。
+
+    対象選定・権限は /export（指導時間確認票）と同一。会員認め印は保護者承認を
+    通過した報告書のみ描画される。ファイル名は仕様どおり 指導日報_yyyy年mm月.pdf 固定。
+    """
+    reports, _ = _reports_for_export(db, user, target_month, assignment_id, tutor_id, scope)
+    content = build_daily_reports_pdf(reports, target_month)
+    filename = f"指導日報_{_month_label(target_month)}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
 _WD = ["日", "月", "火", "水", "木", "金", "土"]
-_PDF_FONT_NAME = "JapaneseReportFont"
-_PDF_FONT_REGISTERED = False
 
 
 def _student_name(report: LessonReport) -> str:
@@ -404,39 +442,6 @@ def _month_label(target_month: str) -> str:
 def _report_date_label(report: LessonReport) -> str:
     wd = _WD[(report.lesson_date.weekday() + 1) % 7]
     return f"{report.lesson_date.month}月{report.lesson_date.day}日（{wd}）"
-
-
-def _pdf_font_paths() -> list[str]:
-    return [
-        os.environ.get("PDF_JP_FONT_PATH", ""),
-        "/usr/share/fonts/opentype/ipafont-gothic/ipag.ttf",
-        "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
-        "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-        "C:/Windows/Fonts/NotoSansJP-VF.ttf",
-        "C:/Windows/Fonts/msgothic.ttc",
-        "C:/Windows/Fonts/meiryo.ttc",
-    ]
-
-
-def _register_pdf_font() -> str:
-    global _PDF_FONT_REGISTERED
-    if _PDF_FONT_REGISTERED:
-        return _PDF_FONT_NAME
-    try:
-        from reportlab.pdfbase import pdfmetrics
-        from reportlab.pdfbase.ttfonts import TTFont
-    except ModuleNotFoundError as exc:
-        raise HTTPException(status_code=500, detail="reportlab is not installed") from exc
-
-    for path in _pdf_font_paths():
-        if path and os.path.exists(path):
-            try:
-                pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, path))
-                _PDF_FONT_REGISTERED = True
-                return _PDF_FONT_NAME
-            except Exception:
-                continue
-    raise HTTPException(status_code=500, detail="Japanese PDF font is not installed")
 
 
 def _approval_stamps(db: Session, reports: list[LessonReport]) -> dict[str, tuple[str, str, object] | None]:
@@ -555,7 +560,7 @@ def _draw_confirmation_banner(canvas, doc, font_name: str) -> None:
 
 def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: str, stamps: dict[str, tuple[str, str, object] | None]) -> bytes:
     """全ロール共通の「指導時間確認票」PDF（A4横）。assignment×月ごとに1ページ。"""
-    font_name = _register_pdf_font()
+    font_name = register_pdf_font()
     try:
         from reportlab.lib import colors
         from reportlab.lib.enums import TA_CENTER

@@ -170,7 +170,8 @@ function renderDownloadArea(month, reports) {
   if (!groups.length) return '';
   const buttons = groups.map(g => `<div class="flex flex-wrap items-center gap-2">
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
-    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
+    <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">指導時間確認票PDF</a>
+    <a href="/api/reports/export-daily?assignment_id=${g.assignment_id}&target_month=${month}" class="inline-flex items-center px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg">指導日報PDF</a>
   </div>`).join('');
   return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
 }
@@ -187,11 +188,12 @@ function renderBulkExportLinks() {
     bulkExportButtons.innerHTML = '';
     return;
   }
-  const exportUrl = selectedAssignmentId
-    ? `/api/reports/export?assignment_id=${selectedAssignmentId}&target_month=${month}&format=pdf`
-    : `/api/reports/export?scope=all&target_month=${month}&format=pdf`;
+  const exportQuery = selectedAssignmentId
+    ? `assignment_id=${selectedAssignmentId}&target_month=${month}`
+    : `scope=all&target_month=${month}`;
   bulkExportButtons.innerHTML = `
-    <a href="${exportUrl}" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700 sm:w-auto">PDFでダウンロード</a>
+    <a href="/api/reports/export?${exportQuery}&format=pdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700 sm:w-auto">指導時間確認票PDF</a>
+    <a href="/api/reports/export-daily?${exportQuery}" class="inline-flex w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white transition hover:bg-teal-700 sm:w-auto">指導日報PDF</a>
   `;
 }
 function renderBulkExportArea() {

@@ -129,7 +129,9 @@ function renderExportArea() {
   }
   const assignmentParam = selectedAssignmentId ? `&assignment_id=${selectedAssignmentId}` : '&scope=all';
   exportArea.classList.remove('hidden');
-  exportButtons.innerHTML = `<a href="/api/reports/export?target_month=${selectedMonth}&format=pdf${assignmentParam}" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700 sm:w-auto">PDFでダウンロード</a>`;
+  exportButtons.innerHTML = `
+    <a href="/api/reports/export?target_month=${selectedMonth}&format=pdf${assignmentParam}" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700 sm:w-auto">指導時間確認票PDF</a>
+    <a href="/api/reports/export-daily?target_month=${selectedMonth}${assignmentParam}" class="inline-flex w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white transition hover:bg-teal-700 sm:w-auto">指導日報PDF</a>`;
 }
 // 承認・差戻し・承認依頼（提出）はいずれも「月単位」の一括操作で、月内の報告書（指導日）ごとに
 // 同一イベントが複数記録される。そのため (アクション＋コメント＋分単位の時刻) をキーに1件へ集約し、

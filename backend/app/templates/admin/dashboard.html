@@ -41,7 +41,8 @@
     <span class="text-slate-700">講師選択</span>
     <select id="tutorFilter" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
   </label>
-  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto sm:ml-auto" href="#">完了分をすべてPDFダウンロード</a>
+  <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto sm:ml-auto" href="#">完了分PDF（指導時間確認票）</a>
+  <a id="bulkExportDailyPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 sm:w-auto" href="#">完了分PDF（指導日報）</a>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -249,6 +250,10 @@ function groupPdfUrl(group) {
   const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only', format: 'pdf'});
   return `/api/reports/export?${params.toString()}`;
 }
+function groupDailyPdfUrl(group) {
+  const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only'});
+  return `/api/reports/export-daily?${params.toString()}`;
+}
 function eventsForGroup(group) {
   const seen = new Set();
   const events = [];
@@ -372,8 +377,12 @@ function renderBulkExportLinks() {
   const hasUnapprovedGroup = groups.some(group => !group.every(report => report.status === 'admin_approved'));
   const params = new URLSearchParams({scope: 'approved_only', target_month: month, format: 'pdf'});
   bulkExportPdf.href = hasApprovedGroup ? `/api/reports/export?${params.toString()}` : '#';
-  bulkExportPdf.classList.toggle('opacity-50', !hasApprovedGroup);
-  bulkExportPdf.classList.toggle('pointer-events-none', !hasApprovedGroup);
+  const dailyParams = new URLSearchParams({scope: 'approved_only', target_month: month});
+  bulkExportDailyPdf.href = hasApprovedGroup ? `/api/reports/export-daily?${dailyParams.toString()}` : '#';
+  for (const link of [bulkExportPdf, bulkExportDailyPdf]) {
+    link.classList.toggle('opacity-50', !hasApprovedGroup);
+    link.classList.toggle('pointer-events-none', !hasApprovedGroup);
+  }
 }
 // あなたのタスク：承認・差戻しボタンは報告書（参照）画面へ集約したため、ここには置かない。
 // 「どの講師の残タスクか」を一目で把握できるよう講師ごとにまとめ、各行クリックで参照画面を開く。
@@ -620,7 +629,8 @@ function showDetails(key) {
     <div class="mb-4 flex flex-wrap gap-2">
       <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="openReportWindow('${key}')">報告書を確認</button>
       ${canBulkEdit(group) ? `<button class="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100" onclick="openBulkEditModal('${key}')">この月の指導実績を編集</button>` : ''}
-      ${activeStatus === 'admin_approved' ? `<a class="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700" href="${groupPdfUrl(group)}">PDFダウンロード</a>` : ''}
+      ${activeStatus === 'admin_approved' ? `<a class="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700" href="${groupPdfUrl(group)}">指導時間確認票PDF</a>
+      <a class="inline-flex items-center rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700" href="${groupDailyPdfUrl(group)}">指導日報PDF</a>` : ''}
     </div>
     ${reminderPanel(group, activeStatus)}
     ${closedReportInfo(group)}

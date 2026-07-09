@@ -8,7 +8,8 @@
       <span class="mb-1 block text-slate-700">月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
-    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">PDFでダウンロード</a>
+    <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">指導時間確認票PDF</a>
+    <a id="bulkExportDailyPdf" class="inline-flex items-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700" href="#">指導日報PDF</a>
     <span id="exportWarning" class="text-sm text-rose-700"></span>
   </div>
   <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
@@ -199,8 +200,10 @@ function renderStepper(group) {
 }
 function exportButtons(group) {
   if (group.phase !== 'completed') return '';
+  const query = `assignment_id=${group.assignment_id}&target_month=${group.target_month}`;
   return `<div class="mt-3 flex flex-wrap gap-2">
-    <a href="/api/reports/export?assignment_id=${group.assignment_id}&target_month=${group.target_month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">PDFでダウンロード</a>
+    <a href="/api/reports/export?${query}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">指導時間確認票PDF</a>
+    <a href="/api/reports/export-daily?${query}" class="inline-flex items-center px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg">指導日報PDF</a>
   </div>`;
 }
 function renderBulkExportArea() {
@@ -211,9 +214,11 @@ function renderBulkExportArea() {
   renderBulkExportLinks();
 }
 function setBulkExportEnabled(enabled, message = '') {
-  bulkExportPdf.classList.toggle('pointer-events-none', !enabled);
-  bulkExportPdf.classList.toggle('opacity-50', !enabled);
-  if (!enabled) bulkExportPdf.removeAttribute('href');
+  for (const link of [bulkExportPdf, bulkExportDailyPdf]) {
+    link.classList.toggle('pointer-events-none', !enabled);
+    link.classList.toggle('opacity-50', !enabled);
+    if (!enabled) link.removeAttribute('href');
+  }
   exportWarning.textContent = message;
 }
 function renderBulkExportLinks() {
@@ -227,6 +232,7 @@ function renderBulkExportLinks() {
   }
   setBulkExportEnabled(true);
   bulkExportPdf.href = `/api/reports/export?${params.toString()}`;
+  bulkExportDailyPdf.href = `/api/reports/export-daily?${new URLSearchParams({scope: 'all', target_month: month}).toString()}`;
 }
 function actionArea(group) {
   if (group.phase === 'completed') {
