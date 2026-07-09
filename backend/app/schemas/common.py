@@ -1,5 +1,6 @@
 # === Phase 2: 認証・認可 START ===
 from datetime import date, datetime, time
+from typing import Literal
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -190,13 +191,23 @@ class InvitationOut(BaseModel):
 
 
 class ReportCreate(BaseModel):
+    # 指導報告の内容項目（2026-07 再構築）。「次回の予定/指導日・開始時刻」以外は必須入力だが、
+    # 必須の強制は入力UI（フロントの required）で行う。API/スキーマ層は後方互換のため
+    # 既存 content（=(b)）のみ必須を維持し、他の内容項目は任意とする（subject は従来も任意）。
+    # subject=教科・content=(b)何を指導したか は既存カラム流用。
     assignment_id: UUID
     lesson_date: date
     start_time: time
     end_time: time
     break_minutes: int = Field(default=0, ge=0)
-    subject: str | None = None
-    content: str = Field(min_length=1, max_length=2000)
+    subject: str | None = Field(default=None, max_length=100)           # 教科
+    material_name: str | None = Field(default=None, max_length=2000)    # (a) 使用教材/テキスト名
+    content: str = Field(min_length=1, max_length=2000)               # (b) 何を指導したか/単元など
+    learning_status: str | None = Field(default=None, max_length=2000)  # (c) 学習状況/問題と対策
+    homework_status: Literal["A", "B", "C"] | None = None             # (d) 宿題/状況
+    next_homework: str | None = Field(default=None, max_length=2000)    # 次回までの宿題
+    next_lesson_date: date | None = None                              # 次回の予定/指導日（任意）
+    next_lesson_start: time | None = None                            # 次回の指導開始時刻（任意）
 
     @field_validator("end_time")
     @classmethod
@@ -208,12 +219,19 @@ class ReportCreate(BaseModel):
 
 
 class ReportPatch(BaseModel):
+    # 下書き／差戻し中の部分更新。送信された項目のみ更新（exclude_unset）。
     lesson_date: date | None = None
     start_time: time | None = None
     end_time: time | None = None
     break_minutes: int | None = Field(default=None, ge=0)
-    subject: str | None = None
+    subject: str | None = Field(default=None, max_length=100)
+    material_name: str | None = Field(default=None, max_length=2000)
     content: str | None = Field(default=None, min_length=1, max_length=2000)
+    learning_status: str | None = Field(default=None, max_length=2000)
+    homework_status: Literal["A", "B", "C"] | None = None
+    next_homework: str | None = Field(default=None, max_length=2000)
+    next_lesson_date: date | None = None
+    next_lesson_start: time | None = None
 
 
 class AdminEditLineIn(BaseModel):
@@ -271,8 +289,14 @@ class ReportOut(BaseModel):
     start_time: time
     end_time: time
     break_minutes: int
-    subject: str | None
-    content: str
+    subject: str | None                       # 教科
+    material_name: str | None = None          # (a) 使用教材/テキスト名
+    content: str                              # (b) 何を指導したか/単元など
+    learning_status: str | None = None        # (c) 学習状況/問題と対策
+    homework_status: str | None = None        # (d) 宿題/状況 A/B/C
+    next_homework: str | None = None          # 次回までの宿題
+    next_lesson_date: date | None = None      # 次回の予定/指導日
+    next_lesson_start: time | None = None     # 次回の指導開始時刻
     status: str
     target_month: str
     submitted_to_parent_at: datetime | None = None

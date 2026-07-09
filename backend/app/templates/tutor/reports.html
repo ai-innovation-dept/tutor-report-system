@@ -15,7 +15,7 @@
             <th class="px-4 py-3 text-left">在室時間</th>
             <th class="px-4 py-3 text-left">休憩（分）</th>
             <th class="px-4 py-3 text-left">指導時間数</th>
-            <th class="px-4 py-3 text-left">科目</th>
+            <th class="px-4 py-3 text-left">教科</th>
             <th class="px-4 py-3 text-left">状態</th>
             <th class="px-4 py-3 text-left">アクション</th>
           </tr>
@@ -86,14 +86,67 @@
         <input id="teachingMinutesLabel" type="text" value="0分" class="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-slate-700" readonly>
         <span id="teachingUnitError" class="hidden mt-1 block text-xs text-red-600">指導時間数は0.5時間（30分）単位にしてください。休憩で調整できます（例：在室2時間10分＋休憩10分＝2.0時間）。</span>
       </label>
-      <label class="block text-sm">
-        <span class="block mb-1 text-slate-700">科目</span>
-        <input name="subject" id="subject" placeholder="科目" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
-      </label>
-      <label class="block text-sm">
-        <span class="block mb-1 text-slate-700">指導内容</span>
-        <textarea name="content" id="content" placeholder="指導内容" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required></textarea>
-      </label>
+      <!-- 指導内容セクション（2026-07 再構築）。「次回の予定」以外は必須。 -->
+      <div class="space-y-3 rounded-lg border border-slate-200 bg-slate-50/70 p-3">
+        <div class="flex items-center justify-between">
+          <span class="text-sm font-semibold text-slate-700">指導内容</span>
+          <span class="text-xs text-slate-400"><span class="text-red-500">＊</span> は必須</span>
+        </div>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">教科 <span class="text-red-500">＊</span></span>
+          <input name="subject" id="subject" placeholder="例：数学" maxlength="100" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">使用教材／テキスト名 <span class="text-red-500">＊</span></span>
+          <input name="material_name" id="materialName" placeholder="例：〇〇問題集 p.20〜25" maxlength="2000" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">何を指導したか／単元など <span class="text-red-500">＊</span></span>
+          <textarea name="content" id="content" rows="2" placeholder="指導した単元・内容" maxlength="2000" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></textarea>
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">学習状況／問題と対策 <span class="text-red-500">＊</span></span>
+          <textarea name="learning_status" id="learningStatus" rows="2" placeholder="理解度・つまずき・今後の対策など" maxlength="2000" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></textarea>
+        </label>
+        <fieldset class="block text-sm">
+          <legend class="mb-1 block text-slate-700">宿題／状況 <span class="text-red-500">＊</span></legend>
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:ring-2 has-[:checked]:ring-blue-500/20">
+              <input type="radio" name="homework_status" value="A" required class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+              <span class="text-slate-700"><span class="font-semibold">A</span>：ほぼ完ぺき</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:ring-2 has-[:checked]:ring-blue-500/20">
+              <input type="radio" name="homework_status" value="B" required class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+              <span class="text-slate-700"><span class="font-semibold">B</span>：半分くらい</span>
+            </label>
+            <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:ring-2 has-[:checked]:ring-blue-500/20">
+              <input type="radio" name="homework_status" value="C" required class="h-4 w-4 text-blue-600 focus:ring-blue-500">
+              <span class="text-slate-700"><span class="font-semibold">C</span>：やらなかった</span>
+            </label>
+          </div>
+        </fieldset>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">次回までの宿題 <span class="text-red-500">＊</span></span>
+          <textarea name="next_homework" id="nextHomework" rows="2" placeholder="次回までに取り組む課題" maxlength="2000" required class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></textarea>
+        </label>
+        <div class="rounded-lg border border-slate-200 bg-white p-3">
+          <div class="mb-2 flex items-center gap-2">
+            <span class="text-sm text-slate-700">次回の予定／指導日</span>
+            <span class="rounded bg-slate-100 px-1.5 py-0.5 text-xs text-slate-500">任意</span>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block text-sm">
+              <span class="mb-1 block text-xs text-slate-500">指導日</span>
+              <input name="next_lesson_date" id="nextLessonDate" type="date" class="block h-10 w-full min-w-0 appearance-none rounded-lg border border-slate-300 px-3 py-2 text-sm leading-5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+              <span id="nextLessonDateLabel" class="mt-1 block text-xs text-slate-500"></span>
+            </label>
+            <label class="block text-sm">
+              <span class="mb-1 block text-xs text-slate-500">指導開始時刻</span>
+              <input name="next_lesson_start" id="nextLessonStart" type="time" class="block h-10 w-full min-w-0 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+            </label>
+          </div>
+        </div>
+      </div>
       <div class="flex gap-2">
         <button class="flex-1 rounded-lg bg-blue-600 px-3 py-2 font-medium text-white transition hover:bg-blue-700" id="saveButton">保存</button>
         <button type="button" class="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-700 transition hover:bg-slate-50" onclick="resetReportForm()">取消</button>
@@ -306,13 +359,27 @@ function setEndTimeDisabled(disabled) {
 let reportInputsDisabled = true;
 function setReportInputsDisabled(disabled) {
   reportInputsDisabled = disabled;
-  [lessonDate, startHour, startMin, endHour, endMin, breakMinutes, subject, content, saveButton].forEach(el => {
+  [lessonDate, startHour, startMin, endHour, endMin, breakMinutes,
+   subject, materialName, content, learningStatus, nextHomework,
+   nextLessonDate, nextLessonStart, saveButton].forEach(el => {
     el.disabled = disabled;
   });
+  reportForm.querySelectorAll('input[name="homework_status"]').forEach(el => { el.disabled = disabled; });
   saveButton.classList.toggle('opacity-50', disabled);
   saveButton.classList.toggle('cursor-not-allowed', disabled);
   if (!disabled) setEndTimeDisabled(!startTime.value);
   updateCopyLastButton();
+}
+// 宿題／状況（A/B/C ラジオ）の取得・設定
+function getHomeworkStatus() {
+  const checked = reportForm.querySelector('input[name="homework_status"]:checked');
+  return checked ? checked.value : '';
+}
+function setHomeworkStatus(value) {
+  reportForm.querySelectorAll('input[name="homework_status"]').forEach(el => { el.checked = el.value === value; });
+}
+function updateNextLessonDateLabel() {
+  nextLessonDateLabel.textContent = nextLessonDate.value ? dateLabel(nextLessonDate.value) : '';
 }
 function reportSummary(r) {
   return `${dateLabel(r.lesson_date)} ${timeText(r.start_time)} ～ ${timeText(r.end_time)} ${durationLabel(teachingMinutes(r))} ${r.subject || ''}`;
@@ -405,6 +472,10 @@ function formPayload() {
   // 生徒(assignment)プルダウンはフォーム外に配置しているため明示的に付与する（編集時は呼び出し側で削除）
   data.assignment_id = assignment.value;
   data.break_minutes = Number(data.break_minutes || 0);
+  // 任意項目（次回の予定/指導日・開始時刻）の空文字は null 化する。
+  // "" のまま送るとサーバの date/time パースでエラーになるため。
+  data.next_lesson_date = data.next_lesson_date || null;
+  data.next_lesson_start = data.next_lesson_start || null;
   return data;
 }
 function updateComputedFields() {
@@ -498,6 +569,7 @@ function resetReportForm(keepAssignment = false) {
   formTitle.textContent = '指導報告作成';
   saveButton.textContent = '保存';
   setEndTimeDisabled(true);
+  updateNextLessonDateLabel();
   updateComputedFields();
   updateCopyLastButton();
 }
@@ -526,15 +598,22 @@ function updateCopyLastButton() {
 function copyLastReport() {
   const source = lastReportForAssignment(assignment.value);
   if (!source || copyLastButton.disabled) return;
-  if ((subject.value.trim() || content.value.trim()) && !confirm('入力中の科目・指導内容を前回の内容で上書きします。よろしいですか。')) return;
+  const hasInput = subject.value.trim() || materialName.value.trim() || content.value.trim()
+    || learningStatus.value.trim() || nextHomework.value.trim() || getHomeworkStatus();
+  if (hasInput && !confirm('入力中の指導内容を前回の内容で上書きします。よろしいですか。')) return;
   setTimeSelects(startHour, startMin, source.start_time);
   syncStartTime();
   setEndTimeDisabled(!startTime.value);
   setTimeSelects(endHour, endMin, source.end_time);
   syncEndTime();
   breakMinutes.value = snapBreakMinutes(source.break_minutes);
+  // 指導内容の各項目をコピー（次回の予定/指導日・開始時刻は指導日固有のためコピーしない）
   subject.value = source.subject || '';
+  materialName.value = source.material_name || '';
   content.value = source.content || '';
+  learningStatus.value = source.learning_status || '';
+  setHomeworkStatus(source.homework_status || '');
+  nextHomework.value = source.next_homework || '';
   validateEndTime();
   updateComputedFields();
   showFormMessage(`前回（${dateLabel(source.lesson_date)}）の内容をコピーしました。指導日を確認して保存してください。`);
@@ -554,7 +633,14 @@ function editReport(id) {
   syncEndTime();
   breakMinutes.value = snapBreakMinutes(r.break_minutes);
   subject.value = r.subject || '';
+  materialName.value = r.material_name || '';
   content.value = r.content || '';
+  learningStatus.value = r.learning_status || '';
+  setHomeworkStatus(r.homework_status || '');
+  nextHomework.value = r.next_homework || '';
+  nextLessonDate.value = r.next_lesson_date || '';
+  nextLessonStart.value = (r.next_lesson_start || '').slice(0, 5);
+  updateNextLessonDateLabel();
   formTitle.textContent = `編集中：${dateLabel(r.lesson_date)}`;
   saveButton.textContent = '保存';
   // 下書き／差戻しの編集は全項目を有効化（指導日・開始時刻も含めて修正可）。
@@ -682,6 +768,7 @@ endHour.addEventListener('change', onEndChange);
 endMin.addEventListener('change', onEndChange);
 breakMinutes.addEventListener('change', updateComputedFields);
 lessonDate.addEventListener('input', updateComputedFields);
+nextLessonDate.addEventListener('change', updateNextLessonDateLabel);
 buildTimeSelectOptions();
 window.authReady.then(user => {
   if (!user) return;

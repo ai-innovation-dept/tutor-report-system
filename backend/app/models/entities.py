@@ -158,8 +158,15 @@ class LessonReport(Base):
     start_time: Mapped[time] = mapped_column(Time)
     end_time: Mapped[time] = mapped_column(Time)
     break_minutes: Mapped[int] = mapped_column(Integer, default=0)
-    subject: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    content: Mapped[str] = mapped_column(Text)
+    # 指導報告の内容項目（2026-07 再構築）。subject=「教科」・content=「(b) 何を指導したか/単元など」として流用。
+    subject: Mapped[str | None] = mapped_column(String(100), nullable=True)  # 教科
+    content: Mapped[str] = mapped_column(Text)  # (b) 何を指導したか/単元など
+    material_name: Mapped[str | None] = mapped_column(Text, nullable=True)  # (a) 使用教材/テキスト名
+    learning_status: Mapped[str | None] = mapped_column(Text, nullable=True)  # (c) 学習状況/問題と対策
+    homework_status: Mapped[str | None] = mapped_column(String(1), nullable=True)  # (d) 宿題/状況 A/B/C
+    next_homework: Mapped[str | None] = mapped_column(Text, nullable=True)  # 次回までの宿題
+    next_lesson_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # 次回の予定/指導日
+    next_lesson_start: Mapped[time | None] = mapped_column(Time, nullable=True)  # 次回の指導開始時刻
     status: Mapped[str] = mapped_column(String(32), index=True, default=ReportStatus.draft.value)
     target_month: Mapped[str] = mapped_column(String(7), index=True)
     submitted_to_parent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

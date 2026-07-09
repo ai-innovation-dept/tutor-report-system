@@ -79,6 +79,46 @@
         return timeText(a.start_time).localeCompare(timeText(b.start_time));
       });
     }
+    // 指導内容の詳細（教科ほか7項目）。時間テーブルの下に指導日ごとのカードで表示する。
+    const HOMEWORK_LABELS = {A: 'ほぼ完ぺき', B: '半分くらい', C: 'やらなかった'};
+    function homeworkStatusText(v) { return v ? `${v}（${HOMEWORK_LABELS[v] || ''}）` : ''; }
+    function nextLessonText(report) {
+      const d = report.next_lesson_date ? dateLabel(report.next_lesson_date) : '';
+      const t = report.next_lesson_start ? timeText(report.next_lesson_start) : '';
+      if (!d && !t) return '';
+      return [d, t ? `指導開始 ${t}` : ''].filter(Boolean).join('　');
+    }
+    function detailField(label, value, pre) {
+      const v = (value ?? '').toString().trim();
+      const body = v
+        ? (pre ? `<div class="whitespace-pre-wrap text-slate-800">${escapeHtml(v)}</div>` : `<span class="text-slate-800">${escapeHtml(v)}</span>`)
+        : '<span class="text-slate-400">—</span>';
+      return `<div><dt class="text-xs text-slate-500">${label}</dt><dd class="mt-0.5 text-sm">${body}</dd></div>`;
+    }
+    function detailCardsHtml(reports) {
+      if (!reports.length) return '';
+      const cards = reports.map((report, index) => `
+        <div class="rounded-lg border border-slate-200 p-4 ${report.status === 'returned_to_tutor' ? 'bg-red-50/40' : 'bg-white'}">
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">${index + 1}回</span>
+            <span class="font-medium text-slate-800">${dateLabel(report.lesson_date)}</span>
+            ${statusBadge(report.status)}
+          </div>
+          <dl class="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+            ${detailField('教科', report.subject)}
+            ${detailField('宿題／状況', homeworkStatusText(report.homework_status))}
+            ${detailField('使用教材／テキスト名', report.material_name)}
+            ${detailField('次回までの宿題', report.next_homework, true)}
+            <div class="sm:col-span-2">${detailField('何を指導したか／単元など', report.content, true)}</div>
+            <div class="sm:col-span-2">${detailField('学習状況／問題と対策', report.learning_status, true)}</div>
+            ${nextLessonText(report) ? `<div class="sm:col-span-2">${detailField('次回の予定／指導日', nextLessonText(report))}</div>` : ''}
+          </dl>
+        </div>`).join('');
+      return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 class="mb-3 font-semibold text-slate-800">指導内容の詳細</h2>
+        <div class="space-y-3">${cards}</div>
+      </section>`;
+    }
 
     async function load() {
       let reports;
@@ -107,9 +147,8 @@
         <td class="border border-slate-200 px-2 py-1 text-right">${Number(report.break_minutes || 0)}分</td>
         <td class="border border-slate-200 px-2 py-1 text-right">${durationLabel(teachingMinutes(report))}</td>
         <td class="border border-slate-200 px-2 py-1">${escapeHtml(report.subject || '')}</td>
-        <td class="border border-slate-200 px-2 py-1 whitespace-pre-wrap">${escapeHtml(report.content || '')}</td>
         <td class="border border-slate-200 px-2 py-1">${statusBadge(report.status)}</td>
-      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="8">入力された指導日はありません。</td></tr>`;
+      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="7">入力された指導日はありません。</td></tr>`;
 
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
@@ -131,8 +170,7 @@
                 <th class="border border-slate-300 px-2 py-1 text-left">在室時間</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">休憩</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">指導時間</th>
-                <th class="border border-slate-300 px-2 py-1 text-left">科目</th>
-                <th class="border border-slate-300 px-2 py-1 text-left">指導内容</th>
+                <th class="border border-slate-300 px-2 py-1 text-left">教科</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">状態</th>
               </tr>
             </thead>
@@ -142,7 +180,7 @@
             <div>指導日数：<span class="font-semibold">${filtered.length}</span>日</div>
             <div>合計指導時間：<span class="font-semibold">${durationLabel(totalMinutes)}</span></div>
           </div>
-        </section>` + actionAreaHtml(filtered) + adminActionAreaHtml(filtered);
+        </section>` + detailCardsHtml(filtered) + actionAreaHtml(filtered) + adminActionAreaHtml(filtered);
       if (PARENT_CAN_ACT) wireParentActions();
       if (ADMIN_CAN_ACT) wireAdminActions();
     }

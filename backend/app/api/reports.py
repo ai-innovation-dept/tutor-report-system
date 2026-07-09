@@ -779,20 +779,31 @@ _EDIT_FIELD_LABELS = {
     "start_time": "開始時刻",
     "end_time": "終了時刻",
     "break_minutes": "休憩時間",
-    "subject": "科目",
-    "content": "指導内容",
+    "subject": "教科",
+    "material_name": "使用教材/テキスト名",
+    "content": "何を指導したか/単元など",
+    "learning_status": "学習状況/問題と対策",
+    "homework_status": "宿題/状況",
+    "next_homework": "次回までの宿題",
+    "next_lesson_date": "次回の予定/指導日",
+    "next_lesson_start": "次回の指導開始時刻",
 }
+
+# 宿題/状況（A/B/C）の表示ラベル。テンプレート側と揃えること。
+HOMEWORK_STATUS_LABELS = {"A": "ほぼ完ぺき", "B": "半分くらい", "C": "やらなかった"}
 
 
 def _format_field_value(field: str, value) -> str:
     if value is None or value == "":
         return "（なし）"
-    if field in {"start_time", "end_time"}:
+    if field in {"start_time", "end_time", "next_lesson_start"}:
         return value.strftime("%H:%M")
     if field == "break_minutes":
         return f"{value}分"
-    if field == "lesson_date":
+    if field in {"lesson_date", "next_lesson_date"}:
         return value.isoformat()
+    if field == "homework_status":
+        return f"{value}（{HOMEWORK_STATUS_LABELS.get(value, value)}）"
     return str(value)
 
 
