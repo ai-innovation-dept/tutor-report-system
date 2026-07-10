@@ -228,13 +228,32 @@ function removeMakeupPlan(index) {
 function updateMakeupPlan(index, key, value) {
   if (makeupPlans[index]) makeupPlans[index][key] = value;
 }
+function setInputEnabled(input, enabled) {
+  // ラジオは包んでいるラベルに pointer-events-none / opacity-60 が付いているため、
+  // input.disabled の切替だけではクリックできない。ラベル側のクラスも併せて切り替える。
+  input.disabled = !enabled;
+  const label = input.closest('label');
+  if (label) {
+    label.classList.toggle('pointer-events-none', !enabled);
+    label.classList.toggle('opacity-60', !enabled);
+  }
+}
+function syncRadioHighlight() {
+  // 選択中ラジオのラベル強調（描画時に付けたクラス）を、選択の変更に追従させる
+  document.querySelectorAll('#monthlyReportArea input[type="radio"]').forEach(input => {
+    const label = input.closest('label');
+    if (!label) return;
+    for (const cls of ['border-blue-500', 'bg-blue-50', 'font-medium', 'text-blue-800']) label.classList.toggle(cls, input.checked);
+    for (const cls of ['border-slate-200', 'bg-white', 'text-slate-700', 'hover:bg-slate-50']) label.classList.toggle(cls, !input.checked);
+  });
+}
 function onRetroChange() {
-  // 遅刻・指導日の変更で「B あり」を選んだ時のみ回数・事前連絡欄を活性化する
+  // 遅刻・指導日の変更で「B あり」を選んだ時のみ回数・事前連絡（a/b）欄を活性化する
   ['late', 'change'].forEach(key => {
     const isB = document.querySelector(`input[name="${key}Answer"]:checked`)?.value === 'B';
     const detail = document.getElementById(`${key}Detail`);
     if (detail) detail.classList.toggle('opacity-40', !isB);
-    detail?.querySelectorAll('input').forEach(input => { if (!input.closest('#saveBar')) input.disabled = !isB || !currentEditable(); });
+    detail?.querySelectorAll('input').forEach(input => setInputEnabled(input, isB && currentEditable()));
   });
   const isC = document.querySelector('input[name="makeupAnswer"]:checked')?.value === 'C';
   const makeupArea = document.getElementById('makeupPlansWrap');
@@ -242,6 +261,7 @@ function onRetroChange() {
   const isReasonB = document.querySelector('input[name="reasonAnswer"]:checked')?.value === 'B';
   const reasonText = document.getElementById('reasonText');
   if (reasonText) reasonText.disabled = !isReasonB || !currentEditable();
+  syncRadioHighlight();
 }
 function currentEditable() {
   const item = currentItem();
