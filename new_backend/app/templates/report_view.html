@@ -254,7 +254,7 @@
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
       content.classList.remove('hidden');
-      content.innerHTML = bannerHtml() + `
+      content.innerHTML = bannerHtml() + requestPassiveNoticeHtml(report) + `
         <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h1 class="text-lg font-bold text-slate-800">${escapeHtml(monthLabel(report.target_month))} 業務連絡表（参照）</h1>
@@ -318,6 +318,100 @@
       });
       if (ACTIVE_ROLE === 'school') wireSchoolActions();
       else if (ACTIVE_ROLE === 'office' || ACTIVE_ROLE === 'sales') wireStaffActions();
+      wireRequestActions();
+    }
+
+    // ===== 講師起点の差戻し要求（request_return）：ボールを持つロールが許可・却下する =====
+    // 許可（approve_return_request）で講師へ差戻り、却下（decline_return_request・理由必須）で要求のみ解消する。
+    // 要求は承認等でボールが移っても引き継がれるため、対応可否は「現在のステータスのボール保持ロール」で判定する。
+    const REQUEST_BALL_STATUSES = {
+      school: ['awaiting_school'],
+      office: ['awaiting_office_precheck', 'awaiting_office', 'returned_to_office'],
+      sales: ['awaiting_sales', 'approved'],
+    };
+    function canActOnRequest(report) {
+      const statuses = REQUEST_BALL_STATUSES[ACTIVE_ROLE] || [];
+      if (!statuses.includes(report.status)) return false;
+      if ((ACTIVE_ROLE === 'office' || ACTIVE_ROLE === 'sales') && staffLocked(report)) return false;
+      // 学校の操作は当月限定（承認・差戻しと同じ制約）
+      if (ACTIVE_ROLE === 'school' && report.target_month !== CURRENT_MONTH) return false;
+      return true;
+    }
+    // ボール保持ロール向け：要求理由＋「許可して差戻す／却下」パネル（各操作エリアの先頭に差し込む）
+    function requestPanelHtml(report) {
+      if (!report.return_request_pending || !canActOnRequest(report)) return '';
+      return `<div class="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <div class="flex items-start gap-2">
+          <span aria-hidden="true">📩</span>
+          <div class="min-w-0">
+            <div class="text-sm font-semibold text-amber-900">講師から差戻し要求が届いています</div>
+            <div class="mt-1 whitespace-pre-wrap text-sm text-amber-900">要求理由：${escapeHtml(report.return_request_comment || '-')}</div>
+            <p class="mt-2 text-xs text-amber-800">許可すると報告書は講師へ差戻され、講師が修正・再提出できるようになります。却下する場合は理由の入力が必要です。</p>
+          </div>
+        </div>
+        <div id="requestDeclineForm" class="mt-3 hidden rounded-lg border border-slate-300 bg-white p-3">
+          <label class="text-sm font-medium text-slate-700" for="requestDeclineComment">却下理由</label>
+          <textarea id="requestDeclineComment" class="mt-2 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="却下する理由を入力してください（講師に表示されます）"></textarea>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button id="requestDeclineConfirmBtn" type="button" class="rounded-lg bg-slate-700 px-3 py-2 text-sm font-medium text-white transition hover:bg-slate-800">却下する</button>
+            <button id="requestDeclineCancelBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">キャンセル</button>
+          </div>
+        </div>
+        <div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button id="requestApproveBtn" type="button" class="w-full rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-amber-700 sm:w-auto">要求を許可（講師へ差戻す）</button>
+          <button id="requestDeclineOpenBtn" type="button" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto">要求を却下</button>
+        </div>
+        <div id="requestActionMsg" class="mt-3 hidden rounded-lg px-3 py-2 text-sm"></div>
+      </div>`;
+    }
+    // 対応できないロール（ボールを持っていない・職務分掌ロック中・学校の過去月など）向けの参考表示
+    function requestPassiveNoticeHtml(report) {
+      if (!report.return_request_pending || canActOnRequest(report)) return '';
+      return `<div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        講師から差戻し要求があります（現在の承認担当の対応待ち）。要求理由：<span class="whitespace-pre-wrap">${escapeHtml(report.return_request_comment || '-')}</span>
+      </div>`;
+    }
+    function wireRequestActions() {
+      const approveBtn = document.getElementById('requestApproveBtn');
+      if (!approveBtn) return; // 要求パネル未表示（要求なし・対応対象外）
+      approveBtn.addEventListener('click', requestApprove);
+      document.getElementById('requestDeclineOpenBtn').addEventListener('click', () => {
+        document.getElementById('requestDeclineForm').classList.remove('hidden');
+        document.getElementById('requestDeclineComment').focus();
+      });
+      document.getElementById('requestDeclineCancelBtn').addEventListener('click', () => {
+        document.getElementById('requestDeclineForm').classList.add('hidden');
+      });
+      document.getElementById('requestDeclineConfirmBtn').addEventListener('click', requestDecline);
+    }
+    function showRequestActionMsg(text, ok) {
+      const el = document.getElementById('requestActionMsg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = `mt-3 rounded-lg px-3 py-2 text-sm ${ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-rose-200 bg-rose-50 text-rose-700'}`;
+    }
+    async function requestApprove() {
+      if (!confirm('講師の差戻し要求を許可し、報告書を講師へ差戻します。よろしいですか？')) return;
+      try {
+        await postAction({action: 'approve_return_request', actor_role: ACTIVE_ROLE});
+        notifyOpener();
+        flashMsg = `${monthLabel(currentReport.target_month)}の業務連絡表を講師へ差戻しました（差戻し要求を許可）。`;
+        await load();
+      } catch (e) {
+        showRequestActionMsg(`差戻し要求を許可できませんでした：${e.message}`, false);
+      }
+    }
+    async function requestDecline() {
+      const comment = (document.getElementById('requestDeclineComment').value || '').trim();
+      if (!comment) { showRequestActionMsg('却下理由を入力してください。', false); return; }
+      try {
+        await postAction({action: 'decline_return_request', comment, actor_role: ACTIVE_ROLE});
+        notifyOpener();
+        flashMsg = '差戻し要求を却下しました。';
+        await load();
+      } catch (e) {
+        showRequestActionMsg(`差戻し要求を却下できませんでした：${e.message}`, false);
+      }
     }
 
     // 学校の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
@@ -335,6 +429,7 @@
         return wrap('<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認済みです。</div>');
       }
       return wrap(`
+        ${requestPanelHtml(report)}
         <h2 class="font-semibold text-slate-800">承認・差戻し</h2>
         <p class="mt-1 text-sm text-slate-600">上記の内容をご確認のうえ、${escapeHtml(monthLabel(report.target_month))}の業務連絡表を承認、または差戻してください。</p>
         <div id="returnForm" class="mt-3 hidden rounded-xl border border-red-200 bg-red-50 p-4">
@@ -472,13 +567,13 @@
         <div class="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">⚠ ${escapeHtml(config.lockReason)}</div>`);
       if (config.statuses.includes(report.status)) {
         if (staffLocked(report)) return lockedNotice(`${config.approveLabel}・差戻し`);
-        return wrap(`<h2 class="font-semibold text-slate-800">${escapeHtml(config.approveLabel)}・差戻し</h2>
+        return wrap(`${requestPanelHtml(report)}<h2 class="font-semibold text-slate-800">${escapeHtml(config.approveLabel)}・差戻し</h2>
           <p class="mt-1 text-sm text-slate-600">上記の内容をご確認のうえ、${escapeHtml(monthLabel(report.target_month))}の業務連絡表を${escapeHtml(config.approveLabel)}、または差戻してください。</p>`
           + staffControlsHtml(config.approveLabel, false));
       }
       if (config.completedStatuses.includes(report.status)) {
         if (staffLocked(report)) return lockedNotice('差戻し');
-        return wrap(`<h2 class="font-semibold text-slate-800">差戻し</h2>
+        return wrap(`${requestPanelHtml(report)}<h2 class="font-semibold text-slate-800">差戻し</h2>
           <p class="mt-1 text-sm text-slate-600">この業務連絡表は最終承認済みです。修正が必要な場合は事務へ差戻しできます。</p>`
           + staffControlsHtml(null, true));
       }

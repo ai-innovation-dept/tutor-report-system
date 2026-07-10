@@ -57,6 +57,10 @@ _ACTION_ALLOWED_ROLES: dict[str, set[str]] = {
     WorkAction.APPROVE: {"school", "sales", "office", "admin_master", "admin_chief"},
     WorkAction.RETURN: {"school", "sales", "office", "admin_master", "admin_chief"},
     WorkAction.SKIP_SCHOOL: {"admin_chief"},
+    # 講師起点の差戻し要求。許可・却下はボールを持つロール（遷移表側で個別に制限）
+    WorkAction.REQUEST_RETURN: {"tutor"},
+    WorkAction.APPROVE_RETURN_REQUEST: {"school", "sales", "office", "admin_master", "admin_chief"},
+    WorkAction.DECLINE_RETURN_REQUEST: {"school", "sales", "office", "admin_master", "admin_chief"},
 }
 _CLOSE_ROLES = {"sales", "office", "admin_master", "admin_chief"}
 _TERMINAL_STATUSES = {WorkStatus.APPROVED, WorkStatus.CLOSED}

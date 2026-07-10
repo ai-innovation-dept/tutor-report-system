@@ -136,7 +136,8 @@ class TestLastReturnComment:
     def test_tutor_reports_uses_actual_returner_label(self):
         template = (Path(__file__).resolve().parents[1] / "app" / "templates" / "tutor" / "reports.html").read_text(encoding="utf-8")
 
-        assert "report.last_return_actor_role === 'office' ? '運営' : '学校'" in template
+        # 差戻し元は実際の操作ロールで表示する（office/sales=運営、それ以外=学校。salesは差戻し要求の許可経由）
+        assert "['office', 'sales'].includes(report.last_return_actor_role) ? '運営' : '学校'" in template
         assert "学校から差戻しされています。修正のうえ" not in template
 
     def test_return_comment_exposed_in_report(self, client, db, setup):

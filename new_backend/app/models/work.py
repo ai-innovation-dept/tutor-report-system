@@ -134,8 +134,9 @@ class WorkReport(Base):
     )
 
     def _last_return_event(self):
+        # 差戻し要求の許可（approve_return_request）も講師へ差戻る操作のため差戻しとして扱う
         for event in reversed(self.events):
-            if event.action == "return":
+            if event.action in ("return", "approve_return_request"):
                 return event
         return None
 
@@ -155,7 +156,44 @@ class WorkReport(Base):
             return "school"
         if event.from_status in {"awaiting_office_precheck", "awaiting_office", "returned_to_office"}:
             return "office"
+        if event.from_status in {"awaiting_sales", "approved"}:
+            return "sales"
         return event.actor_role
+
+    def _return_request_state(self):
+        """講師起点の差戻し要求の現況を (未解決の要求イベント, 直近の却下イベント) で返す。
+
+        イベント履歴を新しい順に走査し、最初に見つかった要求関連イベントで判定する。
+        - request_return → 未解決（承認等でボールが移っても引き継がれる）
+        - decline_return_request → 却下済み（講師は再要求できる）
+        - 許可・講師へ戻る差戻し・クローズ → 解決済み（どちらも None）
+        """
+        for event in reversed(self.events):
+            if event.action == "request_return":
+                return event, None
+            if event.action == "decline_return_request":
+                return None, event
+            if event.action in ("approve_return_request", "close") or event.to_status == "returned_to_tutor":
+                return None, None
+        return None, None
+
+    @property
+    def return_request_pending(self) -> bool:
+        """講師の差戻し要求が未解決（ボールを持つロールの許可・却下待ち）か。"""
+        pending, _ = self._return_request_state()
+        return pending is not None
+
+    @property
+    def return_request_comment(self) -> str | None:
+        """未解決の差戻し要求の理由（講師が入力したコメント）。未解決の要求が無ければ None。"""
+        pending, _ = self._return_request_state()
+        return pending.comment if pending else None
+
+    @property
+    def return_request_declined_comment(self) -> str | None:
+        """直近の差戻し要求が却下された場合、その却下理由。要求中・解決済みは None。"""
+        _, declined = self._return_request_state()
+        return declined.comment if declined else None
 
     @property
     def student_name(self) -> str | None:

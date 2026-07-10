@@ -63,24 +63,30 @@ function openReportWindow(reportId) {
 }
 // 学校が必要とするのは「いつ・どの講師から提出されたか」と「自分（学校）がいつ承認/差戻したか」のみ。
 // 事務・営業など後段の承認は学校には不要なため除外する（submit と、学校確認(awaiting_school)からの自分の操作だけ表示）。
+// 講師の差戻し要求（request_return）と、学校確認待ちでの要求許可・却下も学校の関心事のため表示する。
+const SCHOOL_STAGE_ACTIONS = new Set(['approve', 'return', 'approve_return_request', 'decline_return_request']);
 function operationHistory(report) {
   const events = (report.events || [])
     .filter(event => event.action === 'submit'
-      || ((event.action === 'approve' || event.action === 'return') && event.from_status === 'awaiting_school'))
+      || event.action === 'request_return'
+      || (SCHOOL_STAGE_ACTIONS.has(event.action) && event.from_status === 'awaiting_school'))
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   if (!events.length) return '';
   const tutorLabel = `講師　${escapeHtml(tutorName(report))}${report.tutor_no ? `（${escapeHtml(report.tutor_no)}）` : ''}`;
   const schoolLabel = `学校　${escapeHtml(schoolName(report))}${report.school_no ? `（${escapeHtml(report.school_no)}）` : ''}`;
   const row = (datetime, actor, action, extra = '') =>
     `<li class="grid gap-1 sm:grid-cols-[11rem_1fr]"><span class="text-slate-600">${escapeHtml(dateTimeLabel(datetime))}</span><span>${actor}　${action}${extra}</span></li>`;
+  const commentBlock = (event) => event.comment ? `<span class="mt-1 block text-slate-700">コメント：${escapeHtml(event.comment)}</span>` : '';
   return `<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
     <div class="font-medium text-slate-800">操作履歴</div>
     <ul class="mt-2 space-y-2">
       ${events.map(event => {
         if (event.action === 'submit') return row(event.created_at, tutorLabel, '<span class="font-medium text-slate-700">提出</span>');
+        if (event.action === 'request_return') return row(event.created_at, tutorLabel, '<span class="font-medium text-amber-700">差戻し要求</span>', commentBlock(event));
         if (event.action === 'approve') return row(event.created_at, schoolLabel, '<span class="font-medium text-emerald-700">承認</span>');
-        return row(event.created_at, schoolLabel, '<span class="font-medium text-red-700">差戻し</span>',
-          event.comment ? `<span class="mt-1 block text-slate-700">コメント：${escapeHtml(event.comment)}</span>` : '');
+        if (event.action === 'approve_return_request') return row(event.created_at, schoolLabel, '<span class="font-medium text-red-700">要求許可（講師へ差戻し）</span>', commentBlock(event));
+        if (event.action === 'decline_return_request') return row(event.created_at, schoolLabel, '<span class="font-medium text-amber-700">要求却下</span>', commentBlock(event));
+        return row(event.created_at, schoolLabel, '<span class="font-medium text-red-700">差戻し</span>', commentBlock(event));
       }).join('')}
     </ul>
   </div>`;
@@ -95,6 +101,9 @@ function actionArea(report) {
     return '<div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し済みです。講師の修正をお待ちください。</div>';
   }
   if (report.status === 'awaiting_school') {
+    if (report.return_request_pending) {
+      return '<div class="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">📩 講師から差戻し要求が届いています。「報告書を確認」を開き、要求を許可（講師へ差戻し）または却下してください。</div>';
+    }
     return '<div class="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">「報告書を確認」を開き、内容をご確認のうえ承認・差戻しを行ってください。</div>';
   }
   if (report.status === 'awaiting_office_precheck') {
@@ -106,12 +115,15 @@ function actionArea(report) {
   return '<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">現在確認できる操作はありません。</div>';
 }
 function reportCard(report) {
+  const requestBadge = (report.return_request_pending && report.status === 'awaiting_school')
+    ? '<span class="inline-flex rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">差戻し要求あり</span>'
+    : '';
   return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
         <div class="font-semibold text-slate-800">${escapeHtml(monthLabel(report.target_month))}　学校名：${escapeHtml(schoolName(report))}　講師名：${escapeHtml(tutorName(report))}</div>
       </div>
-      ${statusBadge(report.status)}
+      <div class="flex flex-wrap items-center gap-2">${requestBadge}${statusBadge(report.status)}</div>
     </div>
     ${report.school_approved_at ? `<div class="mt-2 text-sm text-emerald-700">承認日時：${escapeHtml(dateTimeLabel(report.school_approved_at))}</div>` : ''}
     <div class="mt-3">

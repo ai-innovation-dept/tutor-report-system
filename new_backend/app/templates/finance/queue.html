@@ -107,10 +107,16 @@ const ACTION_LABELS = {
   approve: '承認',
   return: '差戻し',
   office_edit: '報告書修正',
-  tutor_edit: '講師修正'
+  tutor_edit: '講師修正',
+  request_return: '差戻し要求（講師）',
+  approve_return_request: '要求許可（講師へ差戻し）',
+  decline_return_request: '要求却下'
 };
-const RETURN_ACTIONS = new Set(['return']);
+// 要求許可は講師へ差戻る操作のため差戻しと同じ扱い（赤系表示・コメント表示）にする
+const RETURN_ACTIONS = new Set(['return', 'approve_return_request']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
+// 講師起点の差戻し要求（要求・却下）はアンバー系で表示する
+const REQUEST_ACTIONS = new Set(['request_return', 'decline_return_request']);
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_office_precheck', label: '事務事前確認', statuses: ['awaiting_office_precheck']},
@@ -424,12 +430,13 @@ function currentWaitLabel(status) {
 }
 function eventDotClass(action) {
   if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
+  if (REQUEST_ACTIONS.has(action)) return 'bg-[#F59E0B]';
   if (APPROVAL_ACTIONS.has(action)) return 'bg-[#059669]';
   return 'bg-slate-400';
 }
 function actionBadge(action) {
-  const returnStyle = RETURN_ACTIONS.has(action);
-  const cls = returnStyle ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#D1FAE5] text-[#065F46]';
+  const cls = RETURN_ACTIONS.has(action) ? 'bg-[#FEE2E2] text-[#991B1B]'
+    : (REQUEST_ACTIONS.has(action) ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#D1FAE5] text-[#065F46]');
   return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
 }
 function statusBadge(status) {
@@ -454,7 +461,7 @@ function closedReportInfo(group) {
   </div>`;
 }
 function timelineRow(event) {
-  const isReturn = RETURN_ACTIONS.has(event.action);
+  const showComment = RETURN_ACTIONS.has(event.action) || REQUEST_ACTIONS.has(event.action);
   return `<div class="relative pb-5 pl-8">
     <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full ${eventDotClass(event.action)}"></span>
     <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -463,7 +470,7 @@ function timelineRow(event) {
       <span>${escapeHtml(event.actor_name || '-')}</span>
       ${actionBadge(event.action)}
     </div>
-    ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+    ${showComment && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
     ${event.action === 'tutor_edit' && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#EFF6FF] px-3 py-2 text-sm text-slate-700" style="border-color:#2563EB;">${escapeHtml(event.comment)}</div>` : ''}
   </div>`;
 }

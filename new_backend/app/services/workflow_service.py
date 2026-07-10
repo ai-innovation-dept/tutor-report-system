@@ -64,11 +64,16 @@ def _assert_duty_separation(
     """事務（office）と営業（sales）を兼務するスタッフは、同一講師に対して
     事務工程と営業工程の両方の判断（承認・差戻し）を行うことはできない（どちらか一方のみ）。
 
-    承認だけでなく差戻しも工程上の判断のため対象とする。
+    承認だけでなく差戻しも工程上の判断のため対象とする（差戻し要求の許可・却下も同様）。
     判定は講師単位・全期間で永続する（既存システムの受付/再鑑の職務分掌と同じ）。
     管理者・管理責任者は対象外。
     """
-    if action not in (WorkAction.APPROVE, WorkAction.RETURN):
+    if action not in (
+        WorkAction.APPROVE,
+        WorkAction.RETURN,
+        WorkAction.APPROVE_RETURN_REQUEST,
+        WorkAction.DECLINE_RETURN_REQUEST,
+    ):
         return
     if _is_separation_exempt(actor) or not _is_office_sales_dual(actor):
         return

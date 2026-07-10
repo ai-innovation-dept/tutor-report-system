@@ -31,6 +31,10 @@ class WorkAction:
     RETURN = "return"
     SKIP_SCHOOL = "skip_school"
     CLOSE = "close"
+    # 講師起点の差戻し要求（ステータスは変えない）。ボールを持つロールが許可すると講師へ差戻る。
+    REQUEST_RETURN = "request_return"
+    APPROVE_RETURN_REQUEST = "approve_return_request"
+    DECLINE_RETURN_REQUEST = "decline_return_request"
 
 
 @dataclass(frozen=True)
@@ -170,6 +174,51 @@ TRANSITIONS: list[Transition] = [
         next_approver_role="tutor",
     ),
 ]
+
+# 講師起点の差戻し要求（request_return）と、ボールを持つロールによる許可・却下。
+# - 要求・却下はステータスを変えない（イベント記録のみ）。許可で講師へ差戻す。
+# - 要求は承認等でボールが移っても未解決のまま引き継がれ、その時点のボール保持ロールが対応する
+#   （未解決かどうかは WorkReport.return_request_pending がイベント履歴から導出する）。
+# 値: 対象ステータス → (ボールを持つロール, そのステータスの current_approver_role)
+RETURN_REQUEST_BALL_HOLDERS: dict[str, tuple[str, str | None]] = {
+    WorkStatus.AWAITING_OFFICE_PRECHECK: ("office", "office"),
+    WorkStatus.AWAITING_SCHOOL: ("school", "school"),
+    WorkStatus.AWAITING_OFFICE: ("office", "office"),
+    WorkStatus.AWAITING_SALES: ("sales", "sales"),
+    WorkStatus.APPROVED: ("sales", None),
+    WorkStatus.RETURNED_TO_OFFICE: ("office", "office"),
+}
+
+for _status, (_holder_role, _approver_role) in RETURN_REQUEST_BALL_HOLDERS.items():
+    TRANSITIONS.append(
+        Transition(
+            from_status=_status,
+            action=WorkAction.REQUEST_RETURN,
+            allowed_roles=frozenset({"tutor"}),
+            to_status=_status,
+            comment_required=True,
+            next_approver_role=_approver_role,
+        )
+    )
+    TRANSITIONS.append(
+        Transition(
+            from_status=_status,
+            action=WorkAction.APPROVE_RETURN_REQUEST,
+            allowed_roles=frozenset({_holder_role}),
+            to_status=WorkStatus.RETURNED_TO_TUTOR,
+            next_approver_role="tutor",
+        )
+    )
+    TRANSITIONS.append(
+        Transition(
+            from_status=_status,
+            action=WorkAction.DECLINE_RETURN_REQUEST,
+            allowed_roles=frozenset({_holder_role}),
+            to_status=_status,
+            comment_required=True,
+            next_approver_role=_approver_role,
+        )
+    )
 
 # (from_status, action) → Transition の高速ルックアップ用インデックス
 # 同一 (from_status, action) に複数ロールがある場合は別エントリになる

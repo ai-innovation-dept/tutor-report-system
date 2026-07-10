@@ -1740,7 +1740,11 @@ function renderFormAvailability() {
   }
   if (report && !EDITABLE_STATUSES.has(report.status)) {
     setReportInputsDisabled(true);
-    showFormMessage(`この報告書は${statusLabel(report.status)}のため編集できません`);
+    if (report.return_request_pending) {
+      showFormMessage('差戻しを要求中です。承認担当が許可すると報告書が戻り、修正できるようになります');
+    } else {
+      showFormMessage(`この報告書は${statusLabel(report.status)}のため編集できません（修正したい場合は承認管理画面から差戻しを要求できます）`);
+    }
     return;
   }
   if (report && report.status === 'returned_to_tutor') {
@@ -1750,7 +1754,7 @@ function renderFormAvailability() {
     // 編集可能な報告書は業務開始〜終了時間を自動計算値へ正規化する（読取専用時は保存値のまま表示）
     recomputeAllRowTimes();
     const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
-    const returner = report.last_return_actor_role === 'office' ? '運営' : '学校';
+    const returner = ['office', 'sales'].includes(report.last_return_actor_role) ? '運営' : '学校';
     showFormMessage(`${returner}から差戻しされています。修正のうえ「承認依頼」ボタンまたは承認管理画面から再依頼してください。${reason}`, true);
     return;
   }

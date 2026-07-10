@@ -371,6 +371,79 @@ function actionArea(group) {
   return '';
 }
 const DELETABLE_STATUSES = ['draft', 'returned_to_tutor'];
+// 差戻し要求（request_return）できるステータス＝提出後にボールが学校・運営側にある状態すべて。
+// サーバの遷移表（definitions.RETURN_REQUEST_BALL_HOLDERS）と同一セット。
+const REQUESTABLE_STATUSES = ['awaiting_office_precheck', 'awaiting_school', 'awaiting_office', 'awaiting_sales', 'approved', 'returned_to_office'];
+function requestableReports(group) {
+  // 学校確認待ちの過去月は学校側の承認・差戻し操作が当月限定のため要求できない（宛先が対応不能になる）
+  const pastMonth = group.target_month !== currentMonth();
+  return group.reports.filter(r =>
+    REQUESTABLE_STATUSES.includes(r.status)
+    && !r.return_request_pending
+    && !(pastMonth && r.status === 'awaiting_school'));
+}
+function pendingRequestReports(group) {
+  return group.reports.filter(r => r.return_request_pending);
+}
+// 要求の宛先（現在ボールを持っている側）の表示ラベル
+function requestHolderLabel(status) {
+  if (status === 'awaiting_school') return '学校';
+  if (status === 'awaiting_sales' || status === 'approved') return '運営（営業）';
+  return '運営（事務）';
+}
+// 差戻し要求エリア：要求中の案内 → 却下された通知 → 要求ボタン の優先順で1つだけ表示する。
+// どのフェーズのカードにも actionArea の直後に付く（提出前・差戻し中など要求対象が無ければ何も出さない）。
+function returnRequestArea(group) {
+  const pending = pendingRequestReports(group);
+  if (pending.length) {
+    const holder = requestHolderLabel(pending[0].status);
+    const reasons = [...new Set(pending.map(r => r.return_request_comment).filter(Boolean))]
+      .map(reason => `<div class="mt-1 whitespace-pre-wrap">要求理由：${escapeHtml(reason)}</div>`).join('');
+    return `<div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      <div class="font-medium">差戻しを要求中です。${escapeHtml(holder)}が許可すると報告書が戻り、修正できるようになります。</div>
+      ${reasons}
+    </div>`;
+  }
+  const requestable = requestableReports(group);
+  const declined = group.reports.filter(r => r.return_request_declined_comment && REQUESTABLE_STATUSES.includes(r.status));
+  const declinedNotice = declined.length
+    ? `<div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div class="font-medium">差戻し要求は許可されませんでした。</div>
+        ${[...new Set(declined.map(r => r.return_request_declined_comment))].map(reason => `<div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(reason)}</div>`).join('')}
+      </div>`
+    : '';
+  if (!requestable.length) return declinedNotice;
+  return `${declinedNotice}<div class="mt-3 flex flex-wrap items-center gap-3">
+    <button class="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50" onclick="requestReturnGroup('${group.assignment_id}')">差戻しを要求</button>
+    <span class="text-xs text-slate-500">提出済みの内容を修正したい場合、現在の承認担当へ差戻しを要求できます。</span>
+  </div>`;
+}
+async function requestReturnGroup(assignmentId) {
+  const group = groups.find(item => item.assignment_id === assignmentId);
+  if (!group) return;
+  const targets = requestableReports(group);
+  if (!targets.length) return;
+  const holder = requestHolderLabel(targets[0].status);
+  const comment = await showPromptModal({
+    title: '差戻しの要求',
+    message: `${schoolName(group)}　${monthLabel(group.target_month)}の報告書について、${holder}へ差戻しを要求します。\n${holder}が許可すると報告書が戻り、修正できるようになります。\n\n差戻しを要求する理由を入力してください。`,
+    placeholder: '例）勤務時間の入力誤りを修正したいため',
+    confirmLabel: '差戻しを要求する'
+  });
+  if (comment == null) return;
+  try {
+    for (const report of targets) {
+      await api(`/api/w/reports/${report.id}/action`, {
+        method: 'POST',
+        body: JSON.stringify({action: 'request_return', comment})
+      });
+    }
+    showToast('差戻しを要求しました。承認担当の許可をお待ちください', 'success');
+  } catch (error) {
+    showToast(error.message || '差戻しを要求できませんでした', 'error');
+  }
+  await loadApproval();
+}
 function deletableReportIds(group) {
   return group.reports.filter(r => DELETABLE_STATUSES.includes(r.status)).map(r => r.id);
 }
@@ -384,8 +457,9 @@ function returnSourceLabel(group) {
     .filter(r => r.status === 'returned_to_tutor')
     .map(r => r.last_return_actor_role)
     .filter(Boolean));
-  if (roles.has('office') && roles.has('school')) return '学校・運営';
-  if (roles.has('office')) return '運営';
+  const hasStaff = roles.has('office') || roles.has('sales');
+  if (hasStaff && roles.has('school')) return '学校・運営';
+  if (hasStaff) return '運営';
   return schoolName(group);
 }
 function returnedNotice(group) {
@@ -463,6 +537,7 @@ function renderApproval() {
   approvalMonths.innerHTML = visibleGroups.map(group => {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
     const returnedBadge = group.phase === 'returned' ? '<span class="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">差戻しあり（要修正）</span>' : '';
+    const requestBadge = pendingRequestReports(group).length ? '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">差戻し要求中</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
     // ③ 見出しは学校名を主体にし、下段の「学校：〇〇」行は非表示にする
     const headTitle = group.school_display_name || '学校未設定';
@@ -472,12 +547,13 @@ function renderApproval() {
           <div>
             <div class="font-semibold text-slate-800">${escapeHtml(headTitle)}　${monthLabel(group.target_month)}</div>
           </div>
-          ${completeBadge}${returnedBadge}
+          ${completeBadge}${returnedBadge}${requestBadge}
         </div>
       </summary>
       ${renderStepper(group)}
       ${summaryGrid(group)}
       ${actionArea(group)}
+      ${returnRequestArea(group)}
       <button class="mt-4 text-sm font-medium text-emerald-600 underline decoration-emerald-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
       <div id="detail-${group.assignment_id}"></div>
     </details>`;

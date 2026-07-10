@@ -91,6 +91,10 @@ class ReportOut(BaseModel):
     close_reason: str | None = None
     last_return_comment: str | None = None
     last_return_actor_role: str | None = None
+    # 講師起点の差戻し要求（イベント履歴から導出）。pending中はボールを持つロールの許可・却下待ち
+    return_request_pending: bool = False
+    return_request_comment: str | None = None
+    return_request_declined_comment: str | None = None
     school_approved_at: datetime | None = None
     # 事務の事前確認（月分超過・1〜9分手入力）が承認された日時。事前確認フローの「学校へ依頼日時」
     precheck_approved_at: datetime | None = None

@@ -183,8 +183,25 @@ def apply_transition(
             f"action '{action}' is not valid from status '{report.status}'"
         )
 
+    # 差戻し要求のガード：要求の二重受付を防ぎ、許可・却下は未解決の要求がある場合のみ許す。
+    # 未解決かどうかはイベント履歴から導出する（承認でボールが移っても要求は引き継がれる）。
+    request_pending = bool(getattr(report, "return_request_pending", False))
+    if action == WorkAction.REQUEST_RETURN and request_pending:
+        raise InvalidTransition("差戻し要求は受付済みです。承認担当の対応をお待ちください")
+    if action in (WorkAction.APPROVE_RETURN_REQUEST, WorkAction.DECLINE_RETURN_REQUEST) and not request_pending:
+        raise InvalidTransition("未対応の差戻し要求がありません")
+
     if transition.comment_required and not (comment and comment.strip()):
         raise CommentRequired("comment is required for this action")
+
+    # 差戻し要求の許可は、講師画面の差戻し理由欄・タイムラインが単体で読めるよう
+    # 要求理由を許可イベントのコメントへ自動転記する（承認者のコメントは任意）。
+    if action == WorkAction.APPROVE_RETURN_REQUEST:
+        base_comment = comment.strip() if (comment and comment.strip()) else "講師の差戻し要求を許可しました。"
+        request_comment = getattr(report, "return_request_comment", None)
+        comment = (
+            f"{base_comment}\n【講師の差戻し要求】{request_comment}" if request_comment else base_comment
+        )
 
     from_status = report.status
     to_status = transition.to_status

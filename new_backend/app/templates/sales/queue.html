@@ -92,10 +92,21 @@ const ACTION_LABELS = {
   approve: '承認',
   return: '差戻し',
   office_edit: '報告書修正',
-  tutor_edit: '講師修正'
+  tutor_edit: '講師修正',
+  request_return: '差戻し要求（講師）',
+  approve_return_request: '要求許可（講師へ差戻し）',
+  decline_return_request: '要求却下'
 };
-const RETURN_ACTIONS = new Set(['return']);
+// 要求許可は講師へ差戻る操作のため差戻しと同じ扱い（赤系表示・コメント表示）にする
+const RETURN_ACTIONS = new Set(['return', 'approve_return_request']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
+// 講師起点の差戻し要求（要求・却下）はアンバー系で表示する
+const REQUEST_ACTIONS = new Set(['request_return', 'decline_return_request']);
+// 差戻し要求に対応するロール（現在ボールを持っているステータス）。report_view と同一の対応表。
+const REQUEST_BALL_STATUSES = {
+  office: ['awaiting_office_precheck', 'awaiting_office', 'returned_to_office'],
+  sales: ['awaiting_sales', 'approved'],
+};
 const PIPELINE_COLUMNS = [
   {key: 'draft', label: '講師作成', statuses: ['draft', 'returned_to_tutor']},
   {key: 'awaiting_office_precheck', label: '事務事前確認', statuses: ['awaiting_office_precheck']},
@@ -238,6 +249,18 @@ function taskStatuses(config) {
   if (!config) return [];
   return config.statuses || [config.status];
 }
+function groupHasPendingRequest(reports) {
+  return reports.some(report => report.return_request_pending);
+}
+// あなたのタスク対象か：通常の承認待ちに加え、自ロールがボールを持つ「講師の差戻し要求」も含める
+// （メール通知を行わないため、タスク一覧が要求の発見経路になる。完了済み（approved）の要求は営業のタスク）。
+function isTaskGroup(reports) {
+  const config = taskConfig();
+  if (!config) return false;
+  const groupStatus = currentGroupStatus(reports);
+  if (taskStatuses(config).includes(groupStatus)) return true;
+  return groupHasPendingRequest(reports) && (REQUEST_BALL_STATUSES[currentRole] || []).includes(groupStatus);
+}
 // 承認・差戻しの実操作は報告書（参照）画面に集約済み。ここはタスク表示（statuses/label/subtext）のみに使う。
 function taskConfig() {
   if (currentRole === 'admin_master') {
@@ -269,6 +292,11 @@ function getTaskMeta(group, groupStatus) {
     .flatMap(report => report.events || [])
     .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
 
+  if (groupHasPendingRequest(group.reports)) {
+    const event = allEvents.find(item => item.action === 'request_return');
+    if (event) return `講師から差戻し要求 ${formatEventDate(event.created_at)}`.trim();
+    return '講師から差戻し要求';
+  }
   if (groupStatus === 'awaiting_finance') {
     const event = allEvents.find(item => item.action === 'approve');
     if (event) return `${event.actor_name || ''} / 事務完了 ${formatEventDate(event.created_at)}`.trim();
@@ -304,8 +332,8 @@ function renderKpis() {
   const monthReports = visibleReports();
   const groups = Object.values(groupedByAssignment(monthReports));
   const config = taskConfig();
-  const statuses = taskStatuses(config);
-  const approvalWaiting = config ? groups.filter(group => statuses.includes(currentGroupStatus(group))).length : 0;
+  // タスク一覧と同じ判定（承認待ち＋自ロール対応の差戻し要求）で件数を揃える
+  const approvalWaiting = config ? groups.filter(group => isTaskGroup(group)).length : 0;
   const approvalSubtext = config?.subtext || '対応が必要';
   const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'approved')).length;
   const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_office') && !group.some(report => report.status === 'approved')).length;
@@ -357,8 +385,7 @@ function separationLockReason(tutorId) {
 // 「どの講師の残タスクか」を一目で把握できるよう講師ごとにまとめ、各行クリックで参照画面を開く。
 function renderTasks(groups) {
   const config = taskConfig();
-  const statuses = taskStatuses(config);
-  const tasks = config ? groups.filter(group => statuses.includes(currentGroupStatus(group.reports))) : [];
+  const tasks = config ? groups.filter(group => isTaskGroup(group.reports)) : [];
   taskCountBadge.textContent = tasks.length;
   if (!tasks.length) {
     taskList.innerHTML = '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
@@ -381,12 +408,15 @@ function renderTasks(groups) {
         const groupStatus = currentGroupStatus(group.reports);
         const meta = getTaskMeta(group, groupStatus);
         const lockReason = separationLockReason(group.tutor_id);
+        const pendingRequest = groupHasPendingRequest(group.reports);
         const cta = lockReason
           ? '<span class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">確認のみ</span>'
-          : `<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700">確認して${escapeHtml(config.label)}<span aria-hidden="true">→</span></span>`;
+          : (pendingRequest
+            ? '<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">確認して要求対応<span aria-hidden="true">→</span></span>'
+            : `<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700">確認して${escapeHtml(config.label)}<span aria-hidden="true">→</span></span>`);
         return `<button type="button" class="flex w-full items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50" onclick="openGroupReports('${group.key}')">
           <div class="min-w-0">
-            <div class="font-medium text-slate-800">${escapeHtml(group.school_name)}<span class="px-1 text-slate-300">・</span>${escapeHtml(monthShortLabel(group.target_month))}</div>
+            <div class="font-medium text-slate-800">${escapeHtml(group.school_name)}<span class="px-1 text-slate-300">・</span>${escapeHtml(monthShortLabel(group.target_month))}${pendingRequest ? '<span class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">差戻し要求</span>' : ''}</div>
             <div class="mt-0.5 truncate text-xs text-slate-500">${escapeHtml(meta || config.subtext)}</div>
             ${lockReason ? `<div class="mt-1 text-xs font-medium text-amber-600">⚠ ${escapeHtml(lockReason)}</div>` : ''}
           </div>
@@ -431,6 +461,7 @@ function renderPipeline(groups) {
           return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${openCardKey === group.key ? 'ring-2 ring-emerald-200' : ''}" onclick="toggleDetails('${group.key}')">
             <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.school_name)}</div>
             <div class="mt-1 text-[10px] text-slate-500">講師：${escapeHtml(group.tutor_name)} / ${escapeHtml(statusLabel(status))}</div>
+            ${groupHasPendingRequest(group.reports) ? '<div class="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">差戻し要求</div>' : ''}
           </button>`;
         }).join('') : '<div class="px-2 py-4 text-center text-xs text-slate-400">なし</div>'}
       </div>
@@ -454,12 +485,13 @@ function currentWaitLabel(status) {
 }
 function eventDotClass(action) {
   if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
+  if (REQUEST_ACTIONS.has(action)) return 'bg-[#F59E0B]';
   if (APPROVAL_ACTIONS.has(action)) return 'bg-[#059669]';
   return 'bg-slate-400';
 }
 function actionBadge(action) {
-  const returnStyle = RETURN_ACTIONS.has(action);
-  const cls = returnStyle ? 'bg-[#FEE2E2] text-[#991B1B]' : 'bg-[#D1FAE5] text-[#065F46]';
+  const cls = RETURN_ACTIONS.has(action) ? 'bg-[#FEE2E2] text-[#991B1B]'
+    : (REQUEST_ACTIONS.has(action) ? 'bg-[#FEF3C7] text-[#92400E]' : 'bg-[#D1FAE5] text-[#065F46]');
   return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
 }
 function statusBadge(status) {
@@ -484,7 +516,7 @@ function closedReportInfo(group) {
   </div>`;
 }
 function timelineRow(event) {
-  const isReturn = RETURN_ACTIONS.has(event.action);
+  const showComment = RETURN_ACTIONS.has(event.action) || REQUEST_ACTIONS.has(event.action);
   return `<div class="relative pb-5 pl-8">
     <span class="absolute left-[-5px] top-1 h-3 w-3 rounded-full ${eventDotClass(event.action)}"></span>
     <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -493,7 +525,7 @@ function timelineRow(event) {
       <span>${escapeHtml(event.actor_name || '-')}</span>
       ${actionBadge(event.action)}
     </div>
-    ${isReturn && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
+    ${showComment && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#FFF7ED] px-3 py-2 text-sm text-slate-700" style="border-color:#F59E0B;">${escapeHtml(event.comment)}</div>` : ''}
     ${event.action === 'tutor_edit' && event.comment ? `<div class="mt-2 whitespace-pre-wrap border-l-4 bg-[#EFF6FF] px-3 py-2 text-sm text-slate-700" style="border-color:#2563EB;">${escapeHtml(event.comment)}</div>` : ''}
   </div>`;
 }
