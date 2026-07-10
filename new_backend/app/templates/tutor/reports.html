@@ -1909,7 +1909,8 @@ function renderFormAvailability() {
     // 編集可能な報告書は業務開始〜終了時間を自動計算値へ正規化する（読取専用時は保存値のまま表示）
     recomputeAllRowTimes();
     const reason = report.last_return_comment ? `　差戻し理由：${report.last_return_comment}` : '';
-    showFormMessage(`学校から差戻しされています。修正のうえ「承認依頼」ボタンまたは承認管理画面から再依頼してください。${reason}`, true);
+    const returner = report.last_return_actor_role === 'office' ? '運営' : '学校';
+    showFormMessage(`${returner}から差戻しされています。修正のうえ「承認依頼」ボタンまたは承認管理画面から再依頼してください。${reason}`, true);
     return;
   }
   setReportInputsDisabled(false);

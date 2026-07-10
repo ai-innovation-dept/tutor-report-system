@@ -1,5 +1,6 @@
 """講師画面改修（下書き報告の削除・差戻し理由の公開）のテスト。"""
 import uuid
+from pathlib import Path
 from urllib.parse import unquote
 
 import pytest
@@ -132,6 +133,12 @@ class TestDeleteDraftReport:
 
 
 class TestLastReturnComment:
+    def test_tutor_reports_uses_actual_returner_label(self):
+        template = (Path(__file__).resolve().parents[1] / "app" / "templates" / "tutor" / "reports.html").read_text(encoding="utf-8")
+
+        assert "report.last_return_actor_role === 'office' ? '運営' : '学校'" in template
+        assert "学校から差戻しされています。修正のうえ" not in template
+
     def test_return_comment_exposed_in_report(self, client, db, setup):
         tutor_headers = _auth(client, "tutor@x.example.com")
         report_id = _create_report(client, setup["assignment"], tutor_headers)
