@@ -424,6 +424,49 @@ class TestOfficeEdit:
         )
         assert res.status_code == 409
 
+    def _office_edited_mails(self, db):
+        from sqlalchemy import select
+
+        from app.models.work import WorkMailOutbox
+
+        return [m for m in db.scalars(select(WorkMailOutbox))
+                if m.subject == "【業務連絡表】報告書が修正されました"]
+
+    def test_office_edit_notifies_tutor_and_school_as_ist_office(self, client, users, db):
+        """事務修正の通知メールは講師・学校の両方へ投函され、本文は修正した担当者の
+        個人名を出さず「イスト事務担当者により修正されました」とする（2026-07-10改修）。
+        コメントの差出人表記も「イスト事務担当者からの連絡：」で統一する。"""
+        report_id = self._advance_to_awaiting_office(client, users)
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 90, "note": "数学"}]},
+                  "comment": "指導時間を修正"},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        mails = self._office_edited_mails(db)
+        assert {m.to_email for m in mails} == {"tutor@work.example.com", "school@work.example.com"}
+        for mail in mails:
+            assert "下記の業務連絡表がイスト事務担当者により修正されました。" in mail.body
+            assert "イスト事務担当者からの連絡：指導時間を修正" in mail.body
+            # 旧文言「担当者（個人名）により修正…」を出さない（個人名の非表示）
+            assert "担当者（" not in mail.body
+            assert users["office"].display_name + "からの連絡" not in mail.body
+
+    def test_office_edit_notification_sent_to_skip_school(self, client, users, db):
+        """学校承認スキップ校でも事務修正の通知メールは学校へ送る（宛先は常に講師・学校）。"""
+        users["school"].skip_parent_approval = True
+        db.commit()
+        report_id = self._advance_to_awaiting_office(client, users)
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 120, "note": "数学"}]}},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        mails = self._office_edited_mails(db)
+        assert {m.to_email for m in mails} == {"tutor@work.example.com", "school@work.example.com"}
+
     def test_office_edit_no_change_no_comment_skips_event(self, client, users):
         # 既存システムと同様、差分もコメントも無い場合は監査イベントを記録しない（通知もしない）
         report_id = self._advance_to_awaiting_office(client, users)

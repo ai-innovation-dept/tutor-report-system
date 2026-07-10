@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.shared import Assignment, User
-from app.models.work import WorkNotification, WorkReport, WorkReportEvent
+from app.models.work import WorkAssignmentProfile, WorkNotification, WorkReport, WorkReportEvent
 from app.services.mailer import enqueue_mail
 from app.workflow.definitions import WorkAction, WorkStatus
 
@@ -204,10 +204,20 @@ def _tutor(report: WorkReport) -> User | None:
 
 
 def _school(db: Session, report: WorkReport) -> User | None:
+    """通知先の学校を解決する。紐付け（assignment.parent）→ 契約（WorkAssignmentProfile.school_id）の順。
+
+    画面・権限系（report_service.can_view_report / list_reports_for_school）と同じ解決順に
+    しておかないと、契約のみで紐付いた学校が「閲覧・承認はできるのに通知は届かない」状態になる。
+    """
     assignment = _assignment(report) or db.get(Assignment, report.assignment_id)
-    if not assignment or not assignment.parent_id:
-        return None
-    return assignment.parent
+    if assignment and assignment.parent_id:
+        return assignment.parent
+    school_id = db.scalar(
+        select(WorkAssignmentProfile.school_id).where(
+            WorkAssignmentProfile.assignment_id == report.assignment_id
+        )
+    )
+    return db.get(User, school_id) if school_id else None
 
 
 def _student_name(report: WorkReport) -> str:
@@ -430,22 +440,21 @@ def _format_office_changes(changes: list[tuple[str, str, str]] | None) -> str:
 async def send_office_edit_notification(
     db: Session,
     report: WorkReport,
-    actor: User,
     comment: str | None = None,
     changes: list[tuple[str, str, str]] | None = None,
 ) -> None:
     """事務担当が報告書を修正した際に、修正前との差分を講師・学校へ通知する。
 
-    学校（assignment.parent）は未設定または学校確認スキップ設定なら送らない
-    （既存システムの保護者通知条件と同じ）。
+    本文は修正した担当者の個人名を出さず「イスト事務担当者」と表記する（2026-07-10改修）。
+    学校が解決できない（紐付けも契約も無い）場合のみ学校へは送らない
+    （学校承認スキップ校にも送る＝宛先は常に講師・学校）。
     """
     comment_text = (comment or "").strip()
-    comment_block = f"{actor.display_name}からの連絡：{comment_text}\n\n" if comment_text else ""
+    comment_block = f"イスト事務担当者からの連絡：{comment_text}\n\n" if comment_text else ""
     context = {
         "base_url": _base_url(),
         "target_month": report.target_month,
         "student_name": _student_name(report),
-        "actor_name": actor.display_name,
         "changes": _format_office_changes(changes),
         "comment_block": comment_block,
     }
@@ -459,7 +468,7 @@ async def send_office_edit_notification(
             context | {"name": tutor.display_name},
         )
     school = _school(db, report)
-    if school and not school.skip_parent_approval:
+    if school:
         await _send_email(
             db,
             school,

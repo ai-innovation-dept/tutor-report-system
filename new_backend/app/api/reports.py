@@ -579,7 +579,7 @@ async def office_edit_report(
     db.commit()
     db.refresh(report)
     if changes or has_comment:
-        await send_office_edit_notification(db, report, user, payload.comment, changes)
+        await send_office_edit_notification(db, report, payload.comment, changes)
     return report
 
 
