@@ -90,6 +90,7 @@ class ReportOut(BaseModel):
     closed_by: uuid.UUID | None = None
     close_reason: str | None = None
     last_return_comment: str | None = None
+    last_return_actor_role: str | None = None
     school_approved_at: datetime | None = None
     # 事務の事前確認（月分超過・1〜9分手入力）が承認された日時。事前確認フローの「学校へ依頼日時」
     precheck_approved_at: datetime | None = None

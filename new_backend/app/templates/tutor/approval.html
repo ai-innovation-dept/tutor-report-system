@@ -379,13 +379,22 @@ function deleteButton(group) {
   if (!group.reports.length || !group.reports.every(r => DELETABLE_STATUSES.includes(r.status))) return '';
   return `<button class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteDraftReports('${group.assignment_id}')">報告を削除</button>`;
 }
+function returnSourceLabel(group) {
+  const roles = new Set(group.reports
+    .filter(r => r.status === 'returned_to_tutor')
+    .map(r => r.last_return_actor_role)
+    .filter(Boolean));
+  if (roles.has('office') && roles.has('school')) return '学校・運営';
+  if (roles.has('office')) return '運営';
+  return schoolName(group);
+}
 function returnedNotice(group) {
   const reasons = group.reports
     .filter(r => r.status === 'returned_to_tutor' && r.last_return_comment)
     .map(r => `<div class="mt-1 whitespace-pre-wrap">差戻し理由：${escapeHtml(r.last_return_comment)}</div>`)
     .join('');
   return `<div class="mt-5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-    <div class="font-medium">${escapeHtml(schoolName(group))}から差戻しされています。修正のうえ再依頼してください。</div>
+    <div class="font-medium">${escapeHtml(returnSourceLabel(group))}から差戻しされています。修正のうえ再依頼してください。</div>
     ${reasons}
   </div>`;
 }

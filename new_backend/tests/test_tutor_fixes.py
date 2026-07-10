@@ -152,6 +152,30 @@ class TestLastReturnComment:
         body = res.json()
         assert body["status"] == WorkStatus.RETURNED_TO_TUTOR
         assert body["last_return_comment"] == "時間が間違っています"
+        assert body["last_return_actor_role"] == "school"
+
+    def test_office_return_exposes_office_as_return_source(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        _add_user(db, "office-return@x.example.com", "office")
+
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "approve"},
+            headers=_auth(client, "school@x.example.com"),
+        )
+        returned = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "運営確認で修正が必要です"},
+            headers=_auth(client, "office-return@x.example.com"),
+        )
+
+        assert returned.status_code == 200, returned.text
+        body = returned.json()
+        assert body["status"] == WorkStatus.RETURNED_TO_TUTOR
+        assert body["last_return_comment"] == "運営確認で修正が必要です"
+        assert body["last_return_actor_role"] == "office"
 
     def test_no_return_comment_for_draft(self, client, db, setup):
         headers = _auth(client, "tutor@x.example.com")
@@ -180,6 +204,35 @@ class TestReportNames:
         body = client.get(f"/api/w/reports/{report_id}", headers=tutor_headers).json()
         assert body["school_approved_at"] is not None
         assert body["submitted_to_school_at"] is not None
+
+    def test_school_approved_at_uses_latest_reapproval(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        school_headers = _auth(client, "school@x.example.com")
+        _add_user(db, "office-reapprove@x.example.com", "office")
+        office_headers = _auth(client, "office-reapprove@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        first = client.post(
+            f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=school_headers
+        ).json()["school_approved_at"]
+        client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "return", "comment": "再確認してください"},
+            headers=office_headers,
+        )
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        body = client.post(
+            f"/api/w/reports/{report_id}/action", json={"action": "approve"}, headers=school_headers
+        ).json()
+        approval_events = [
+            event for event in body["events"]
+            if event["action"] == "approve" and event["from_status"] == WorkStatus.AWAITING_SCHOOL
+        ]
+
+        assert len(approval_events) == 2
+        assert body["school_approved_at"] == approval_events[-1]["created_at"]
+        assert body["school_approved_at"] != first
 
     def test_approved_at_set_after_sales_approve(self, client, db, setup):
         # 営業承認で完了（経理ステップ廃止）。approved_at は営業の最終承認で設定される

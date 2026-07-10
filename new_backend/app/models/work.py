@@ -133,13 +133,29 @@ class WorkReport(Base):
         viewonly=True,
     )
 
+    def _last_return_event(self):
+        for event in reversed(self.events):
+            if event.action == "return":
+                return event
+        return None
+
     @property
     def last_return_comment(self) -> str | None:
         """直近の差戻しコメント（差戻し中の理由表示に使用）。"""
-        for event in reversed(self.events):
-            if event.action == "return":
-                return event.comment
-        return None
+        event = self._last_return_event()
+        return event.comment if event else None
+
+    @property
+    def last_return_actor_role(self) -> str | None:
+        """直近の差戻し元ロール。遷移元から実際に担当した工程を判定する。"""
+        event = self._last_return_event()
+        if not event:
+            return None
+        if event.from_status == "awaiting_school":
+            return "school"
+        if event.from_status in {"awaiting_office_precheck", "awaiting_office", "returned_to_office"}:
+            return "office"
+        return event.actor_role
 
     @property
     def student_name(self) -> str | None:
@@ -158,8 +174,8 @@ class WorkReport(Base):
 
     @property
     def school_approved_at(self) -> datetime | None:
-        """学校が承認した日時（awaiting_school からの approve イベント）。"""
-        for event in self.events:
+        """学校が直近に承認した日時（awaiting_school からの approve イベント）。"""
+        for event in reversed(self.events):
             if event.action == "approve" and event.from_status == "awaiting_school":
                 return event.created_at
         return None
@@ -170,7 +186,7 @@ class WorkReport(Base):
 
         事前確認フロー（月分超過・1〜9分手入力）では、この日時が講師画面の「学校へ依頼日時」になる。
         """
-        for event in self.events:
+        for event in reversed(self.events):
             if event.action == "approve" and event.from_status == "awaiting_office_precheck":
                 return event.created_at
         return None
@@ -182,8 +198,8 @@ class WorkReport(Base):
 
     @property
     def approved_at(self) -> datetime | None:
-        """経理が最終承認した日時。"""
-        for event in self.events:
+        """営業が直近に最終承認した日時。"""
+        for event in reversed(self.events):
             if event.action == "approve" and event.to_status == "approved":
                 return event.created_at
         return None
