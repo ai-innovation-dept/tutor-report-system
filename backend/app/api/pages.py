@@ -353,6 +353,17 @@ def tutor_approval_page(request: Request, db: Session = Depends(get_db)):
     return templates.TemplateResponse(request, "tutor/approval.html", context=_tutor_context(request, db, user))
 
 
+@router.get("/tutor/monthly-report", response_class=HTMLResponse)
+def tutor_monthly_report_page(request: Request, db: Session = Depends(get_db)):
+    """指導月報の作成画面（原本_月報.pdf 準拠のフォーム）。承認依頼前の担当×月で作成・更新できる。"""
+    user = get_current_user_from_cookie(request, db)
+    if not user or user.role != "tutor":
+        return _login_redirect()
+    if user.must_change_password:
+        return _password_change_redirect()
+    return templates.TemplateResponse(request, "tutor/monthly_report.html", context=_tutor_context(request, db, user))
+
+
 # 生徒管理機能は将来リリース予定のため一時非表示
 # @router.get("/tutor/students", response_class=HTMLResponse)
 # def tutor_students_page(request: Request, db: Session = Depends(get_db)):

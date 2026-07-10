@@ -41,6 +41,13 @@ let selectedMonth = new URLSearchParams(location.search).get('month') || current
 let selectedTutorId = new URLSearchParams(location.search).get('tutor_id') || '';
 let selectedAssignmentId = new URLSearchParams(location.search).get('assignment_id') || '';
 let expandedReturnMonth = null;
+// 指導月報（`assignment_id|target_month` → 月報）。承認時の保護者記入欄の要否・月報PDFボタンの表示判定に使う。
+let monthlyByKey = new Map();
+let monthlyKeys = new Set();
+function pendingMonthlies(month, reports) {
+  const ids = [...new Set(reports.filter(r => r.status === 'awaiting_parent_approval').map(r => r.assignment_id))];
+  return ids.map(id => monthlyByKey.get(`${id}|${month}`)).filter(Boolean);
+}
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -148,7 +155,15 @@ function renderActionArea(month, reports) {
       <div class="mt-2 text-sm text-slate-600">差戻し中の報告書があります。講師の修正をお待ちください。</div>`;
   }
   if (pending.length) {
-    return `${summary}<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+    // 指導月報がある月は、承認と同時に保護者記入欄（ご要望/連絡事項）の入力が必須。
+    const monthlies = pendingMonthlies(month, reports);
+    const parentNoteForm = monthlies.length ? `
+      <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <label class="text-sm font-medium text-slate-800" for="parentNote-${month}">指導月報「保護者記入欄（ご要望／連絡事項）」<span class="ml-1 font-semibold text-amber-700">※承認に必須</span></label>
+        <p class="mt-1 text-xs text-slate-600">ご記入いただいた内容は指導月報に記載され、講師・運営へ共有されます。</p>
+        <textarea id="parentNote-${month}" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="ご要望・ご連絡事項をご記入ください">${escapeHtml(monthlies.length === 1 ? (monthlies[0].parent_note || '') : '')}</textarea>
+      </div>` : '';
+    return `${summary}${parentNoteForm}<div class="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
         <button class="w-full rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 sm:w-auto" onclick="showMonthReturnForm('${month}')">${Number(month.slice(5, 7))}月分を差戻す</button>
         <button class="w-full rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700 sm:w-auto" onclick="approvePending('${month}')">すべての指導日を承認する</button>
       </div>${monthReturnForm(month)}`;
@@ -172,6 +187,7 @@ function renderDownloadArea(month, reports) {
     ${groups.length > 1 ? `<span class="text-sm text-slate-600">${escapeHtml(g.student_name)}：</span>` : ''}
     <a href="/api/reports/export?assignment_id=${g.assignment_id}&target_month=${month}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">指導時間確認票PDF</a>
     <a href="/api/reports/export-daily?assignment_id=${g.assignment_id}&target_month=${month}" class="inline-flex items-center px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg">指導日報PDF</a>
+    ${monthlyKeys.has(`${g.assignment_id}|${month}`) ? `<a href="/api/reports/export-monthly?assignment_id=${g.assignment_id}&target_month=${month}" class="inline-flex items-center px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg">指導月報PDF</a>` : ''}
   </div>`).join('');
   return `<div class="mt-3 flex flex-col gap-2">${buttons}</div>`;
 }
@@ -191,9 +207,14 @@ function renderBulkExportLinks() {
   const exportQuery = selectedAssignmentId
     ? `assignment_id=${selectedAssignmentId}&target_month=${month}`
     : `scope=all&target_month=${month}`;
+  // 指導月報PDFは、月報が作成済みの場合のみ表示（担当選択時は担当×月、未選択時はその月に1件でも存在するか）。
+  const hasMonthly = selectedAssignmentId
+    ? monthlyKeys.has(`${selectedAssignmentId}|${month}`)
+    : [...monthlyKeys].some(key => key.endsWith(`|${month}`));
   bulkExportButtons.innerHTML = `
     <a href="/api/reports/export?${exportQuery}&format=pdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white transition hover:bg-green-700 sm:w-auto">指導時間確認票PDF</a>
     <a href="/api/reports/export-daily?${exportQuery}" class="inline-flex w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white transition hover:bg-teal-700 sm:w-auto">指導日報PDF</a>
+    ${hasMonthly ? `<a href="/api/reports/export-monthly?${exportQuery}" class="inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white transition hover:bg-indigo-700 sm:w-auto">指導月報PDF</a>` : ''}
   `;
 }
 function renderBulkExportArea() {
@@ -342,15 +363,29 @@ async function approvePending(month) {
   const reports = filteredReports().filter(report => report.target_month === month);
   const pending = reports.filter(report => report.status === 'awaiting_parent_approval');
   if (!pending.length) return;
+  // 指導月報がある月は保護者記入欄の入力を必須にする（サーバ側でも同一の検証を行う）。
+  const noteInput = document.getElementById(`parentNote-${month}`);
+  const parentNote = (noteInput?.value || '').trim();
+  if (pendingMonthlies(month, reports).length && !parentNote) {
+    alert('指導月報の「保護者記入欄（ご要望／連絡事項）」を入力してから承認してください。');
+    noteInput?.focus();
+    return;
+  }
   if (!confirm(`${Number(month.slice(5, 7))}月分の指導日をすべて承認します。よろしいですか？`)) return;
   await api('/api/reports/parent-approve-bulk', {
     method: 'POST',
-    body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month})
+    body: JSON.stringify({report_ids: pending.map(report => report.id), target_month: month, parent_note: parentNote || null})
   });
   window.location.href = '/parent/reports';
 }
 async function loadParent() {
-  allReports = sortReportsOldestFirst(await api('/api/reports'));
+  const [reports, monthlies] = await Promise.all([
+    api('/api/reports'),
+    api('/api/monthly-reports').catch(() => [])
+  ]);
+  allReports = sortReportsOldestFirst(reports);
+  monthlyByKey = new Map((monthlies || []).map(m => [`${m.assignment_id}|${m.target_month}`, m]));
+  monthlyKeys = new Set(monthlyByKey.keys());
   renderParent();
 }
 monthFilter.addEventListener('change', () => {

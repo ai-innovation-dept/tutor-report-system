@@ -226,6 +226,34 @@ class ChatRead(Base):
     read_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class MonthlyReport(Base):
+    """指導月報（原本: docs/イスト勤怠レポート for 代々木進学会/原本_月報.pdf）。
+
+    担当（assignment）×対象月で1件。講師が承認依頼前に作成・更新し、
+    保護者は承認時に保護者記入欄（parent_note）を記入する（講師は記入不可）。
+    学年以外のフォーム内容（問題点と対策・志望校・テスト結果・指導実施日・
+    今月を振り返って・連絡事項）は form_data(JSON) に保持する。
+    """
+    __tablename__ = "monthly_reports"
+    __table_args__ = (UniqueConstraint("assignment_id", "target_month", name="uq_monthly_report_assignment_month"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    assignment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignments.id"), index=True)
+    tutor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    target_month: Mapped[str] = mapped_column(String(7), index=True)
+    grade: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 学年（フリーフォーマット・必須はUI＋承認依頼ガードで強制）
+    form_data: Mapped[dict] = mapped_column(JSON, default=dict)
+    # 保護者記入欄（ご要望/連絡事項）。保護者が承認時に記入する（講師は記入不可）
+    parent_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    parent_note_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
+    parent_note_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    assignment: Mapped[Assignment] = relationship()
+    tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
+    parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)

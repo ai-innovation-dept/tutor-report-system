@@ -25,6 +25,7 @@
     let adminLocks = {received_report_ids: [], reviewed_report_ids: []};
     const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
     let currentFiltered = [];
+    let monthlyReport = null;   // 指導月報（担当×対象月で1件。未作成なら null）
     let flashMsg = null;
 
     function escapeHtml(value) {
@@ -145,6 +146,16 @@
       const first = filtered[0] || {};
       currentFiltered = filtered;
 
+      // 指導月報（承認依頼時に提出されるフォーム）を取得。未作成・取得失敗時は非表示のまま続行する。
+      monthlyReport = null;
+      const monthlyAssignmentId = assignmentId || first.assignment_id || '';
+      if (monthlyAssignmentId) {
+        try {
+          const mres = await fetch(`/api/monthly-reports?target_month=${encodeURIComponent(targetMonth)}&assignment_id=${encodeURIComponent(monthlyAssignmentId)}`, {credentials: 'same-origin'});
+          if (mres.ok) monthlyReport = (await mres.json())[0] || null;
+        } catch (_) {}
+      }
+
       const bodyRows = filtered.length ? filtered.map((report, index) => `<tr class="${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
         <td class="border border-slate-200 px-2 py-1 text-center text-slate-500">${index + 1}</td>
         <td class="border border-slate-200 px-2 py-1">${dateLabel(report.lesson_date)}</td>
@@ -185,9 +196,121 @@
             <div>指導日数：<span class="font-semibold">${filtered.length}</span>日</div>
             <div>合計指導時間：<span class="font-semibold">${durationLabel(totalMinutes)}</span></div>
           </div>
-        </section>` + detailCardsHtml(filtered) + actionAreaHtml(filtered) + adminActionAreaHtml(filtered);
+        </section>` + detailCardsHtml(filtered) + monthlyReportHtml() + actionAreaHtml(filtered) + adminActionAreaHtml(filtered);
       if (PARENT_CAN_ACT) wireParentActions();
       if (ADMIN_CAN_ACT) wireAdminActions();
+    }
+
+    // ===== 指導月報（原本_月報.pdf 準拠）の参照表示 =====
+    // 講師が承認依頼前に作成した月報を、保護者・運営が承認判断の材料として確認できるようにする。
+    // 教科の並びはサーバ定義（services/monthly_report_service.py）と同一にすること。
+    const MOCK_SUBJECTS = ['国語', '算数', '2科', '社会', '理科', '4科'];
+    const SCHOOL_SUBJECTS = ['英語', '算数', '国語', '社会', '理科'];
+    function monthlyField(label, value, pre) {
+      const v = (value ?? '').toString().trim();
+      const body = v
+        ? (pre ? `<div class="whitespace-pre-wrap text-slate-800">${escapeHtml(v)}</div>` : `<span class="text-slate-800">${escapeHtml(v)}</span>`)
+        : '<span class="text-slate-400">—</span>';
+      return `<div><dt class="text-xs text-slate-500">${label}</dt><dd class="mt-0.5 text-sm">${body}</dd></div>`;
+    }
+    function numberedList(items) {
+      const rows = (items || []).map((v, i) => ({no: i + 1, text: (v || '').trim()})).filter(r => r.text);
+      if (!rows.length) return '<span class="text-sm text-slate-400">—</span>';
+      return `<ol class="space-y-1">${rows.map(r => `<li class="flex gap-2 text-sm"><span class="w-5 shrink-0 text-center font-semibold text-slate-500">${r.no}</span><span class="whitespace-pre-wrap text-slate-800">${escapeHtml(r.text)}</span></li>`).join('')}</ol>`;
+    }
+    function scoreTableHtml(subjects, scores) {
+      const rows = scores || [];
+      if (!rows.some(s => (s && (s.score || s.deviation)))) return '';
+      const head = subjects.map(s => `<th class="border border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs font-medium text-slate-600">${escapeHtml(s)}</th>`).join('');
+      const line = key => subjects.map((_, i) => `<td class="border border-slate-200 px-2 py-1 text-center text-sm">${escapeHtml((rows[i] || {})[key] || '')}</td>`).join('');
+      return `<div class="mt-2 overflow-x-auto"><table class="w-full border-collapse">
+        <thead><tr><th class="w-16 border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">教科</th>${head}</tr></thead>
+        <tbody>
+          <tr><th class="border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">素点</th>${line('score')}</tr>
+          <tr><th class="border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">偏差値</th>${line('deviation')}</tr>
+        </tbody>
+      </table></div>`;
+    }
+    function dayChips(days, monthText) {
+      if (!(days || []).length) return '<span class="text-sm text-slate-400">—</span>';
+      return `<div class="flex flex-wrap items-center gap-1.5">${days.map(d => `<span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-xs font-semibold text-white">${d}</span>`).join('')}<span class="ml-1 text-xs text-slate-500">${monthText}</span></div>`;
+    }
+    function abChoiceText(row, aLabel, bLabel) {
+      if (!row || !row.answer) return '';
+      if (row.answer === 'A') return `A ${aLabel}`;
+      const count = (row.count || '').trim();
+      const informed = row.informed === 'a' ? '（会員に事前連絡をした）' : (row.informed === 'b' ? '（会員に事前連絡をしなかった）' : '');
+      return `B ${bLabel}${count ? `（${count}回）` : ''}${informed}`;
+    }
+    function makeupText(makeup) {
+      if (!makeup || !makeup.answer) return '';
+      if (makeup.answer === 'A') return 'A 当月中に済';
+      if (makeup.answer === 'B') return 'B 振替日未定';
+      const plans = (makeup.plans || [])
+        .map(p => `${p.from_month ?? '?'}月${p.from_day ?? '?'}日→${p.to_month ?? '?'}月${p.to_day ?? '?'}日`)
+        .join('、');
+      return `C 振替予定あり${plans ? `（${plans}）` : ''}`;
+    }
+    function nextMonthLabel(value) {
+      const [year, month] = value.split('-').map(Number);
+      const d = new Date(year, month, 1);
+      return `${d.getFullYear()}年${d.getMonth() + 1}月`;
+    }
+    function monthlyReportHtml() {
+      if (!monthlyReport) return '';
+      const data = monthlyReport.form_data || {};
+      const mock = data.test_mock || {};
+      const school = data.test_school || {};
+      const retro = data.retrospect || {};
+      const reason = retro.change_reason || {};
+      const reasonText = reason.answer === 'A' ? 'A 会員都合'
+        : (reason.answer === 'B' ? `B 講師都合${(reason.reason || '').trim() ? `（理由：${reason.reason.trim()}）` : ''}` : '');
+      const mockMeta = [mock.name ? `模試の種類：${mock.name}` : '', (mock.exam_month && mock.exam_day) ? `受験日：${mock.exam_month}月${mock.exam_day}日` : ''].filter(Boolean).join('　');
+      const schoolMeta = [school.term ? `${school.term}期` : '', school.term_type || ''].filter(Boolean).join('　');
+      const hasMock = Boolean(mockMeta) || (mock.scores || []).some(s => s && (s.score || s.deviation));
+      const hasSchool = Boolean(schoolMeta) || (school.scores || []).some(s => s && (s.score || s.deviation));
+      const parentNote = (monthlyReport.parent_note || '').trim();
+      return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="font-semibold text-slate-800">指導月報</h2>
+          <span class="rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">${escapeHtml(monthLabel(targetMonth))}</span>
+        </div>
+        <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+          ${monthlyField('学年', monthlyReport.grade)}
+          ${monthlyField('指導時間合計', (data.total_hours || '').trim() ? `${data.total_hours}時間` : '')}
+        </dl>
+        <div class="mt-4 grid gap-4">
+          <div><h3 class="text-sm font-semibold text-slate-700">次月に向けての問題点と対策</h3><div class="mt-1.5">${numberedList(data.issues)}</div></div>
+          <div><h3 class="text-sm font-semibold text-slate-700">現時点での志望校</h3><div class="mt-1.5">${numberedList(data.target_schools)}</div></div>
+          ${(hasMock || hasSchool) ? `<div>
+            <h3 class="text-sm font-semibold text-slate-700">最近のテスト結果</h3>
+            <div class="mt-1.5 grid gap-3 lg:grid-cols-2">
+              ${hasMock ? `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs font-medium text-slate-600">模試／実力テスト${mockMeta ? `　<span class="font-normal">${escapeHtml(mockMeta)}</span>` : ''}</div>${scoreTableHtml(MOCK_SUBJECTS, mock.scores)}</div>` : ''}
+              ${hasSchool ? `<div class="rounded-lg border border-slate-200 p-3"><div class="text-xs font-medium text-slate-600">学校${schoolMeta ? `　<span class="font-normal">${escapeHtml(schoolMeta)}</span>` : ''}</div>${scoreTableHtml(SCHOOL_SUBJECTS, school.scores)}</div>` : ''}
+            </div>
+          </div>` : ''}
+          <div class="grid gap-3 lg:grid-cols-2">
+            <div><h3 class="text-sm font-semibold text-slate-700">指導実施日（今月）</h3><div class="mt-1.5">${dayChips(data.lesson_days, monthLabel(targetMonth))}</div></div>
+            <div><h3 class="text-sm font-semibold text-slate-700">指導予定日（次月）</h3><div class="mt-1.5">${dayChips(data.next_month_plan_days, nextMonthLabel(targetMonth))}</div></div>
+          </div>
+          <div>
+            <h3 class="text-sm font-semibold text-slate-700">今月を振り返って</h3>
+            <dl class="mt-1.5 grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
+              ${monthlyField('遅刻', abChoiceText(retro.late, 'なし', 'あり'))}
+              ${monthlyField('指導日の変更', abChoiceText(retro.schedule_change, 'なし', 'あり'))}
+              ${monthlyField('変更理由', reasonText)}
+              ${monthlyField('休んだ日の振替', makeupText(retro.makeup))}
+            </dl>
+          </div>
+          ${monthlyField('連絡事項', data.notes, true)}
+          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <h3 class="text-sm font-semibold text-slate-700">保護者記入欄（ご要望／連絡事項）</h3>
+            ${parentNote
+              ? `<div class="mt-1.5 whitespace-pre-wrap text-sm text-slate-800">${escapeHtml(parentNote)}</div>`
+              : '<div class="mt-1.5 text-sm text-slate-500">未記入です（保護者が承認時に記入します）。</div>'}
+          </div>
+        </div>
+      </section>`;
     }
 
     // 保護者の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
@@ -205,9 +328,17 @@
       if (!pending.length) {
         return wrap('<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>');
       }
+      // 指導月報がある月は、承認と同時に保護者記入欄（ご要望/連絡事項）の入力が必須。
+      const parentNoteForm = monthlyReport ? `
+        <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <label class="text-sm font-medium text-slate-800" for="parentNoteInput">指導月報「保護者記入欄（ご要望／連絡事項）」<span class="ml-1 font-semibold text-amber-700">※承認に必須</span></label>
+          <p class="mt-1 text-xs text-slate-600">ご記入いただいた内容は指導月報に記載され、講師・運営へ共有されます。</p>
+          <textarea id="parentNoteInput" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="ご要望・ご連絡事項をご記入ください">${escapeHtml(monthlyReport.parent_note || '')}</textarea>
+        </div>` : '';
       return wrap(`
         <h2 class="font-semibold text-slate-800">承認・差戻し</h2>
         <p class="mt-1 text-sm text-slate-600">上記の内容をご確認のうえ、${escapeHtml(monthLabel(targetMonth))}の指導実績を承認、または差戻してください。</p>
+        ${parentNoteForm}
         <div id="returnForm" class="mt-3 hidden rounded-xl border border-red-200 bg-red-50 p-4">
           <label class="text-sm font-medium text-slate-700" for="returnComment">差戻しコメント</label>
           <textarea id="returnComment" class="mt-2 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="2000" placeholder="コメントを入力してください"></textarea>
@@ -287,8 +418,15 @@
       if (!requireSelfConfirm()) return;
       const pending = currentFiltered.filter(report => report.status === 'awaiting_parent_approval');
       if (!pending.length) return;
+      // 指導月報がある月は保護者記入欄の入力を必須にする（サーバ側でも同一の検証を行う）。
+      const parentNote = (document.getElementById('parentNoteInput')?.value || '').trim();
+      if (monthlyReport && !parentNote) {
+        showActionMsg('指導月報の「保護者記入欄（ご要望／連絡事項）」を入力してから承認してください。', false);
+        document.getElementById('parentNoteInput')?.focus();
+        return;
+      }
       try {
-        await postJson('/api/reports/parent-approve-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth});
+        await postJson('/api/reports/parent-approve-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth, parent_note: parentNote || null});
         notifyOpener();
         flashMsg = `${monthLabel(targetMonth)}の指導実績を承認しました。`;
         await load();

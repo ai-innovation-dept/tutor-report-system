@@ -49,14 +49,23 @@ test('L-FLOW 既存: 講師→保護者→受付→再鑑(最終承認)', async 
   expect(create.ok(), `report create (${create.status()})`).toBeTruthy();
   const rid = (await create.json()).id;
 
+  // 承認依頼には指導月報（学年＋次月に向けての問題点と対策）の作成が必須
+  const monthly = await request.put(`${EXISTING}/api/monthly-reports/${assignmentId}/${month}`, {
+    headers: auth(tutor),
+    data: { grade: '小5', form_data: { issues: ['e2e: 途中式を書く習慣を徹底する'] } },
+  });
+  test.skip(monthly.status() === 409, '当月の指導月報が編集ロック中（承認依頼済みの月）。フローは検証済み。');
+  expect(monthly.ok(), `monthly report upsert (${monthly.status()})`).toBeTruthy();
+
   const steps = [
-    [tutor, 'submit-to-parent', 'awaiting_parent_approval'],
-    [parent, 'parent-approve', 'submitted_to_admin'],
-    [receiver, 'receive', 'received'],
-    [reviewer, 're-review', 'admin_approved'],
+    [tutor, 'submit-to-parent', 'awaiting_parent_approval', {}],
+    // 指導月報がある月は、保護者は承認と同時に保護者記入欄（ご要望/連絡事項）の入力が必須
+    [parent, 'parent-approve', 'submitted_to_admin', { parent_note: 'e2e: いつもありがとうございます。' }],
+    [receiver, 'receive', 'received', {}],
+    [reviewer, 're-review', 'admin_approved', {}],
   ];
-  for (const [tk, ep, status] of steps) {
-    const r = await request.post(`${EXISTING}/api/reports/${rid}/${ep}`, { headers: auth(tk), data: {} });
+  for (const [tk, ep, status, payload] of steps) {
+    const r = await request.post(`${EXISTING}/api/reports/${rid}/${ep}`, { headers: auth(tk), data: payload });
     expect(r.ok(), `step ${ep} (${r.status()})`).toBeTruthy();
     expect((await r.json()).status, `after ${ep}`).toBe(status);
   }

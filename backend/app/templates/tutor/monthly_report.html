@@ -1,0 +1,514 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- === 指導月報 作成画面 START === -->
+<div class="mb-4 flex flex-wrap items-end justify-between gap-4">
+  <label class="flex items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm shadow-sm">
+    <span class="text-slate-600">対象月</span>
+    <select id="monthFilter" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
+  </label>
+</div>
+<div id="studentTabs" class="mb-4 hidden flex-wrap gap-2"></div>
+<div id="monthlyReportArea" class="grid gap-4"></div>
+<!-- 保存バー（編集可能時のみ表示） -->
+<div id="saveBar" class="sticky bottom-0 z-10 mt-4 hidden rounded-xl border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div id="requiredNotice" class="text-sm text-amber-700"></div>
+    <button id="saveBtn" type="button" class="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white transition hover:bg-blue-700">月報を保存</button>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+setBreadcrumb('講師ポータル', '月報作成');
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+const urlParams = new URLSearchParams(location.search);
+let selectedMonth = urlParams.get('month') || currentMonthValue();
+let selectedAssignmentId = urlParams.get('assignment_id') || '';
+let overview = null;          // GET /api/monthly-reports/overview の結果
+let mockSubjects = [];        // 模試/実力テストの教科（サーバ定義: 国語・算数・2科・社会・理科・4科）
+let schoolSubjects = [];      // 学校の教科（原本準拠: 英語・算数・国語・社会・理科）
+let makeupPlans = [];         // 休んだ日の振替予定（{from_month, from_day, to_month, to_day}）
+
+function currentMonthValue() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function escapeAttr(value) { return escapeHtml(value); }
+function monthLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月分`;
+}
+function monthOptionLabel(value) {
+  const [year, month] = value.split('-');
+  return `${year}年${Number(month)}月`;
+}
+function nextMonthOf(value) {
+  const [year, month] = value.split('-').map(Number);
+  const d = new Date(year, month, 1); // month は 0 始まりのため「次月の1日」になる
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+function daysInMonth(value) {
+  const [year, month] = value.split('-').map(Number);
+  return new Date(year, month, 0).getDate();
+}
+function weekdayOf(value, day) {
+  const [year, month] = value.split('-').map(Number);
+  return WEEKDAYS[new Date(year, month - 1, day).getDay()];
+}
+function currentItem() {
+  if (!overview) return null;
+  return overview.assignments.find(item => item.assignment_id === selectedAssignmentId) || overview.assignments[0] || null;
+}
+
+function renderMonthFilter() {
+  const months = [];
+  const now = new Date();
+  for (let i = 0; i < 13; i += 1) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  }
+  if (!months.includes(selectedMonth)) months.unshift(selectedMonth);
+  monthFilter.innerHTML = months.map(month => `<option value="${month}">${monthOptionLabel(month)}</option>`).join('');
+  monthFilter.value = selectedMonth;
+}
+
+function renderStudentTabs() {
+  const items = overview ? overview.assignments : [];
+  if (items.length <= 1) {
+    studentTabs.classList.add('hidden');
+    studentTabs.classList.remove('flex');
+    return;
+  }
+  studentTabs.classList.remove('hidden');
+  studentTabs.classList.add('flex');
+  studentTabs.innerHTML = items.map(item => {
+    const active = item.assignment_id === (currentItem() && currentItem().assignment_id);
+    const cardClass = active ? 'border border-blue-600 bg-blue-50 shadow-md' : 'border border-slate-200 bg-white hover:border-blue-300 hover:shadow-md';
+    const badge = item.report
+      ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">作成済み</span>'
+      : '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">未作成</span>';
+    return `<button type="button" class="rounded-xl ${cardClass} w-full px-4 py-3 text-left shadow-sm transition sm:w-auto sm:min-w-40" onclick="selectStudent('${item.assignment_id}')">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-sm font-medium text-slate-800">${escapeHtml(item.student_name)}</span>
+        ${badge}
+      </div>
+      <div class="mt-1 text-xs text-slate-500">会員：${escapeHtml(item.parent_name || '未設定')}</div>
+    </button>`;
+  }).join('');
+}
+function selectStudent(assignmentId) {
+  selectedAssignmentId = assignmentId;
+  const params = new URLSearchParams(location.search);
+  params.set('assignment_id', assignmentId);
+  params.set('month', selectedMonth);
+  history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
+  renderStudentTabs();
+  renderForm();
+}
+
+// ===== フォーム描画 =====
+function textInput(id, value, {placeholder = '', width = 'w-full', required = false, disabled = false} = {}) {
+  return `<input id="${id}" type="text" value="${escapeAttr(value || '')}" placeholder="${escapeAttr(placeholder)}" ${disabled ? 'disabled' : ''}
+    class="${width} rounded-lg border ${required ? 'border-amber-300' : 'border-slate-300'} px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">`;
+}
+function numberInput(id, value, {width = 'w-20', min = 0, max = 999, disabled = false} = {}) {
+  return `<input id="${id}" type="number" inputmode="numeric" value="${escapeAttr(value ?? '')}" min="${min}" max="${max}" ${disabled ? 'disabled' : ''}
+    class="${width} rounded-lg border border-slate-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">`;
+}
+function radioGroup(name, options, selected, disabled) {
+  return options.map(([value, label]) => `
+    <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition ${selected === value ? 'border-blue-500 bg-blue-50 font-medium text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'} ${disabled ? 'pointer-events-none opacity-60' : ''}">
+      <input type="radio" name="${name}" value="${escapeAttr(value)}" ${selected === value ? 'checked' : ''} ${disabled ? 'disabled' : ''} class="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" onchange="onRetroChange()">
+      <span>${label}</span>
+    </label>`).join('');
+}
+function sectionCard(title, inner, subtitle = '') {
+  return `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div class="flex flex-wrap items-center gap-2">
+      <h2 class="font-semibold text-slate-800">${title}</h2>
+      ${subtitle ? `<span class="text-xs text-slate-500">${subtitle}</span>` : ''}
+    </div>
+    <div class="mt-3">${inner}</div>
+  </section>`;
+}
+function scoreTable(prefix, subjects, scores, disabled) {
+  const head = subjects.map(s => `<th class="border border-slate-300 bg-slate-50 px-2 py-1 text-center text-xs font-medium text-slate-600">${escapeHtml(s)}</th>`).join('');
+  const row = (label, key) => `<tr>
+    <th class="border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">${label}</th>
+    ${subjects.map((_, i) => `<td class="border border-slate-200 p-1">
+      <input id="${prefix}_${key}_${i}" type="text" inputmode="numeric" value="${escapeAttr((scores[i] || {})[key === 'score' ? 'score' : 'deviation'] || '')}" ${disabled ? 'disabled' : ''}
+        class="w-full min-w-12 rounded border-0 px-1 py-1 text-center text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:bg-slate-100 disabled:text-slate-500">
+    </td>`).join('')}
+  </tr>`;
+  return `<div class="overflow-x-auto"><table class="w-full border-collapse">
+    <thead><tr><th class="w-16 border border-slate-300 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600">教科</th>${head}</tr></thead>
+    <tbody>${row('素点', 'score')}${row('偏差値', 'deviation')}</tbody>
+  </table></div>`;
+}
+function dayGrid(prefix, month, selectedDays, disabled, note) {
+  const total = daysInMonth(month);
+  const buttons = [];
+  for (let day = 1; day <= total; day += 1) {
+    const active = selectedDays.includes(day);
+    buttons.push(`<button type="button" data-day="${day}" ${disabled ? 'disabled' : ''} onclick="toggleDay('${prefix}', ${day})"
+      class="${prefix}-day flex h-12 w-full flex-col items-center justify-center rounded-lg border text-sm transition ${active ? 'border-blue-600 bg-blue-600 font-semibold text-white shadow' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'} disabled:cursor-not-allowed disabled:opacity-60">
+      <span class="text-[10px] leading-none ${active ? 'text-blue-100' : 'text-slate-400'}">${weekdayOf(month, day)}</span>
+      <span class="leading-tight">${day}</span>
+    </button>`);
+  }
+  return `<div>
+    <div class="grid grid-cols-7 gap-1.5 sm:max-w-md">${buttons.join('')}</div>
+    ${note ? `<p class="mt-2 text-xs text-slate-500">${note}</p>` : ''}
+  </div>`;
+}
+let lessonDays = [];
+let planDays = [];
+function toggleDay(prefix, day) {
+  const list = prefix === 'lesson' ? lessonDays : planDays;
+  const index = list.indexOf(day);
+  if (index >= 0) list.splice(index, 1); else list.push(day);
+  list.sort((a, b) => a - b);
+  updateDayButton(prefix, day, index < 0);
+}
+function updateDayButton(prefix, day, active) {
+  const btn = document.querySelector(`.${prefix}-day[data-day="${day}"]`);
+  if (!btn) return;
+  btn.className = `${prefix}-day flex h-12 w-full flex-col items-center justify-center rounded-lg border text-sm transition ${active ? 'border-blue-600 bg-blue-600 font-semibold text-white shadow' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50'} disabled:cursor-not-allowed disabled:opacity-60`;
+  const wd = btn.querySelector('span');
+  if (wd) wd.className = `text-[10px] leading-none ${active ? 'text-blue-100' : 'text-slate-400'}`;
+}
+function applyLessonDaysFromReports() {
+  const item = currentItem();
+  if (!item) return;
+  lessonDays = [...item.lesson_days];
+  document.querySelectorAll('.lesson-day').forEach(btn => {
+    updateDayButton('lesson', Number(btn.dataset.day), lessonDays.includes(Number(btn.dataset.day)));
+  });
+  const hours = document.getElementById('totalHours');
+  if (hours && !hours.disabled) hours.value = minutesToHours(item.total_minutes);
+  showToast(`報告書から指導日${lessonDays.length}件と指導時間合計を反映しました`, 'success');
+}
+function minutesToHours(minutes) {
+  if (!minutes) return '';
+  const hours = Math.round((minutes / 60) * 100) / 100;
+  return String(hours);
+}
+
+// 休んだ日の振替予定（C選択時）。行は自由に追加・削除できる。
+function makeupPlanRow(plan, index, disabled) {
+  const cell = (key, max) => `<input type="number" inputmode="numeric" min="1" max="${max}" value="${escapeAttr(plan[key] ?? '')}" ${disabled ? 'disabled' : ''}
+    onchange="updateMakeupPlan(${index}, '${key}', this.value)"
+    class="w-16 rounded-lg border border-slate-300 px-2 py-1.5 text-center text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">`;
+  return `<div class="flex flex-wrap items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+    ${cell('from_month', 12)}<span class="text-sm text-slate-600">月</span>
+    ${cell('from_day', 31)}<span class="text-sm text-slate-600">日</span>
+    <span class="px-1 text-slate-400">→</span>
+    ${cell('to_month', 12)}<span class="text-sm text-slate-600">月</span>
+    ${cell('to_day', 31)}<span class="text-sm text-slate-600">日</span>
+    ${disabled ? '' : `<button type="button" class="ml-auto rounded-lg border border-red-200 bg-white px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50" onclick="removeMakeupPlan(${index})">削除</button>`}
+  </div>`;
+}
+function renderMakeupPlans(disabled) {
+  const area = document.getElementById('makeupPlans');
+  if (!area) return;
+  area.innerHTML = makeupPlans.map((plan, index) => makeupPlanRow(plan, index, disabled)).join('')
+    + (disabled ? '' : `<button type="button" class="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-50" onclick="addMakeupPlan()">＋ 振替予定を追加</button>`);
+}
+function addMakeupPlan() {
+  makeupPlans.push({from_month: '', from_day: '', to_month: '', to_day: ''});
+  renderMakeupPlans(false);
+}
+function removeMakeupPlan(index) {
+  makeupPlans.splice(index, 1);
+  renderMakeupPlans(false);
+}
+function updateMakeupPlan(index, key, value) {
+  if (makeupPlans[index]) makeupPlans[index][key] = value;
+}
+function onRetroChange() {
+  // 遅刻・指導日の変更で「B あり」を選んだ時のみ回数・事前連絡欄を活性化する
+  ['late', 'change'].forEach(key => {
+    const isB = document.querySelector(`input[name="${key}Answer"]:checked`)?.value === 'B';
+    const detail = document.getElementById(`${key}Detail`);
+    if (detail) detail.classList.toggle('opacity-40', !isB);
+    detail?.querySelectorAll('input').forEach(input => { if (!input.closest('#saveBar')) input.disabled = !isB || !currentEditable(); });
+  });
+  const isC = document.querySelector('input[name="makeupAnswer"]:checked')?.value === 'C';
+  const makeupArea = document.getElementById('makeupPlansWrap');
+  if (makeupArea) makeupArea.classList.toggle('hidden', !isC);
+  const isReasonB = document.querySelector('input[name="reasonAnswer"]:checked')?.value === 'B';
+  const reasonText = document.getElementById('reasonText');
+  if (reasonText) reasonText.disabled = !isReasonB || !currentEditable();
+}
+function currentEditable() {
+  const item = currentItem();
+  return Boolean(item && item.editable);
+}
+
+function renderForm() {
+  const area = document.getElementById('monthlyReportArea');
+  const item = currentItem();
+  if (!item) {
+    area.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">担当の生徒がいません。担当が追加されると月報を作成できます。</div>';
+    saveBar.classList.add('hidden');
+    return;
+  }
+  const report = item.report;
+  const data = (report && report.form_data) || {};
+  const disabled = !item.editable;
+  lessonDays = [...((data.lesson_days) || [])];
+  planDays = [...((data.next_month_plan_days) || [])];
+  makeupPlans = ((data.retrospect || {}).makeup || {}).plans ? [...data.retrospect.makeup.plans] : [];
+  const retro = data.retrospect || {};
+  const late = retro.late || {};
+  const change = retro.schedule_change || {};
+  const reason = retro.change_reason || {};
+  const makeup = retro.makeup || {};
+  const mock = data.test_mock || {};
+  const school = data.test_school || {};
+  const issues = data.issues || [];
+  const targets = data.target_schools || [];
+  const nextMonth = nextMonthOf(selectedMonth);
+
+  const lockNotice = disabled
+    ? `<div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">この月の指導月報は${escapeHtml(item.lock_reason || '編集できません')}。内容の参照のみ可能です。</div>`
+    : `<div class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">承認依頼の前に月報を作成してください（承認依頼までは何度でも更新できます）。<span class="font-medium">学年</span>と<span class="font-medium">次月に向けての問題点と対策（1件以上）</span>は承認依頼に必須です。</div>`;
+
+  // 基本情報（会員名・会員No・生徒名・講師名・講師Noは自動入力）
+  const basicInfo = sectionCard('基本情報', `
+    <dl class="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+      <div><dt class="text-xs text-slate-500">会員名（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.parent_name || '未設定')}</dd></div>
+      <div><dt class="text-xs text-slate-500">会員No（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.parent_no || '-')}</dd></div>
+      <div><dt class="text-xs text-slate-500">生徒名（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.student_name)}</dd></div>
+      <div><dt class="text-xs text-slate-500">講師名（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.tutor_name || '-')}</dd></div>
+      <div><dt class="text-xs text-slate-500">講師No（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.tutor_no || '-')}</dd></div>
+      <div>
+        <dt class="text-xs text-slate-500">学年 <span class="font-medium text-amber-600">※必須</span></dt>
+        <dd class="mt-0.5">${textInput('gradeInput', report ? report.grade : '', {placeholder: '例）小学5年', required: true, disabled})}</dd>
+      </div>
+    </dl>`);
+
+  const issueRows = Array.from({length: 5}, (_, i) => `
+    <div class="flex items-center gap-2">
+      <span class="w-6 shrink-0 text-center text-sm font-semibold text-slate-500">${i + 1}</span>
+      ${textInput(`issue_${i}`, issues[i], {placeholder: i === 0 ? '1件以上入力してください（承認依頼に必須）' : '', required: i === 0, disabled})}
+    </div>`).join('');
+  const issuesCard = sectionCard('次月に向けての問題点と対策', `<div class="grid gap-2">${issueRows}</div>`, '※必須（1件以上）');
+
+  const targetRows = Array.from({length: 5}, (_, i) => `
+    <div class="flex items-center gap-2">
+      <span class="w-6 shrink-0 text-center text-sm font-semibold text-slate-500">${i + 1}</span>
+      ${textInput(`target_${i}`, targets[i], {disabled})}
+    </div>`).join('');
+  const targetsCard = sectionCard('現時点での志望校', `<div class="grid gap-2 sm:grid-cols-2 sm:gap-x-6">${targetRows}</div>`, '※任意');
+
+  const testsCard = sectionCard('最近のテスト結果', `
+    <div class="grid gap-5 lg:grid-cols-2">
+      <div class="rounded-lg border border-slate-200 p-4">
+        <h3 class="text-sm font-semibold text-slate-700">模試／実力テスト</h3>
+        <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          <span>模試の種類</span>${textInput('mockName', mock.name, {width: 'w-48', disabled})}
+          <span class="ml-2">受験日</span>${numberInput('mockMonth', mock.exam_month, {min: 1, max: 12, width: 'w-16', disabled})}<span>月</span>
+          ${numberInput('mockDay', mock.exam_day, {min: 1, max: 31, width: 'w-16', disabled})}<span>日</span>
+        </div>
+        <div class="mt-3">${scoreTable('mock', mockSubjects, mock.scores || [], disabled)}</div>
+      </div>
+      <div class="rounded-lg border border-slate-200 p-4">
+        <h3 class="text-sm font-semibold text-slate-700">学校</h3>
+        <div class="mt-3 flex flex-wrap items-center gap-2 text-sm text-slate-600">
+          ${textInput('schoolTerm', school.term, {width: 'w-24', disabled})}<span>期</span>
+          <span class="ml-3 inline-flex gap-2" id="termTypeGroup">${radioGroup('termType', [['中間', '中間'], ['期末', '期末']], school.term_type || '', disabled)}</span>
+        </div>
+        <div class="mt-3">${scoreTable('school', schoolSubjects, school.scores || [], disabled)}</div>
+      </div>
+    </div>`, '※任意');
+
+  const daysCard = sectionCard('指導実施日', `
+    <div class="grid gap-6 lg:grid-cols-2">
+      <div>
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h3 class="text-sm font-semibold text-slate-700">今月（${monthLabel(selectedMonth)}）実際に指導した日</h3>
+          ${disabled ? '' : `<button type="button" class="rounded-lg border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition hover:bg-blue-50" onclick="applyLessonDaysFromReports()">報告書の指導日を反映</button>`}
+        </div>
+        <div class="mt-2">${dayGrid('lesson', selectedMonth, lessonDays, disabled, '日付をタップして選択します（実際に指導した日）')}</div>
+        <div class="mt-3 flex items-center gap-2 text-sm text-slate-600">
+          <span>指導時間合計</span>
+          ${textInput('totalHours', data.total_hours, {width: 'w-24', disabled})}
+          <span>時間</span>
+          <span class="text-xs text-slate-400">（報告書から反映すると自動計算されます）</span>
+        </div>
+      </div>
+      <div>
+        <h3 class="text-sm font-semibold text-slate-700">次月（${monthLabel(nextMonth)}）指導予定日</h3>
+        <div class="mt-2">${dayGrid('plan', nextMonth, planDays, disabled, '日付をタップして選択します（次月の指導予定日）')}</div>
+      </div>
+    </div>`);
+
+  const retroCard = sectionCard('今月を振り返って', `
+    <div class="grid gap-4">
+      <div class="grid gap-2">
+        <span class="text-sm font-medium text-slate-700">遅刻</span>
+        <div class="flex flex-wrap items-center gap-2">
+          ${radioGroup('lateAnswer', [['A', 'A なし'], ['B', 'B あり']], late.answer || '', disabled)}
+          <span id="lateDetail" class="inline-flex flex-wrap items-center gap-2 text-sm text-slate-600 ${late.answer === 'B' ? '' : 'opacity-40'}">
+            （${numberInput('lateCount', late.count, {min: 1, max: 99, width: 'w-16', disabled: disabled || late.answer !== 'B'})}回）
+            <span class="ml-1">※Bありの場合、会員に事前連絡を</span>
+            ${radioGroup('lateInformed', [['a', 'a した'], ['b', 'b しなかった']], late.informed || '', disabled || late.answer !== 'B')}
+          </span>
+        </div>
+      </div>
+      <div class="grid gap-2 border-t border-slate-100 pt-4">
+        <span class="text-sm font-medium text-slate-700">指導日の変更</span>
+        <div class="flex flex-wrap items-center gap-2">
+          ${radioGroup('changeAnswer', [['A', 'A なし'], ['B', 'B あり']], change.answer || '', disabled)}
+          <span id="changeDetail" class="inline-flex flex-wrap items-center gap-2 text-sm text-slate-600 ${change.answer === 'B' ? '' : 'opacity-40'}">
+            （${numberInput('changeCount', change.count, {min: 1, max: 99, width: 'w-16', disabled: disabled || change.answer !== 'B'})}回）
+            <span class="ml-1">※Bありの場合、会員に事前連絡を</span>
+            ${radioGroup('changeInformed', [['a', 'a した'], ['b', 'b しなかった']], change.informed || '', disabled || change.answer !== 'B')}
+          </span>
+        </div>
+      </div>
+      <div class="grid gap-2 border-t border-slate-100 pt-4">
+        <span class="text-sm font-medium text-slate-700">変更理由</span>
+        <div class="flex flex-wrap items-center gap-2">
+          ${radioGroup('reasonAnswer', [['A', 'A 会員都合'], ['B', 'B 講師都合']], reason.answer || '', disabled)}
+          <span class="inline-flex items-center gap-1 text-sm text-slate-600">（理由：${textInput('reasonText', reason.reason, {width: 'w-64', disabled: disabled || reason.answer !== 'B'})}）</span>
+        </div>
+      </div>
+      <div class="grid gap-2 border-t border-slate-100 pt-4">
+        <span class="text-sm font-medium text-slate-700">休んだ日の振替</span>
+        <div class="flex flex-wrap items-center gap-2">
+          ${radioGroup('makeupAnswer', [['A', 'A 当月中に済'], ['B', 'B 振替日未定'], ['C', 'C 振替予定あり']], makeup.answer || '', disabled)}
+        </div>
+        <div id="makeupPlansWrap" class="${makeup.answer === 'C' ? '' : 'hidden'}">
+          <div id="makeupPlans" class="mt-1 grid gap-2 sm:max-w-lg"></div>
+        </div>
+      </div>
+      <div class="grid gap-2 border-t border-slate-100 pt-4">
+        <label class="text-sm font-medium text-slate-700" for="notesInput">連絡事項</label>
+        <textarea id="notesInput" ${disabled ? 'disabled' : ''} maxlength="2000" class="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">${escapeHtml(data.notes || '')}</textarea>
+      </div>
+    </div>`);
+
+  const parentNoteCard = sectionCard('保護者記入欄（ご要望／連絡事項）', report && report.parent_note
+    ? `<div class="whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-800">${escapeHtml(report.parent_note)}</div>
+       <p class="mt-2 text-xs text-slate-500">記入日時：${escapeHtml((report.parent_note_at || '').replace('T', ' ').slice(0, 16))}</p>`
+    : '<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">保護者が承認時に記入します（講師は記入できません）。</div>');
+
+  area.innerHTML = [
+    lockNotice,
+    `<div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <h1 class="text-lg font-bold text-slate-800">指導月報　${escapeHtml(monthLabel(selectedMonth))}</h1>
+        ${report ? '<span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">作成済み（保存済み）</span>' : '<span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">未作成</span>'}
+      </div>
+    </div>`,
+    basicInfo,
+    issuesCard,
+    targetsCard,
+    testsCard,
+    daysCard,
+    retroCard,
+    parentNoteCard,
+  ].join('');
+  renderMakeupPlans(disabled);
+  saveBar.classList.toggle('hidden', disabled);
+  updateRequiredNotice();
+  ['gradeInput', 'issue_0'].forEach(id => document.getElementById(id)?.addEventListener('input', updateRequiredNotice));
+}
+
+function updateRequiredNotice() {
+  const notice = document.getElementById('requiredNotice');
+  if (!notice) return;
+  const missing = [];
+  if (!(document.getElementById('gradeInput')?.value || '').trim()) missing.push('学年');
+  const hasIssue = Array.from({length: 5}, (_, i) => document.getElementById(`issue_${i}`)?.value || '').some(v => v.trim());
+  if (!hasIssue) missing.push('次月に向けての問題点と対策（1件以上）');
+  notice.textContent = missing.length ? `承認依頼には ${missing.join('・')} の入力が必要です` : '';
+}
+
+function collectForm() {
+  const value = id => (document.getElementById(id)?.value || '').trim();
+  const radio = name => document.querySelector(`input[name="${name}"]:checked`)?.value || '';
+  const scores = (prefix, subjects) => subjects.map((_, i) => ({
+    score: value(`${prefix}_score_${i}`),
+    deviation: value(`${prefix}_deviation_${i}`),
+  }));
+  return {
+    grade: value('gradeInput'),
+    form_data: {
+      issues: Array.from({length: 5}, (_, i) => value(`issue_${i}`)),
+      target_schools: Array.from({length: 5}, (_, i) => value(`target_${i}`)),
+      test_mock: {
+        name: value('mockName'),
+        exam_month: value('mockMonth') || null,
+        exam_day: value('mockDay') || null,
+        scores: scores('mock', mockSubjects),
+      },
+      test_school: {
+        term: value('schoolTerm'),
+        term_type: radio('termType'),
+        scores: scores('school', schoolSubjects),
+      },
+      lesson_days: lessonDays,
+      next_month_plan_days: planDays,
+      total_hours: value('totalHours'),
+      retrospect: {
+        late: {answer: radio('lateAnswer'), count: value('lateCount'), informed: radio('lateInformed')},
+        schedule_change: {answer: radio('changeAnswer'), count: value('changeCount'), informed: radio('changeInformed')},
+        change_reason: {answer: radio('reasonAnswer'), reason: value('reasonText')},
+        makeup: {answer: radio('makeupAnswer'), plans: makeupPlans},
+      },
+      notes: value('notesInput'),
+    },
+  };
+}
+
+async function saveMonthlyReport() {
+  const item = currentItem();
+  if (!item || !item.editable) return;
+  const saveBtn = document.getElementById('saveBtn');
+  saveBtn.disabled = true;
+  try {
+    await api(`/api/monthly-reports/${item.assignment_id}/${selectedMonth}`, {
+      method: 'PUT',
+      body: JSON.stringify(collectForm()),
+    });
+    showToast('指導月報を保存しました', 'success');
+    await loadOverview();
+  } catch (error) {
+    showToast(error.message || '指導月報を保存できませんでした', 'error');
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
+
+async function loadOverview() {
+  overview = await api(`/api/monthly-reports/overview?target_month=${selectedMonth}`);
+  mockSubjects = overview.mock_subjects;
+  schoolSubjects = overview.school_subjects;
+  if (!selectedAssignmentId && overview.assignments.length) selectedAssignmentId = overview.assignments[0].assignment_id;
+  renderStudentTabs();
+  renderForm();
+}
+
+monthFilter.addEventListener('change', () => {
+  selectedMonth = monthFilter.value;
+  const params = new URLSearchParams(location.search);
+  params.set('month', selectedMonth);
+  if (selectedAssignmentId) params.set('assignment_id', selectedAssignmentId);
+  history.replaceState(null, '', `${location.pathname}?${params.toString()}`);
+  loadOverview();
+});
+document.getElementById('saveBtn').addEventListener('click', saveMonthlyReport);
+window.authReady.then(user => {
+  if (!user) return;
+  renderMonthFilter();
+  loadOverview();
+});
+</script>
+<!-- === 指導月報 作成画面 END === -->
+{% endblock %}

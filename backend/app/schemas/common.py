@@ -338,6 +338,60 @@ class BulkSubmitIn(BaseModel):
     target_month: str | None = None
 
 
+# 保護者承認（単件/一括）。指導月報がある月は保護者記入欄（parent_note）の入力が必須。
+class ParentApproveIn(CommentIn):
+    parent_note: str | None = None
+
+
+class ParentApproveBulkIn(BulkSubmitIn):
+    parent_note: str | None = None
+
+
+# === 指導月報（monthly_reports） ===
+class MonthlyReportIn(BaseModel):
+    grade: str | None = None
+    form_data: dict = Field(default_factory=dict)
+
+
+class MonthlyReportOut(BaseModel):
+    id: UUID
+    assignment_id: UUID
+    tutor_id: UUID
+    parent_id: UUID | None = None
+    target_month: str
+    grade: str | None = None
+    form_data: dict
+    parent_note: str | None = None
+    parent_note_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MonthlyReportAssignmentOut(BaseModel):
+    """月報作成画面の担当ごとの状態（自動入力項目・編集可否・報告書からの自動反映値）。"""
+    assignment_id: UUID
+    student_name: str
+    parent_name: str | None = None
+    parent_no: str | None = None
+    tutor_name: str | None = None
+    tutor_no: str | None = None
+    editable: bool
+    lock_reason: str | None = None
+    # 対象月の報告書（指導日・指導時間）から自動反映するための値
+    lesson_days: list[int] = Field(default_factory=list)
+    total_minutes: int = 0
+    report: MonthlyReportOut | None = None
+
+
+class MonthlyReportOverviewOut(BaseModel):
+    target_month: str
+    mock_subjects: list[str]
+    school_subjects: list[str]
+    assignments: list[MonthlyReportAssignmentOut]
+
+
 class BulkReturnIn(BaseModel):
     report_ids: list[UUID]
     comment: str = Field(min_length=1)

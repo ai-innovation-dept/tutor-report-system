@@ -16,6 +16,8 @@ from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import GroupAdminEditIn, ReportCreate, ReportEventOut, ReportOut, ReportPatch
 from app.services.daily_report_pdf import build_daily_reports_pdf
+from app.services.monthly_report_pdf import build_monthly_reports_pdf
+from app.services.monthly_report_service import get_monthly_report
 from app.services.pdf_fonts import register_pdf_font
 from app.services.workflow_service import notify_report_modified, notify_tutor_report_edited, separation_locks
 
@@ -408,6 +410,41 @@ def export_daily_reports(
     reports, _ = _reports_for_export(db, user, target_month, assignment_id, tutor_id, scope)
     content = build_daily_reports_pdf(reports, target_month)
     filename = f"指導日報_{_month_label(target_month)}.pdf"
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(filename)}"},
+    )
+
+
+@router.get("/export-monthly")
+def export_monthly_reports_pdf(
+    target_month: str,
+    assignment_id: UUID | None = None,
+    tutor_id: UUID | None = None,
+    scope: str | None = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """「指導月報」PDF（原本様式・担当×月ごとに1ページ・会員認め印つき）をダウンロードする。
+
+    対象選定・権限は /export（指導時間確認票）・/export-daily（指導日報）と同一で、
+    その対象の担当×月に作成済みの指導月報のみを出力する（未作成の担当は含めない）。
+    ファイル名は 指導月報_yyyy年mm月.pdf 固定。
+    """
+    reports, _ = _reports_for_export(db, user, target_month, assignment_id, tutor_id, scope)
+    grouped: dict = defaultdict(list)
+    for report in reports:
+        grouped[report.assignment_id].append(report)
+    entries = []
+    for aid, items in grouped.items():
+        monthly = get_monthly_report(db, aid, target_month)
+        if monthly is not None:
+            entries.append((monthly, items))
+    if not entries:
+        raise HTTPException(status_code=404, detail="指導月報が作成されていません")
+    content = build_monthly_reports_pdf(entries, target_month)
+    filename = f"指導月報_{_month_label(target_month)}.pdf"
     return Response(
         content=content,
         media_type="application/pdf",

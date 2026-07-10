@@ -10,6 +10,7 @@
     </label>
     <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">指導時間確認票PDF</a>
     <a id="bulkExportDailyPdf" class="inline-flex items-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700" href="#">指導日報PDF</a>
+    <a id="bulkExportMonthlyPdf" class="hidden items-center rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700" href="#">指導月報PDF</a>
     <span id="exportWarning" class="text-sm text-rose-700"></span>
   </div>
   <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
@@ -50,6 +51,9 @@ const STATUS_LABELS = {
 let allReports = [];
 let allAssignments = [];
 let groups = [];
+// 指導月報の存在キー（`assignment_id|target_month`）。月報PDFボタンは作成済みの担当×月のみ表示する。
+let monthlyKeys = new Set();
+function hasMonthly(assignmentId, month) { return monthlyKeys.has(`${assignmentId}|${month}`); }
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -201,9 +205,13 @@ function renderStepper(group) {
 function exportButtons(group) {
   if (group.phase !== 'completed') return '';
   const query = `assignment_id=${group.assignment_id}&target_month=${group.target_month}`;
+  const monthlyButton = hasMonthly(group.assignment_id, group.target_month)
+    ? `<a href="/api/reports/export-monthly?${query}" class="inline-flex items-center px-3 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm rounded-lg">指導月報PDF</a>`
+    : '';
   return `<div class="mt-3 flex flex-wrap gap-2">
     <a href="/api/reports/export?${query}&format=pdf" class="inline-flex items-center px-3 py-2 bg-green-600 hover:bg-green-700 text-white text-sm rounded-lg">指導時間確認票PDF</a>
     <a href="/api/reports/export-daily?${query}" class="inline-flex items-center px-3 py-2 bg-teal-600 hover:bg-teal-700 text-white text-sm rounded-lg">指導日報PDF</a>
+    ${monthlyButton}
   </div>`;
 }
 function renderBulkExportArea() {
@@ -214,7 +222,7 @@ function renderBulkExportArea() {
   renderBulkExportLinks();
 }
 function setBulkExportEnabled(enabled, message = '') {
-  for (const link of [bulkExportPdf, bulkExportDailyPdf]) {
+  for (const link of [bulkExportPdf, bulkExportDailyPdf, bulkExportMonthlyPdf]) {
     link.classList.toggle('pointer-events-none', !enabled);
     link.classList.toggle('opacity-50', !enabled);
     if (!enabled) link.removeAttribute('href');
@@ -225,6 +233,10 @@ function renderBulkExportLinks() {
   const month = exportMonth.value || currentMonth();
   let targetGroups = groups;
   const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
+  // 指導月報PDF（一括）は、その月に月報が1件でも作成済みの場合のみ表示する。
+  const anyMonthly = [...monthlyKeys].some(key => key.endsWith(`|${month}`));
+  bulkExportMonthlyPdf.classList.toggle('hidden', !anyMonthly);
+  bulkExportMonthlyPdf.classList.toggle('inline-flex', anyMonthly);
   const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
   if (!exportable) {
     setBulkExportEnabled(false, '未承認の生徒が含まれています');
@@ -233,6 +245,7 @@ function renderBulkExportLinks() {
   setBulkExportEnabled(true);
   bulkExportPdf.href = `/api/reports/export?${params.toString()}`;
   bulkExportDailyPdf.href = `/api/reports/export-daily?${new URLSearchParams({scope: 'all', target_month: month}).toString()}`;
+  bulkExportMonthlyPdf.href = `/api/reports/export-monthly?${new URLSearchParams({scope: 'all', target_month: month}).toString()}`;
 }
 function actionArea(group) {
   if (group.phase === 'completed') {
@@ -363,12 +376,14 @@ async function resendReturnedReports(assignmentId) {
   await loadApproval();
 }
 async function loadApproval() {
-  const [reports, assignments] = await Promise.all([
+  const [reports, assignments, monthlies] = await Promise.all([
     api(`/api/reports?target_month=${currentMonth()}`),
-    api('/api/assignments')
+    api('/api/assignments'),
+    api('/api/monthly-reports').catch(() => [])
   ]);
   allReports = reports;
   allAssignments = assignments;
+  monthlyKeys = new Set((monthlies || []).map(m => `${m.assignment_id}|${m.target_month}`));
   const assignmentMap = new Map(allAssignments.map(assignment => [assignment.id, assignment]));
   const reportGroups = allReports.reduce((acc, report) => {
     (acc[report.assignment_id] ||= []).push(report);

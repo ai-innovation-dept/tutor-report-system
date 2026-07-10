@@ -4,7 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, chat, invitations, pages, reports, stale, users, workflow
+from app.api import auth, chat, invitations, monthly_reports, pages, reports, stale, users, workflow
 from app.config import settings
 from app.database import Base, engine
 from app.services.reminder_service import start_scheduler
@@ -21,6 +21,7 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(invitations.router)
 app.include_router(reports.router)
+app.include_router(monthly_reports.router)
 app.include_router(workflow.router)
 app.include_router(stale.router)
 app.include_router(chat.router)

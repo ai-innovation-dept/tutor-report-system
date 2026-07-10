@@ -66,7 +66,7 @@ docker compose exec backend alembic downgrade -1      # rollback one
 docker compose exec backend alembic revision --autogenerate -m "description"
 ```
 
-Migration files live in `backend/alembic/versions/` (0001–0011 currently).
+Migration files live in `backend/alembic/versions/` (0001–0019 currently).
 
 ## Architecture
 
@@ -81,8 +81,8 @@ Migration files live in `backend/alembic/versions/` (0001–0011 currently).
 
 ```
 backend/app/
-├── api/          # 7 FastAPI routers: auth, users, invitations, assignments,
-│                 #   reports, workflow, chat, pages (HTML views)
+├── api/          # FastAPI routers: auth, users, invitations, assignments,
+│                 #   reports, monthly_reports, workflow, stale, chat, pages (HTML views)
 ├── models/
 │   └── entities.py   # All 11 SQLAlchemy ORM models in one file
 ├── schemas/      # Pydantic request/response schemas per domain
@@ -136,6 +136,7 @@ RBAC is enforced in `backend/app/core/rbac.py` with decorators checked in each A
 
 - **assignments** — Links tutor + parent + student; holds `skip_parent_approval` flag and reminder config (`reminder_enabled`, `reminder_days_after`, `reminder_count`)
 - **lesson_reports** — Core entity; `target_month` (YYYY-MM), status, 6 approval timestamp columns
+- **monthly_reports** — 指導月報 (one per assignment × month); tutor fills before submit-to-parent (grade + issues required), parent fills `parent_note` at approval; PDF via `/api/reports/export-monthly`
 - **report_events** — Immutable audit log for all status transitions
 - **invitations** — 72-hour sign-up tokens (tutor_no pre-assigned for tutors)
 - **notifications** — Email delivery log

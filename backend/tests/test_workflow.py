@@ -8,7 +8,7 @@ from app.core import time as time_utils
 from app.core.security import hash_password
 from app.core.time import get_current_jst_date
 from app.models import Assignment, LessonReport, Notification, ReportStatus, User
-from tests.conftest import token
+from tests.conftest import seed_monthly_report, token
 
 
 def test_full_workflow(client, db):
@@ -153,6 +153,7 @@ def test_parent_approve_bulk_auto_submits_to_admin(client, db):
     second_assignment = Assignment(tutor_id=assignment.tutor_id, parent_id=assignment.parent_id, student_name="Second Student")
     db.add(second_assignment)
     db.commit()
+    seed_monthly_report(db, second_assignment)  # 承認依頼には担当×月ごとの指導月報が必須
     today = get_current_jst_date()
     report_ids = []
     for current_assignment, hour in [(assignment, 18), (second_assignment, 19)]:

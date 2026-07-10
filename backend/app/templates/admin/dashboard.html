@@ -43,6 +43,7 @@
   </label>
   <a id="bulkExportPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700 sm:w-auto sm:ml-auto" href="#">完了分PDF（指導時間確認票）</a>
   <a id="bulkExportDailyPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2 text-sm text-white hover:bg-teal-700 sm:w-auto" href="#">完了分PDF（指導日報）</a>
+  <a id="bulkExportMonthlyPdf" class="inline-flex w-full items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700 sm:w-auto" href="#">完了分PDF（指導月報）</a>
 </div>
 
 <section id="kpiCards" class="mb-4 grid gap-3 md:grid-cols-3"></section>
@@ -254,6 +255,13 @@ function groupDailyPdfUrl(group) {
   const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only'});
   return `/api/reports/export-daily?${params.toString()}`;
 }
+function groupMonthlyPdfUrl(group) {
+  const params = new URLSearchParams({target_month: group.target_month, assignment_id: group.assignment_id, scope: 'approved_only'});
+  return `/api/reports/export-monthly?${params.toString()}`;
+}
+// 指導月報の存在キー（`assignment_id|target_month`）。月報PDFボタンは作成済みの担当×月のみ表示する。
+let monthlyKeys = new Set();
+function hasMonthly(assignmentId, month) { return monthlyKeys.has(`${assignmentId}|${month}`); }
 function eventsForGroup(group) {
   const seen = new Set();
   const events = [];
@@ -379,10 +387,15 @@ function renderBulkExportLinks() {
   bulkExportPdf.href = hasApprovedGroup ? `/api/reports/export?${params.toString()}` : '#';
   const dailyParams = new URLSearchParams({scope: 'approved_only', target_month: month});
   bulkExportDailyPdf.href = hasApprovedGroup ? `/api/reports/export-daily?${dailyParams.toString()}` : '#';
+  // 指導月報は完了グループのうち月報が作成済みの担当がある場合のみ有効化する
+  const hasMonthlyInApproved = approvedGroups.some(group => hasMonthly(group[0].assignment_id, month));
+  bulkExportMonthlyPdf.href = hasApprovedGroup && hasMonthlyInApproved ? `/api/reports/export-monthly?${dailyParams.toString()}` : '#';
   for (const link of [bulkExportPdf, bulkExportDailyPdf]) {
     link.classList.toggle('opacity-50', !hasApprovedGroup);
     link.classList.toggle('pointer-events-none', !hasApprovedGroup);
   }
+  bulkExportMonthlyPdf.classList.toggle('opacity-50', !(hasApprovedGroup && hasMonthlyInApproved));
+  bulkExportMonthlyPdf.classList.toggle('pointer-events-none', !(hasApprovedGroup && hasMonthlyInApproved));
 }
 // あなたのタスク：承認・差戻しボタンは報告書（参照）画面へ集約したため、ここには置かない。
 // 「どの講師の残タスクか」を一目で把握できるよう講師ごとにまとめ、各行クリックで参照画面を開く。
@@ -630,7 +643,8 @@ function showDetails(key) {
       <button class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50" onclick="openReportWindow('${key}')">報告書を確認</button>
       ${canBulkEdit(group) ? `<button class="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700 transition hover:bg-blue-100" onclick="openBulkEditModal('${key}')">この月の指導実績を編集</button>` : ''}
       ${activeStatus === 'admin_approved' ? `<a class="inline-flex items-center rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-green-700" href="${groupPdfUrl(group)}">指導時間確認票PDF</a>
-      <a class="inline-flex items-center rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700" href="${groupDailyPdfUrl(group)}">指導日報PDF</a>` : ''}
+      <a class="inline-flex items-center rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-teal-700" href="${groupDailyPdfUrl(group)}">指導日報PDF</a>
+      ${hasMonthly(group.assignment_id, group.target_month) ? `<a class="inline-flex items-center rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-700" href="${groupMonthlyPdfUrl(group)}">指導月報PDF</a>` : ''}` : ''}
     </div>
     ${reminderPanel(group, activeStatus)}
     ${closedReportInfo(group)}
@@ -750,16 +764,18 @@ function renderDashboard() {
   }
 }
 async function loadAdmin() {
-  const [reports, assignments, tutors, locks] = await Promise.all([
+  const [reports, assignments, tutors, locks, monthlies] = await Promise.all([
     api('/api/reports'),
     api('/api/assignments'),
     api('/api/users?roles=tutor&per_page=100'),
-    api('/api/reports/admin-separation-locks')
+    api('/api/reports/admin-separation-locks'),
+    api('/api/monthly-reports').catch(() => [])
   ]);
   allReports = reports;
   allAssignments = assignments;
   allTutors = tutors.items || tutors;
   separationLocks = locks || {received_report_ids: [], reviewed_report_ids: []};
+  monthlyKeys = new Set((monthlies || []).map(m => `${m.assignment_id}|${m.target_month}`));
   renderFilters();
   renderDashboard();
 }

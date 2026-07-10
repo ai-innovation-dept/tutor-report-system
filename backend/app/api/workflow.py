@@ -8,7 +8,16 @@ from app.database import get_db
 from app.core.rbac import has_role
 from app.deps import get_current_user, get_report_for_user
 from app.models import LessonReport, ReportAction, ReportEvent, ReportStatus, User
-from app.schemas import AdminBulkReturnIn, BulkReturnIn, BulkSubmitIn, CommentIn, ReportOut
+from app.schemas import (
+    AdminBulkReturnIn,
+    BulkReturnIn,
+    BulkSubmitIn,
+    CommentIn,
+    ParentApproveBulkIn,
+    ParentApproveIn,
+    ReportOut,
+)
+from app.services.monthly_report_service import apply_parent_note, assert_monthly_reports_ready
 from app.services.workflow_service import auto_submit_to_admin, send_transition_notifications, transition
 
 router = APIRouter(prefix="/api/reports", tags=["workflow"])
@@ -23,7 +32,12 @@ async def _run(report_id: UUID, action: str, payload: CommentIn, db: Session, us
     return report
 
 
-async def _approve_and_submit_reports(reports: list[LessonReport], db: Session, user: User) -> list[LessonReport]:
+async def _approve_and_submit_reports(
+    reports: list[LessonReport], db: Session, user: User, parent_note: str | None = None
+) -> list[LessonReport]:
+    # 指導月報がある月は保護者記入欄（ご要望/連絡事項）の入力を必須とし、承認と同時に保存する。
+    # 月報が無い月（本機能リリース前に提出済みの月など）は従来どおり承認できる。
+    apply_parent_note(db, reports, user, parent_note)
     for report in reports:
         transition(db, report, user, ReportAction.parent_approve.value)
     auto_submit_to_admin(db, reports, user)
@@ -39,13 +53,16 @@ async def _approve_and_submit_reports(reports: list[LessonReport], db: Session, 
 async def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if has_role(user, "parent"):
         return _cancel_parent_return(report_id, db, user)
+    # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
+    report = get_report_for_user(report_id, user, db)
+    assert_monthly_reports_ready(db, [report])
     return await _run(report_id, ReportAction.submit_to_parent.value, payload, db, user)
 
 
 @router.post("/{report_id}/parent-approve", response_model=ReportOut)
-async def parent_approve(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def parent_approve(report_id: UUID, payload: ParentApproveIn = ParentApproveIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     report = get_report_for_user(report_id, user, db)
-    return (await _approve_and_submit_reports([report], db, user))[0]
+    return (await _approve_and_submit_reports([report], db, user, payload.parent_note))[0]
 
 
 @router.post("/{report_id}/parent-return", response_model=ReportOut)
@@ -85,6 +102,8 @@ async def submit_to_parent_bulk(payload: BulkSubmitIn, db: Session = Depends(get
         statuses={ReportStatus.draft.value, ReportStatus.returned_to_tutor.value},
     )
     _validate_target_month(reports, payload.target_month)
+    # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
+    assert_monthly_reports_ready(db, reports)
     changed = []
     for report in reports:
         transition(db, report, user, ReportAction.submit_to_parent.value)
@@ -95,11 +114,11 @@ async def submit_to_parent_bulk(payload: BulkSubmitIn, db: Session = Depends(get
 
 
 @router.post("/parent-approve-bulk")
-async def parent_approve_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+async def parent_approve_bulk(payload: ParentApproveBulkIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     reports = _bulk_reports(payload, db, user)
     _validate_bulk(reports, user_id=user.id, owner_attr="parent_id", status=ReportStatus.awaiting_parent_approval.value)
     _validate_target_month(reports, payload.target_month)
-    changed = [report.id for report in await _approve_and_submit_reports(reports, db, user)]
+    changed = [report.id for report in await _approve_and_submit_reports(reports, db, user, payload.parent_note)]
     return {"updated": changed}
 
 

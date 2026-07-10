@@ -11,6 +11,7 @@ from app.core.security import hash_password
 from app.database import Base, SessionLocal, engine
 from app.main import app
 from app.models import Assignment, LessonReport, ReportEvent, ReportStatus, User
+from tests.conftest import seed_monthly_report
 
 
 PASSWORD = "Passw0rd!"
@@ -146,6 +147,8 @@ def seed_report(db, assignment: Assignment, lesson_date: date, index: int, statu
     db.flush()
     db.add(ReportEvent(report_id=report.id, actor_id=assignment.tutor_id, action="create", to_status=status))
     db.commit()
+    # 承認依頼には担当×月ごとの指導月報（学年＋問題点と対策）が必須のため、記入済みの月報も併せて用意する（冪等）
+    seed_monthly_report(db, assignment, lesson_date.strftime("%Y-%m"))
     return str(report.id)
 
 
