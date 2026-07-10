@@ -479,16 +479,25 @@ function toggleDetails(assignmentId) {
   const area = document.getElementById(`detail-${assignmentId}`);
   area.innerHTML = area.innerHTML ? '' : detailRows(group);
 }
+// 提出（承認依頼・管理へ提出・差戻し後の再依頼）前の確認ポップアップ。キャンセルで提出を中止できる。
 // 提出対象に1〜9分単位の手入力（担当業務・副担当業務）がある場合は、承認ワークフローが
-// 事前確認フロー（講師→事務→学校→事務→営業）へ変わることをポップアップで知らせてから提出する。
-// 学校スキップ校はフローが変わらないため表示しない。キャンセルで提出を中止できる。
-async function confirmPrecheckSubmit(group, ids) {
-  if (group.skip_school_approval) return true;
-  const hasMinuteInput = group.reports.some(report => ids.includes(report.id) && workReportHasMinuteLevelInput(report));
-  if (!hasMinuteInput) return true;
+// 事前確認フロー（講師→事務→学校→事務→営業）へ変わることを知らせるポップアップが確認を兼ね、
+// それ以外は通常の「承認依頼の確認」ポップアップを表示する（誤操作による提出を防ぐ）。
+async function confirmSubmitGroup(group, ids) {
+  if (!group.skip_school_approval) {
+    const hasMinuteInput = group.reports.some(report => ids.includes(report.id) && workReportHasMinuteLevelInput(report));
+    if (hasMinuteInput) {
+      return showConfirmModal({
+        title: '承認ワークフローが変更されます',
+        message: '担当業務・副担当業務に1〜9分単位の手入力があるため、この報告書は学校へ依頼する前に運営（事務）の事前確認を経由します。\n\n承認フロー：講師 → 事務（事前確認） → 学校 → 事務 → 営業\n\nこのまま提出しますか？',
+        confirmLabel: '提出する',
+        cancelLabel: 'キャンセル'
+      });
+    }
+  }
   return showConfirmModal({
-    title: '承認ワークフローが変更されます',
-    message: '担当業務・副担当業務に1〜9分単位の手入力があるため、この報告書は学校へ依頼する前に運営（事務）の事前確認を経由します。\n\n承認フロー：講師 → 事務（事前確認） → 学校 → 事務 → 営業\n\nこのまま提出しますか？',
+    title: '承認依頼の確認',
+    message: `${schoolName(group)}　${monthLabel(group.target_month)}の報告書を${group.skip_school_approval ? '管理' : '学校'}へ提出します。\n提出後は差戻しされるまで内容を修正できません。よろしいですか？`,
     confirmLabel: '提出する',
     cancelLabel: 'キャンセル'
   });
@@ -497,7 +506,7 @@ async function submitToParentGroup(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   // リマインド設定は講師では行わない（運営の進捗パイプラインで設定する）
   const ids = reportIdsForParentSubmit(group);
-  if (!(await confirmPrecheckSubmit(group, ids))) return;
+  if (!(await confirmSubmitGroup(group, ids))) return;
   for (const id of ids) {
     await api(`/api/w/reports/${id}/action`, {
       method: 'POST',
@@ -509,7 +518,7 @@ async function submitToParentGroup(assignmentId) {
 async function resendReturnedReports(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   const ids = returnedReportIds(group);
-  if (!(await confirmPrecheckSubmit(group, ids))) return;
+  if (!(await confirmSubmitGroup(group, ids))) return;
   for (const id of ids) {
     await api(`/api/w/reports/${id}/action`, {
       method: 'POST',

@@ -1965,7 +1965,7 @@ function populateDispatchSchoolOptions() {
     schools.map(school => `<option value="${escapeHtml(school.id)}">${escapeHtml(school.name)}</option>`).join('');
   sel.value = prev;
 }
-async function submitReport(id) {
+async function submitReport(id, {confirmSubmit = false} = {}) {
   const schoolSel = document.getElementById('dispatchPlaceSchool');
   const schoolId = schoolSel?.value;
   if (!schoolId) {
@@ -1982,6 +1982,16 @@ async function submitReport(id) {
     const ok = await showConfirmModal({
       title: '承認ワークフローが変更されます',
       message: '担当業務・副担当業務に1〜9分単位の手入力があるため、この報告書は学校へ依頼する前に運営（事務）の事前確認を経由します。\n\n承認フロー：講師 → 事務（事前確認） → 学校 → 事務 → 営業\n\nこのまま提出しますか？',
+      confirmLabel: '提出する',
+      cancelLabel: 'キャンセル'
+    });
+    if (!ok) return;
+  } else if (confirmSubmit) {
+    // 「承認依頼」ボタンからの提出は通常フローでも確認ポップアップを挟む（誤操作による提出を防ぐ）。
+    // 事前確認フローは上のワークフロー変更ポップアップが確認を兼ねるため二重には出さない。
+    const ok = await showConfirmModal({
+      title: '承認依頼の確認',
+      message: `${report.school_name || '学校未設定'}　${monthLabel(report.target_month)}の報告書を${skipSchool ? '管理' : '学校'}へ提出します。\n提出後は差戻しされるまで内容を修正できません。よろしいですか？`,
       confirmLabel: '提出する',
       cancelLabel: 'キャンセル'
     });
@@ -2139,11 +2149,12 @@ async function saveReportForm() {
   }
 }
 // 「承認依頼」ボタン: フォームの内容を保存（更新）してから、承認管理の「承認依頼」ボタンと
-// 同じ提出処理（1〜9分手入力時の事前確認ポップアップ含む）を行う。
+// 同じ提出処理を行う。保存後に確認ポップアップを表示し（入力エラーはポップアップなしで先に表示）、
+// キャンセルした場合も保存（下書きの更新）は残る。
 async function requestApprovalFromForm() {
   const savedId = await saveReportForm();
   if (!savedId) return;
-  await submitReport(savedId);
+  await submitReport(savedId, {confirmSubmit: true});
 }
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;
