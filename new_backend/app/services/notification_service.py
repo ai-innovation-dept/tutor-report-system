@@ -208,16 +208,19 @@ def _school(db: Session, report: WorkReport) -> User | None:
 
     画面・権限系（report_service.can_view_report / list_reports_for_school）と同じ解決順に
     しておかないと、契約のみで紐付いた学校が「閲覧・承認はできるのに通知は届かない」状態になる。
+    紐付け先の学校が無効化・削除済み（旧アカウントへの古い紐付け）の場合も契約の学校で補完する。
     """
     assignment = _assignment(report) or db.get(Assignment, report.assignment_id)
-    if assignment and assignment.parent_id:
-        return assignment.parent
+    parent = assignment.parent if assignment and assignment.parent_id else None
+    if parent and parent.is_active and not parent.deleted_at:
+        return parent
     school_id = db.scalar(
         select(WorkAssignmentProfile.school_id).where(
             WorkAssignmentProfile.assignment_id == report.assignment_id
         )
     )
-    return db.get(User, school_id) if school_id else None
+    school = db.get(User, school_id) if school_id else None
+    return school or parent
 
 
 def _student_name(report: WorkReport) -> str:
@@ -238,7 +241,15 @@ def _staff_users(db: Session, role: str) -> list[User]:
 
 
 async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
-    if not to_user or not to_user.is_active or to_user.deleted_at:
+    # 送信スキップは黙って握りつぶさずログへ残す（「通知が届かない」調査の一次情報）
+    if not to_user:
+        logger.warning("mail skipped: recipient not resolved subject=%s template=%s", subject, template_name)
+        return
+    if not to_user.is_active or to_user.deleted_at:
+        logger.warning(
+            "mail skipped: recipient inactive/deleted email=%s subject=%s template=%s",
+            to_user.email, subject, template_name,
+        )
         return
     try:
         # 即時送信せず送信キューへ投函する（実送信はドレイナが順次・間隔をあけて行う）

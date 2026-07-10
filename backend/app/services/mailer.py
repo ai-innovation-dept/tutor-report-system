@@ -78,14 +78,29 @@ def _deliver(to_email: str, subject: str, body: str) -> None:
         logger.info("[MAIL:console] 送信スキップ to=%s subject=%s", to_email, subject)
 
 
+def _record_failure(conn, table: str, row, exc: Exception, max_attempts: int) -> int:
+    """送信失敗を記録する。試行回数を加算し、上限到達で failed（以後再試行しない）にする。"""
+    attempts = int(row["attempts"]) + 1
+    status = "failed" if attempts >= max_attempts else "pending"
+    conn.execute(
+        text(f"UPDATE {table} SET attempts=:a, last_error=:e, status=:s WHERE id=:id"),
+        {"a": attempts, "e": str(exc)[:1000], "s": status, "id": row["id"]},
+    )
+    conn.commit()
+    return attempts
+
+
 def drain_outbox(engine_override=None) -> int:
     """送信待ちメールを1通ずつ、送信間隔をあけて順次送信する。送信できた件数を返す。
 
     - MAIL_BACKEND が smtp 以外（console/テスト）のときは何もしない＝実送信ゼロを保証。
     - PostgreSQL ではアドバイザリロックを取得できたプロセスだけが送信し、もう一方は次回に回す
       （既存/新システム横断で同時送信を完全防止）。SQLite（テスト）では単一プロセス前提で省略。
-    - 1通ごとに mail_send_interval_seconds 秒あけ、1回の実行で最大 mail_outbox_batch_max 通。
-    - 送信失敗時はその実行を打ち切り（連続失敗で連打しない）、次回に再試行する。
+    - 1通ごとに mail_send_interval_seconds 秒あけ、1回の実行で最大 mail_outbox_batch_max 通を処理。
+    - 宛先起因の失敗（SMTPRecipientsRefused＝存在しないアドレス等）はその1通だけ失敗として記録し、
+      **次の1通へ進む**。古い不達メールがキュー先頭に残って後続の宛先（別の受信者）を塞がないため。
+    - 接続・認証などサーバ起因の失敗はその実行を打ち切り（連続失敗で連打しない）、次回に再試行する。
+    - 失敗した行は次回以降の実行で再試行し、mail_max_attempts 回で failed（打ち切り）にする。
     """
     if (settings.mail_backend or "console").lower() != "smtp":
         return 0
@@ -107,15 +122,16 @@ def drain_outbox(engine_override=None) -> int:
                 return 0  # 他プロセス（既存/新）が送信中。今回は何もせず次回に回す。
         sent = 0
         try:
-            while sent < batch_max:
-                row = conn.execute(
-                    text(
-                        f"SELECT id, to_email, subject, body, attempts FROM {table} "
-                        "WHERE status = 'pending' ORDER BY created_at LIMIT 1"
-                    )
-                ).mappings().first()
-                if row is None:
-                    break
+            # この実行で処理する対象を古い順に最大 batch_max 通スナップショットする
+            # （各行この実行では1回だけ試行＝宛先起因で失敗した行を同一実行内で連打しない）
+            rows = conn.execute(
+                text(
+                    f"SELECT id, to_email, subject, body, attempts FROM {table} "
+                    "WHERE status = 'pending' ORDER BY created_at LIMIT :limit"
+                ),
+                {"limit": batch_max},
+            ).mappings().all()
+            for index, row in enumerate(rows):
                 try:
                     _deliver(row["to_email"], row["subject"], row["body"])
                     conn.execute(
@@ -124,22 +140,19 @@ def drain_outbox(engine_override=None) -> int:
                     )
                     conn.commit()
                     sent += 1
-                except Exception as exc:  # noqa: BLE001 - 失敗を記録し、この実行は打ち切る
-                    attempts = int(row["attempts"]) + 1
-                    status = "failed" if attempts >= max_attempts else "pending"
-                    conn.execute(
-                        text(
-                            f"UPDATE {table} SET attempts=:a, last_error=:e, status=:s WHERE id=:id"
-                        ),
-                        {"a": attempts, "e": str(exc)[:1000], "s": status, "id": row["id"]},
+                except smtplib.SMTPRecipientsRefused as exc:
+                    # 宛先起因の失敗（存在しないアドレス等）＝この1通だけの問題。
+                    # 記録して次の1通へ進む（不達メールが後続の別宛先を塞がないように）。
+                    attempts = _record_failure(conn, table, row, exc, max_attempts)
+                    logger.warning(
+                        "mail rejected for recipient (attempt %s) to %s: %s", attempts, row["to_email"], exc
                     )
-                    conn.commit()
+                except Exception as exc:  # noqa: BLE001 - サーバ起因の失敗はこの実行を打ち切る
+                    attempts = _record_failure(conn, table, row, exc, max_attempts)
                     logger.warning("mail send failed (attempt %s) to %s: %s", attempts, row["to_email"], exc)
                     break
-                has_more = conn.execute(
-                    text(f"SELECT 1 FROM {table} WHERE status='pending' LIMIT 1")
-                ).first()
-                if has_more is not None and interval:
+                # 次の1通があれば送信間隔をあける（最後の1通の後は待たない）
+                if index < len(rows) - 1 and interval:
                     time.sleep(interval)
         finally:
             if is_pg:

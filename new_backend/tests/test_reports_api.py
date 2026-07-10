@@ -453,6 +453,33 @@ class TestOfficeEdit:
             assert "担当者（" not in mail.body
             assert users["office"].display_name + "からの連絡" not in mail.body
 
+    def test_office_edit_notification_falls_back_to_contract_school_when_parent_inactive(self, client, users, db):
+        """紐付け先（assignment.parent）が無効化済みの旧学校アカウントを指していても、
+        契約（WorkAssignmentProfile）の現学校へ通知する（黙ってスキップしない）。"""
+        report_id = self._advance_to_awaiting_office(client, users)
+        old_school = User(
+            email="old-school@work.example.com",
+            role="school",
+            roles=["school"],
+            display_name="旧学校アカウント",
+            allowed_systems=["new"],
+            password_hash=hash_password("Passw0rd!"),
+            is_active=False,
+        )
+        db.add(old_school)
+        db.flush()
+        users["assignment"].parent_id = old_school.id
+        db.commit()
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [{"date": "2026-06-01", "teach_minutes": 100, "note": "数学"}]}},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        recipients = {m.to_email for m in self._office_edited_mails(db)}
+        assert "school@work.example.com" in recipients   # 契約の現学校
+        assert "old-school@work.example.com" not in recipients  # 無効化済みの旧紐付け先には送らない
+
     def test_office_edit_notification_sent_to_skip_school(self, client, users, db):
         """学校承認スキップ校でも事務修正の通知メールは学校へ送る（宛先は常に講師・学校）。"""
         users["school"].skip_parent_approval = True

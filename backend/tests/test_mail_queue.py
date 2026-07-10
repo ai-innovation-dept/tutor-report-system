@@ -100,3 +100,30 @@ def test_drain_failure_retries_then_fails(monkeypatch):
     assert mailer.drain_outbox(engine_override=engine) == 0
     row = _rows(engine)[0]
     assert row.status == "failed" and row.attempts == 2  # 上限到達で打ち切り
+
+
+def test_drain_recipient_refused_skips_to_next(monkeypatch):
+    """宛先起因の失敗（存在しないアドレス等）は記録して次の1通へ進む。
+    先頭の不達メール（架空アドレス等）がキューに残っても、後続の別宛先を塞がない。"""
+    import smtplib as _smtplib
+
+    monkeypatch.setattr(settings, "mail_backend", "smtp")
+    monkeypatch.setattr(settings, "mail_send_interval_seconds", 0)
+    delivered: list = []
+
+    def deliver(to, subj, body):
+        if to == "fictitious@invalid.example.com":
+            raise _smtplib.SMTPRecipientsRefused({to: (550, b"user unknown")})
+        delivered.append(to)
+
+    monkeypatch.setattr(mailer, "_deliver", deliver)
+
+    engine = _fresh_engine()
+    _insert(engine, "fictitious@invalid.example.com")  # 架空アドレス（先頭）
+    _insert(engine, "parent@example.com")              # 後続の正常宛先
+
+    assert mailer.drain_outbox(engine_override=engine) == 1  # 後続は同一実行内で送信される
+    rows = _rows(engine)
+    assert rows[0].status == "pending" and rows[0].attempts == 1  # 不達分は記録して再試行待ち
+    assert rows[1].status == "sent"
+    assert delivered == ["parent@example.com"]
