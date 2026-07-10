@@ -12,7 +12,7 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import User
-from app.models.work import WorkNotification
+from app.models.work import WorkMailOutbox, WorkNotification
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -138,6 +138,16 @@ class TestOverLimitFlow:
         res = _action(client, "office@ol.example.com", report_id, "approve", "office")
         assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.AWAITING_SCHOOL
+        school_mails = list(
+            db.scalars(
+                select(WorkMailOutbox).where(
+                    WorkMailOutbox.to_email == "school@ol.example.com",
+                    WorkMailOutbox.subject == "【業務連絡表】承認依頼が届きました",
+                    WorkMailOutbox.status == "pending",
+                )
+            )
+        )
+        assert len(school_mails) == 1
         assert _action(client, "school@ol.example.com", report_id, "approve", "school").json()["status"] == WorkStatus.AWAITING_OFFICE
         assert _action(client, "office@ol.example.com", report_id, "approve", "office").json()["status"] == WorkStatus.AWAITING_SALES
         assert _action(client, "sales@ol.example.com", report_id, "approve", "sales").json()["status"] == WorkStatus.APPROVED

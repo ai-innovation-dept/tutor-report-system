@@ -14,7 +14,7 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import User
-from app.models.work import WorkNotification, WorkReportEvent
+from app.models.work import WorkMailOutbox, WorkNotification, WorkReportEvent
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
 
@@ -215,6 +215,16 @@ class TestMinuteInputFlow:
         body = res.json()
         assert body["status"] == WorkStatus.AWAITING_SCHOOL
         assert body["precheck_approved_at"], "事前確認の承認日時が ReportOut に含まれること"
+        school_mails = list(
+            db.scalars(
+                select(WorkMailOutbox).where(
+                    WorkMailOutbox.to_email == "school@mi.example.com",
+                    WorkMailOutbox.subject == "【業務連絡表】承認依頼が届きました",
+                    WorkMailOutbox.status == "pending",
+                )
+            )
+        )
+        assert len(school_mails) == 1
         assert _action(client, "school@mi.example.com", report_id, "approve", "school").json()["status"] == WorkStatus.AWAITING_OFFICE
         assert _action(client, "office@mi.example.com", report_id, "approve", "office").json()["status"] == WorkStatus.AWAITING_SALES
         assert _action(client, "sales@mi.example.com", report_id, "approve", "sales").json()["status"] == WorkStatus.APPROVED

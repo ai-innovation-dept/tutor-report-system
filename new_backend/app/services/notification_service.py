@@ -243,6 +243,20 @@ async def _send_email_to_users(db: Session, users: list[User], subject: str, tem
             await _send_email(db, user, subject, template_name, context | {"name": user.display_name})
 
 
+async def _send_school_approval_request(db: Session, report: WorkReport, context: dict) -> None:
+    school = _school(db, report)
+    await _send_email(
+        db,
+        school,
+        _APPROVAL_REQUEST_SUBJECT,
+        "notify_approval_request.txt",
+        context | {
+            "parent_name": school.display_name if school else "学校",
+            "tutor_name": _tutor(report).display_name if _tutor(report) else "講師",
+        },
+    )
+
+
 def _lesson_date_label(report: WorkReport) -> str:
     return report.target_month
 
@@ -288,17 +302,7 @@ async def _send_group_notification(
 
     if action in {WorkAction.SUBMIT, WorkAction.SKIP_SCHOOL}:
         if action == WorkAction.SUBMIT and report.status == WorkStatus.AWAITING_SCHOOL:
-            school = _school(db, report)
-            await _send_email(
-                db,
-                school,
-                _APPROVAL_REQUEST_SUBJECT,
-                "notify_approval_request.txt",
-                context | {
-                    "parent_name": school.display_name if school else "学校",
-                    "tutor_name": _tutor(report).display_name if _tutor(report) else "講師",
-                },
-            )
+            await _send_school_approval_request(db, report, context)
             return
         receiver_role = "sales" if report.status == WorkStatus.AWAITING_SALES else "office"
         receivers = _staff_users(db, receiver_role)
@@ -345,6 +349,9 @@ async def _send_group_notification(
             return
 
     if action == WorkAction.APPROVE:
+        if report.status == WorkStatus.AWAITING_SCHOOL:
+            await _send_school_approval_request(db, report, context)
+            return
         if report.status == WorkStatus.AWAITING_OFFICE:
             tutor = _tutor(report)
             await _send_email(
