@@ -340,7 +340,7 @@ function actionArea(group) {
   }
   if (group.can_submit) {
     // 事前確認フロー（1〜9分手入力）は学校の前に運営（事務）の事前確認を経由するため「提出」表記にする
-    const label = group.skip_school_approval ? '管理へ提出' : (group.precheck_route ? '提出' : '学校へまとめて承認依頼');
+    const label = group.skip_school_approval ? '管理へ提出' : (group.precheck_route ? '提出' : '承認依頼');
     const precheckNote = (!group.skip_school_approval && group.precheck_route)
       ? '<div class="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">担当業務・副担当業務に1〜9分単位の手入力があるため、提出すると学校へ依頼する前に運営（事務）の事前確認を経由します。</div>'
       : '';
