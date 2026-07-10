@@ -74,7 +74,8 @@ def _create_report(db, users, status=WorkStatus.DRAFT, target_month=None) -> Wor
 
 
 def test_chat_api_allows_related_users_and_marks_read(client, db, users):
-    report = _create_report(db, users)
+    # 学校は講師の承認依頼後にのみ報告書とチャットを参照できる。
+    report = _create_report(db, users, status=WorkStatus.AWAITING_SCHOOL)
 
     tutor_post = client.post(
         f"/api/w/reports/{report.id}/messages",

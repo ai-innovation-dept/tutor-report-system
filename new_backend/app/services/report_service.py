@@ -1,7 +1,7 @@
 """報告書の作成・更新・取得ロジック。"""
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.forms.definitions import get_form
@@ -75,6 +75,31 @@ def get_report_or_404(db: Session, report_id) -> WorkReport:
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="report not found")
     return report
+
+
+def can_view_report(db: Session, report: WorkReport, user: User, active_role: str) -> bool:
+    """選択中のロールで報告書を閲覧できるかを返す。"""
+    if active_role == "tutor":
+        return report.tutor_id == user.id
+    if active_role == "school":
+        assignment = report.assignment or db.get(Assignment, report.assignment_id)
+        school_id = assignment.parent_id if assignment and assignment.parent_id else db.scalar(
+            select(WorkAssignmentProfile.school_id).where(
+                WorkAssignmentProfile.assignment_id == report.assignment_id
+            )
+        )
+        return bool(
+            school_id == user.id
+            and report.status != WorkStatus.DRAFT
+        )
+    return active_role in {"office", "sales", "admin_master", "admin_chief"}
+
+
+def assert_can_view_report(db: Session, report: WorkReport, user: User, active_role: str) -> None:
+    """一覧と個別APIで共通の報告書閲覧権限を適用する。"""
+    if not can_view_report(db, report, user, active_role):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=403, detail="not allowed to access this report")
 
 
 def assert_tutor_owns(report: WorkReport, user: User) -> None:
@@ -215,11 +240,23 @@ def list_reports_for_role(db: Session, role: str, target_month: str | None = Non
 
 
 def list_reports_for_school(db: Session, school_user_id, target_month: str | None = None) -> list[WorkReport]:
-    """学校ユーザーが担当する紐付け（assignment.parent_id）の報告を全ステータスで返す。"""
+    """学校ユーザーに、担当校の提出済み報告だけを返す。"""
+    profile_assignments = select(WorkAssignmentProfile.assignment_id).where(
+        WorkAssignmentProfile.school_id == school_user_id
+    )
     stmt = (
         select(WorkReport)
         .join(Assignment, Assignment.id == WorkReport.assignment_id)
-        .where(Assignment.parent_id == school_user_id)
+        .where(
+            or_(
+                Assignment.parent_id == school_user_id,
+                and_(
+                    Assignment.parent_id.is_(None),
+                    WorkReport.assignment_id.in_(profile_assignments),
+                ),
+            ),
+            WorkReport.status != WorkStatus.DRAFT,
+        )
     )
     if target_month:
         stmt = stmt.where(WorkReport.target_month == target_month)

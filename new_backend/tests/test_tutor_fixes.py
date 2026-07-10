@@ -473,6 +473,39 @@ class TestOfficeHandlesReturnedToOffice:
 
 
 class TestSchoolVisibility:
+    def test_school_cannot_see_unsubmitted_draft(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        school_headers = _auth(client, "school@x.example.com")
+
+        listed = client.get("/api/w/reports", headers=school_headers)
+        detail = client.get(f"/api/w/reports/{report_id}", headers=school_headers)
+        events = client.get(f"/api/w/reports/{report_id}/events", headers=school_headers)
+        export = client.get(f"/api/w/reports/{report_id}/export", headers=school_headers)
+        messages = client.get(f"/api/w/reports/{report_id}/messages", headers=school_headers)
+
+        assert listed.status_code == 200
+        assert listed.json() == []
+        assert detail.status_code == 403
+        assert events.status_code == 403
+        assert export.status_code == 403
+        assert messages.status_code == 403
+
+    def test_other_school_cannot_access_submitted_report(self, client, db, setup):
+        tutor_headers = _auth(client, "tutor@x.example.com")
+        report_id = _create_report(client, setup["assignment"], tutor_headers)
+        client.post(f"/api/w/reports/{report_id}/action", json={"action": "submit"}, headers=tutor_headers)
+        _add_user(db, "other-school@x.example.com", "school")
+        other_school_headers = _auth(client, "other-school@x.example.com")
+
+        assert client.get(f"/api/w/reports/{report_id}", headers=other_school_headers).status_code == 403
+        action = client.post(
+            f"/api/w/reports/{report_id}/action",
+            json={"action": "approve"},
+            headers=other_school_headers,
+        )
+        assert action.status_code == 403
+
     def test_school_sees_reports_across_statuses(self, client, db, setup):
         tutor_headers = _auth(client, "tutor@x.example.com")
         report_id = _create_report(client, setup["assignment"], tutor_headers)

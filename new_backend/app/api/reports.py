@@ -31,7 +31,9 @@ from app.schemas.reports import (
     WorkflowAction,
 )
 from app.services.report_service import (
+    assert_can_view_report,
     assert_tutor_owns,
+    can_view_report,
     create_report,
     diff_report_lines,
     get_report_or_404,
@@ -102,18 +104,7 @@ def _ensure_action_role_allowed(action: str, actor_role: str) -> None:
 
 
 def _report_in_role_scope(db: Session, report: WorkReport, user: User, actor_role: str) -> bool:
-    if actor_role in {"admin_master", "admin_chief"}:
-        return True
-    if actor_role in {"sales", "office"}:
-        return True
-    if actor_role == "tutor":
-        return report.tutor_id == user.id
-    if actor_role == "school":
-        assignment = report.assignment or db.get(Assignment, report.assignment_id)
-        if assignment and assignment.parent_id:
-            return assignment.parent_id == user.id
-        return report.current_approver_role == "school"
-    return False
+    return can_view_report(db, report, user, actor_role)
 
 
 def _stale_stmt(user: User, active_role: str):
@@ -475,8 +466,11 @@ def get_report(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
 ):
-    return get_report_or_404(db, report_id)
+    report = get_report_or_404(db, report_id)
+    assert_can_view_report(db, report, user, active_role)
+    return report
 
 
 # 契約管理で登録した内容（契約由来）のメタ項目。講師は変更不可。
@@ -624,6 +618,8 @@ async def workflow_action(
     notify_action = payload.action
     try:
         actor_role = _resolve_actor_role(user, active_role, payload.actor_role)
+        if not _report_in_role_scope(db, report, user, actor_role):
+            raise HTTPException(status_code=403, detail="not allowed to access this report")
         if payload.action == WorkAction.CLOSE:
             _close_report(db, report, user, actor_role, payload.comment or "")
         else:
@@ -661,8 +657,11 @@ async def close_report(
 def get_events(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
 ):
+    report = get_report_or_404(db, report_id)
+    assert_can_view_report(db, report, user, active_role)
     events = db.scalars(
         select(WorkReportEvent)
         .options(selectinload(WorkReportEvent.actor))
@@ -676,9 +675,11 @@ def get_events(
 def export_pdf(
     report_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
+    active_role: str = Depends(get_active_role),
 ):
     report = get_report_or_404(db, report_id)
+    assert_can_view_report(db, report, user, active_role)
     assignment = db.scalar(
         select(Assignment)
         .options(selectinload(Assignment.parent))
