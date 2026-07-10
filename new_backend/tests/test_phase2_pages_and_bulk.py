@@ -99,6 +99,23 @@ class TestPhase2Pages:
         # 明細テーブルはPC（md以上）のみ表示
         assert 'class="hidden overflow-x-auto rounded-lg border border-slate-200 md:block"' in res.text
 
+    def test_shared_work_report_calc_core_included(self, client, users):
+        """明細の入力・自動計算の共通コア(work_report_calc.js)が講師の報告書一覧と
+        事務ダッシュボード（報告書修正モーダル）の両方で読み込まれ、静的配信される。
+        事務修正は講師フォームと同一の入力仕様（種別・担当時限・自動計算・集計）を共有する。"""
+        _login(client, "p2-tutor@example.com")
+        res = client.get("/tutor/reports")
+        assert res.status_code == 200
+        assert '/static/js/work_report_calc.js' in res.text
+        _login(client, "p2-office@example.com")
+        res = client.get("/office/queue")
+        assert res.status_code == 200
+        assert '/static/js/work_report_calc.js' in res.text
+        assert 'id="officeEditSummary"' in res.text  # 修正モーダルの集計欄
+        static = client.get("/static/js/work_report_calc.js")
+        assert static.status_code == 200
+        assert "WorkReportCalc" in static.text
+
 
 class TestPhase2Api:
     def test_office_bulk_approve_moves_to_awaiting_sales(self, client, users):

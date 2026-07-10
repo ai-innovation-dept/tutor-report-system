@@ -30,6 +30,12 @@
       grid-template-columns: repeat(6, minmax(160px, 1fr));
     }
   }
+  /* 報告書の修正モーダル: 数値スピナー・日付のカレンダーアイコンを非表示にして講師フォームと同じ見た目にする
+     （日付ボックス内に曜日を併記し、クリックでピッカーを開く） */
+  #officeEditModal input[type=number]::-webkit-inner-spin-button,
+  #officeEditModal input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+  #officeEditModal input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+  #officeEditModal input[type=date]::-webkit-calendar-picker-indicator { display: none; }
 </style>
 
 <div class="mb-4 flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-center">
@@ -71,7 +77,7 @@
       <button type="button" class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100 hover:text-slate-900" onclick="closeOfficeEditModal()">閉じる</button>
     </div>
     <div class="flex min-h-0 flex-auto flex-col p-5">
-      <p class="mb-3 shrink-0 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。見出し行と日付列は固定したまま、表内を上下・左右にスクロールできます（横スクロールは上部・下部どちらのバーも利用可）。</p>
+      <p class="mb-3 shrink-0 text-xs text-slate-500">修正後は再承認なしで現在の工程のまま進みます。修正内容は講師・学校へ通知されます。入力ルールは講師の報告書一覧と同じです（種別による入力制限・担当時限からの自動入力・業務開始〜終了時間の自動計算・同日重複ガード・労基休憩の下限）。見出し行と回・日付列は固定したまま、表内を上下・左右にスクロールできます（横スクロールは上部・下部どちらのバーも利用可）。</p>
       <!-- 上部の横スクロールバー：下部の表とスクロール位置を双方向同期し、最下部まで送らなくても上部で左右にスクロールできる -->
       <div id="officeEditScrollTop" class="shrink-0 overflow-x-auto overflow-y-hidden" aria-hidden="true">
         <div id="officeEditScrollTopSpacer" class="h-px"></div>
@@ -83,6 +89,8 @@
           <tbody id="officeEditBody"></tbody>
         </table>
       </div>
+      <!-- 集計（勤務日数・種別回数・summable列の合計）: 講師フォームの集計と同一ルールで入力に追従する -->
+      <div id="officeEditSummary" class="mt-2 flex shrink-0 flex-wrap gap-x-5 gap-y-1 rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700"></div>
       <label class="mt-4 block shrink-0 text-sm text-slate-700">修正内容のコメント（任意・通知に含まれます）
         <textarea id="officeEditComment" class="mt-1 min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" maxlength="2000" placeholder="例：交通費を実費に修正しました"></textarea>
       </label>
@@ -96,6 +104,7 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="/static/js/work_report_calc.js"></script>
 <script>
 setBreadcrumb('事務', 'ダッシュボード');
 const STATUS_LABELS = {
@@ -124,34 +133,28 @@ const ACTION_LABELS = {
   office_edit: '報告書修正',
   tutor_edit: '講師修正'
 };
-// 勤怠区分（種別）。明細行の kind キー。空＝勤務。講師フォーム・report_view・PDFと共有する不変キー。
-const ATTENDANCE_KIND_OPTIONS = [
-  {value: '', label: '勤務'},
-  {value: 'paid_leave', label: '有給'},
-  {value: 'absent', label: '欠勤'},
-  {value: 'personal_reason', label: '自己都合'},
-  {value: 'school_event', label: '学校行事'}
-];
-// 自己都合・学校行事で0固定にする担当業務（分）の列キー（講師フォームと同一ルール）
-const MAIN_DUTY_KEY_RE = /^(task_minutes_\d+|teach_minutes)$/;
+// 明細の入力・自動計算コアは講師の報告書一覧と共通（work_report_calc.js）。
+// 種別（kind）の値・担当業務キー・自動計算・労基休憩などの仕様変更は必ず共通コア側で行うこと。
+const Calc = window.WorkReportCalc;
 const RETURN_ACTIONS = new Set(['return']);
 const APPROVAL_ACTIONS = new Set(['submit', 'approve']);
 // 事務担当が報告書を修正できるステータス（受付の編集可能3ステータスに対応）
 const OFFICE_EDIT_STATUSES = new Set(['awaiting_office', 'awaiting_sales', 'returned_to_office']);
-// 報告書の保存済み列定義(snapshot)が無い旧データ用のフォールバック列。
+// 報告書の保存済み列定義(snapshot)が無い旧データ用のフォールバック列（講師フォームの既定列と同一）。
 const OFFICE_EDIT_DEFAULT_COLUMNS = [
-  {key: 'date', label: '日付', type: 'date'},
-  {key: 'start', label: '業務開始時間', type: 'time'},
-  {key: 'end', label: '業務終了時間', type: 'time'},
-  {key: 'subject_period', label: '担当時限', type: 'text'},
-  {key: 'teach_minutes', label: '数学科指導（分）', type: 'number'},
-  {key: 'break_minutes', label: '休憩時間（分）', type: 'number'},
-  {key: 'commute_fee', label: '往復交通費（円）', type: 'number'},
-  {key: 'note', label: '内容', type: 'text'}
+  {key: 'date', label: '日付', type: 'date', summable: false},
+  {key: 'start', label: '開始時刻', type: 'time', summable: false},
+  {key: 'end', label: '終了時刻', type: 'time', summable: false},
+  {key: 'subject_period', label: '担当時限', type: 'number', summable: false},
+  {key: 'teach_minutes', label: '数学科指導（分）', type: 'number', summable: true},
+  {key: 'break_minutes', label: '休憩時間（分）', type: 'number', summable: true},
+  {key: 'commute_fee', label: '往復交通費（円）', type: 'number', summable: true},
+  {key: 'note', label: '内容', type: 'text', summable: false}
 ];
-// 種別列は列定義に含まれないため、講師フォーム・参照ビュー同様に日付の直後へ差し込む。
-const OFFICE_EDIT_KIND = {key: 'kind', label: '種別', type: 'kind'};
 let officeEditReportId = '';
+let officeEditColumnsCache = [];  // 開いている報告書の列定義（スナップショット優先・kind差し込み前）
+let officeEditSlots = null;       // 開いている報告書の契約のコマ設定（period_slots。無ければnull＝8:40固定ルール）
+let allContracts = null;          // 契約一覧（コマ設定・休憩列の表示フラグの参照用。編集モーダル初回表示時に取得）
 // 職務分掌：兼務スタッフが事務/営業承認を担当済みの講師ID（UI制御用）
 let separationLocks = {office_tutor_ids: [], sales_tutor_ids: []};
 const PIPELINE_COLUMNS = [
@@ -612,52 +615,375 @@ async function saveReminder(assignmentId) {
 function reportById(reportId) {
   return allReports.find(report => report.id === reportId);
 }
-// 報告書の保存済み列定義(snapshot)で事務修正の列を決める（講師フォーム・参照ビューと同一の列）。
-// kind(種別)は列定義に含まれないため日付の直後へ差し込む。無い旧データはフォールバック列を使う。
-function officeEditColumns(report) {
-  const cols = report?.form_data?.meta?.column_definition;
-  const src = Array.isArray(cols) && cols.length ? cols : OFFICE_EDIT_DEFAULT_COLUMNS;
-  const out = [];
-  for (const col of src) {
-    out.push(col);
-    if (col.key === 'date') out.push(OFFICE_EDIT_KIND);
+// ===== 報告書の修正（事務）: 講師の報告書一覧と同一の入力仕様（共通コア work_report_calc.js） =====
+// 種別（勤務/有給/欠勤/自己都合/学校行事）による活殺・担当時限の複数選択（コマ設定対応）・
+// 担当業務/休憩の自動入力・業務開始〜終了時間の自動計算・労基休憩下限・同日重複ガードを講師フォームと共有する。
+const OFFICE_EDIT_LINE_COUNT = 26;  // 講師フォームと同じ行数まで空行を出す（日付の追加修正ができるように）
+const OE_INPUT_CLASS = 'oe-line-input w-full rounded border border-slate-200 px-1 py-1 text-xs focus:border-emerald-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400';
+async function ensureContractsLoaded() {
+  // コマ設定（時間割）・休憩列の表示フラグは契約に持つため、編集モーダルの初回表示時に一度だけ取得する
+  if (allContracts) return;
+  try {
+    allContracts = await api('/api/w/contracts');
+  } catch (_) {
+    allContracts = [];
   }
-  return out;
+}
+function contractForReport(report) {
+  const assignment = allAssignments.find(a => a.id === report.assignment_id);
+  const schoolId = assignment?.parent_id || report.parent_id || '';
+  if (!schoolId || !Array.isArray(allContracts)) return null;
+  return allContracts.find(c => String(c.tutor_id) === String(report.tutor_id) && String(c.school_id) === String(schoolId)) || null;
+}
+// 報告書の保存済み列定義(snapshot)で事務修正の列を決める（講師フォーム・参照ビューと同一の列）。
+// 無い旧データはフォールバック列。休憩時間は契約の表示フラグでライブに出し分け（講師フォームと同一ルール）。
+function officeEditColumns(report, contract) {
+  const cols = report?.form_data?.meta?.column_definition;
+  let src = Array.isArray(cols) && cols.length ? cols : OFFICE_EDIT_DEFAULT_COLUMNS;
+  if (contract && contract.show_break_minutes === false) {
+    src = src.filter(col => col.key !== 'break_minutes');
+  }
+  return src;
+}
+// 表示セルの並び: 回数 → 日付 → 種別（差し込み）→ … → 業務開始〜終了時間（start+end結合・自動計算）→ …
+// （講師フォームのヘッダー構成と同一。kind と時間結合は列定義に含まれないため描画時に組み立てる）
+function officeEditCells(columns) {
+  const cells = [{kind: 'index'}];
+  for (let i = 0; i < columns.length; i += 1) {
+    const col = columns[i];
+    if (col.key === 'date') {
+      cells.push({kind: 'date', col});
+      cells.push({kind: 'kind'});
+      continue;
+    }
+    if (col.key === 'start' && columns[i + 1]?.key === 'end') {
+      cells.push({kind: 'time_range'});
+      i += 1;
+      continue;
+    }
+    if (col.key === 'subject_period') { cells.push({kind: 'period', col}); continue; }
+    if (col.type === 'count_minutes') { cells.push({kind: 'count_minutes', col}); continue; }
+    cells.push({kind: 'input', col});
+  }
+  return cells;
 }
 // 列ごとの幅(px)。table-layout:auto では td の min-width が無視されるため、
 // 各セルに width を、表自体に合計幅の min-width を与えて横スクロール(overflow-x-auto)を効かせる。
-function officeEditColWidth(col) {
-  if (col.type === 'kind') return 84;
-  if (col.type === 'count_minutes') return 132;
-  if (col.key === 'date') return 124;
-  if (col.key === 'start' || col.key === 'end') return 96;
-  if (col.key === 'subject_period') return 96;
-  if (col.key === 'note') return 160;
-  if (col.type === 'number') return 80;
+function officeEditColWidth(cell) {
+  if (cell.kind === 'index') return 40;
+  if (cell.kind === 'kind') return 84;
+  if (cell.kind === 'time_range') return 130;
+  if (cell.kind === 'period') return 110;
+  if (cell.kind === 'count_minutes') return 132;
+  if (cell.kind === 'date') return 124;
+  if (cell.col?.key === 'note') return 160;
+  if (cell.col?.type === 'number') return 80;
   return 112;
 }
-// 事務修正テーブルの入力セル。種別=セレクト、採点等=回/分の2入力、日付/時刻/数値/文字は型に応じた input。
-function officeEditCellInput(col, index, line) {
-  const id = `oe_${index}_${col.key}`;
-  const cls = 'w-full rounded border border-slate-200 px-1 py-1 text-xs focus:border-emerald-500 focus:outline-none';
-  if (col.type === 'kind') {
-    const current = line.kind || '';
-    const opts = ATTENDANCE_KIND_OPTIONS.map(o => `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`).join('');
-    return `<select id="${id}" class="${cls}">${opts}</select>`;
+function officeEditHeaderLabel(cell) {
+  if (cell.kind === 'index') return '回';
+  if (cell.kind === 'kind') return '種別';
+  if (cell.kind === 'time_range') return '業務開始〜終了時間';
+  if (cell.kind === 'period') return '担当時限';
+  return cell.col.label;
+}
+function oeEmptyLine(columns) {
+  const line = {kind: ''};
+  columns.forEach(col => {
+    if (col.type === 'count_minutes') { line[col.count_key] = ''; line[col.minutes_key] = ''; }
+    else line[col.key] = '';
+  });
+  return line;
+}
+// 事務修正テーブルの入力セル。種別=セレクト、担当時限=複数選択ボタン、開始〜終了=自動計算表示（hidden保持）、
+// 採点等=回/分の2入力、日付=曜日併記、数値/文字は型に応じた input（すべて講師フォームと同じ入力仕様）。
+function officeEditCellHtml(cell, index, line) {
+  if (cell.kind === 'index') {
+    return `<div class="text-center text-slate-600">${index + 1}</div>`;
   }
-  if (col.type === 'count_minutes') {
+  if (cell.kind === 'kind') {
+    const current = line.kind || '';
+    const opts = Calc.ATTENDANCE_KINDS.map(o => `<option value="${o.value}"${o.value === current ? ' selected' : ''}>${o.label}</option>`).join('');
+    return `<select data-field="kind" class="${OE_INPUT_CLASS}">${opts}</select>`;
+  }
+  if (cell.kind === 'date') {
+    return `<div class="relative">
+      <input type="date" data-field="date" value="${escapeHtml(line.date ?? '')}" class="${OE_INPUT_CLASS} pr-7">
+      <span data-weekday class="pointer-events-none absolute inset-y-0 right-1 flex items-center text-[11px] text-slate-600">${escapeHtml(Calc.weekdayParen(line.date))}</span>
+    </div>`;
+  }
+  if (cell.kind === 'time_range') {
+    const startVal = line.start || '';
+    const endVal = line.end || '';
+    const range = (startVal || endVal) ? `${startVal}〜${endVal}` : '';
+    return `<div data-time-range>
+      <input type="hidden" data-field="start" value="${escapeHtml(startVal)}">
+      <input type="hidden" data-field="end" value="${escapeHtml(endVal)}">
+      <div data-time-display title="${escapeHtml(Calc.timeRangeHintText(officeEditSlots))}" class="flex h-7 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-1 text-xs ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
+    </div>`;
+  }
+  if (cell.kind === 'period') {
+    const summary = Calc.parseSubjectPeriods(line.subject_period).join('・');
+    return `<div data-period-cell>
+      <input type="hidden" data-field="subject_period" value="${escapeHtml(line.subject_period ?? '')}">
+      <button type="button" data-period-btn title="${escapeHtml(Calc.subjectPeriodHintText(officeEditSlots))}" class="h-7 w-full overflow-hidden rounded border border-slate-300 px-1 text-left text-xs focus:border-emerald-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${summary ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${summary ? escapeHtml(summary) : '選択'}</span></button>
+    </div>`;
+  }
+  if (cell.kind === 'count_minutes') {
+    const col = cell.col;
     return `<div class="flex items-center gap-1">
-      <input id="${id}__c" type="number" min="0" step="1" value="${escapeHtml(line[col.count_key] ?? '')}" class="${cls}">
+      <input type="number" min="0" step="1" data-field="${escapeHtml(col.count_key)}" value="${escapeHtml(line[col.count_key] ?? '')}" class="${OE_INPUT_CLASS}">
       <span class="whitespace-nowrap text-[10px] text-slate-500">${escapeHtml(col.unit || '回')}/</span>
-      <input id="${id}__m" type="number" min="0" step="1" value="${escapeHtml(line[col.minutes_key] ?? '')}" class="${cls}">
+      <input type="number" min="0" step="1" data-field="${escapeHtml(col.minutes_key)}" value="${escapeHtml(line[col.minutes_key] ?? '')}" class="${OE_INPUT_CLASS}">
       <span class="text-[10px] text-slate-500">分</span>
     </div>`;
   }
-  const inputType = col.key === 'date' ? 'date'
-    : (col.key === 'start' || col.key === 'end') ? 'time'
-    : (col.type === 'number' && col.key !== 'subject_period') ? 'number' : 'text';
-  const numAttr = inputType === 'number' ? 'min="0" step="1"' : '';
-  return `<input id="${id}" type="${inputType}" ${numAttr} value="${escapeHtml(line[col.key] ?? '')}" class="${cls}">`;
+  const col = cell.col;
+  const isNumber = col.type === 'number';
+  const type = isNumber ? 'number' : col.type === 'date' ? 'date' : col.type === 'time' ? 'time' : 'text';
+  return `<input type="${type}" ${isNumber ? 'min="0" step="1"' : ''} data-field="${escapeHtml(col.key)}" value="${escapeHtml(line[col.key] ?? '')}" class="${OE_INPUT_CLASS}">`;
+}
+// ===== 行の状態・自動計算（講師フォームの applyRowKind / recomputeRowTimes / applyPeriodAutoFill と同一ルール） =====
+function oeRowLineValues(row) {
+  const line = {};
+  row.querySelectorAll('[data-field]').forEach(el => { line[el.dataset.field] = el.value; });
+  return line;
+}
+// 勤怠区分（種別）以外の業務入力（時刻・担当時限・各分・休憩・交通費）。日付・内容（メモ）は有給/欠勤でも残す。
+function oeWorkControls(row) {
+  return [...row.querySelectorAll('[data-field]')].filter(el => {
+    const field = el.dataset.field;
+    return field !== 'kind' && field !== 'date' && field !== 'note';
+  });
+}
+function oeApplyRowKind(row) {
+  if (!row) return;
+  const kind = row.querySelector('[data-field="kind"]')?.value || '';
+  const leave = Calc.isLeaveKind(kind);
+  const noMainDuty = Calc.isNoMainDutyKind(kind);
+  row.classList.remove(...Object.values(Calc.KIND_ROW_BG));
+  if (Calc.KIND_ROW_BG[kind]) row.classList.add(Calc.KIND_ROW_BG[kind]);
+  // 横スクロールで固定する回・日付セルは不透明背景が必要なため、行の種別色と同じ色へ差し替える
+  row.querySelectorAll('[data-sticky-cell]').forEach(td => {
+    td.classList.remove('bg-white', ...Object.values(Calc.KIND_ROW_BG));
+    td.classList.add(Calc.KIND_ROW_BG[kind] || 'bg-white');
+  });
+  if (leave) {
+    oeWorkControls(row).forEach(el => { el.value = ''; });
+  } else if (noMainDuty) {
+    const periodHidden = row.querySelector('[data-field="subject_period"]');
+    if (periodHidden) periodHidden.value = '';
+    oeWorkControls(row).forEach(el => { if (Calc.MAIN_DUTY_FIELD_RE.test(el.dataset.field)) el.value = '0'; });
+  }
+  if (leave || noMainDuty) {
+    const periodCell = row.querySelector('[data-period-cell]');
+    if (periodCell) oeRefreshPeriodCell(periodCell);
+  }
+  oeWorkControls(row).forEach(el => {
+    const field = el.dataset.field;
+    el.disabled = leave || (noMainDuty && (Calc.MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+  });
+  row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = leave || noMainDuty; });
+}
+function oeApplySlotBreakRules(row, recompute) {
+  const breakInput = row.querySelector('[data-field="break_minutes"]');
+  if (!officeEditSlots || !breakInput) return 0;
+  const decision = Calc.slotBreakDecision(officeEditSlots, oeRowLineValues(row), recompute, officeEditColumnsCache);
+  if (decision.value != null) breakInput.value = String(decision.value);
+  return decision.required;
+}
+function oeRecomputeRowTimes(row, notify = false) {
+  const cell = row.querySelector('[data-time-range]');
+  if (!cell) return;
+  const kind = row.querySelector('[data-field="kind"]')?.value || '';
+  const total = Calc.isLeaveKind(kind) ? 0 : Calc.lineMinutesTotal(oeRowLineValues(row), Calc.timeMinuteKeys(officeEditColumnsCache));
+  const startOverride = Calc.rowStartMinutesOverride(officeEditSlots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
+  const {start, end, overflow} = Calc.computeAutoTimes(total, startOverride);
+  cell.querySelector('[data-field="start"]').value = start;
+  cell.querySelector('[data-field="end"]').value = end;
+  const display = cell.querySelector('[data-time-display]');
+  if (display) {
+    display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可' : '自動計算');
+    display.classList.toggle('font-medium', !!start);
+    display.classList.toggle('text-slate-800', !!start);
+    display.classList.toggle('text-slate-400', !start && !overflow);
+    display.classList.toggle('text-rose-600', overflow);
+    display.classList.toggle('border-rose-300', overflow);
+    display.classList.toggle('bg-rose-50', overflow);
+    display.classList.toggle('border-slate-200', !overflow);
+    display.classList.toggle('bg-slate-50', !overflow);
+  }
+  if (overflow && notify) oeShowPopup(display, officeEditSlots
+    ? '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らして調整してください。'
+    : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
+}
+function oeRefreshPeriodCell(cell) {
+  const hidden = cell.querySelector('[data-field="subject_period"]');
+  const btn = cell.querySelector('[data-period-btn]');
+  const summary = Calc.parseSubjectPeriods(hidden.value).join('・');
+  btn.querySelector('span').textContent = summary || '選択';
+  btn.classList.toggle('text-slate-400', !summary);
+  btn.classList.toggle('text-slate-800', !!summary);
+}
+function oeApplyPeriodAutoFill(row) {
+  const hidden = row.querySelector('[data-field="subject_period"]');
+  if (!hidden) return;
+  const taskKey = Calc.periodAutoFillKey(officeEditColumnsCache);
+  const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
+  const breakInput = row.querySelector('[data-field="break_minutes"]');
+  if (officeEditSlots) {
+    const metrics = Calc.slotSelectionMetrics(officeEditSlots, hidden.value);
+    if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
+    if (!metrics.selected && breakInput) breakInput.value = '';
+    const required = oeApplySlotBreakRules(row, true);
+    if (required && breakInput) oeShowPopup(breakInput, Calc.breakBumpMessage(required));
+  } else {
+    const count = Calc.parseSubjectPeriods(hidden.value).length;
+    const auto = Calc.periodAutoFillValues(count);
+    if (taskInput) taskInput.value = auto.task;
+    if (breakInput) breakInput.value = auto.breakMinutes;
+  }
+  oeRecomputeRowTimes(row, true);
+}
+// 同一日付の行の重複登録ガード（講師フォームと同一。値をクリアしてポップアップで通知）
+function oeValidateLineDateUnique(input) {
+  const value = input.value;
+  if (!value) return;
+  const duplicated = [...document.getElementById('officeEditBody').querySelectorAll('input[data-field="date"]')]
+    .some(other => other !== input && other.value === value);
+  if (!duplicated) return;
+  input.value = '';
+  const span = input.closest('td').querySelector('[data-weekday]');
+  if (span) span.textContent = '';
+  oeShowPopup(input, `同じ日付の行がすでにあります（${Calc.dateLabelJa(value)}）`);
+  oeUpdateTotals();
+}
+// モーダル内の表は overflow-auto のため、行内 absolute のポップアップは見切れる。
+// 通知・担当時限の選択肢は fixed 配置で body 直下に出す（スクロール・外側クリックで閉じる）。
+function oeShowPopup(anchor, message) {
+  document.querySelectorAll('.oe-popup').forEach(el => el.remove());
+  const popup = document.createElement('div');
+  popup.className = 'oe-popup fixed z-[1150] max-w-xs rounded bg-slate-800 px-2 py-1 text-xs text-white shadow-lg';
+  popup.textContent = message;
+  document.body.appendChild(popup);
+  const rect = anchor.getBoundingClientRect();
+  popup.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - popup.offsetHeight - 8)}px`;
+  popup.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popup.offsetWidth - 8))}px`;
+  setTimeout(() => popup.remove(), 2500);
+}
+let oePeriodAnchor = null;
+function closeOfficePeriodPopovers() {
+  document.querySelectorAll('.oe-period-popover').forEach(el => el.remove());
+  oePeriodAnchor = null;
+}
+// 担当時限の複数選択ポップオーバー（講師フォームと同一の選択肢・自動入力）。
+// コマ設定契約は設定済みコマのみ時間帯つきで、未設定契約は1〜10の番号を表示する。
+function openOfficePeriodPopover(btn) {
+  const sameAnchor = oePeriodAnchor === btn;
+  closeOfficePeriodPopovers();
+  if (sameAnchor) return;  // 同じボタンの再クリックでトグル的に閉じる
+  oePeriodAnchor = btn;
+  const row = btn.closest('tr');
+  const hidden = row.querySelector('[data-field="subject_period"]');
+  const selected = new Set(Calc.parseSubjectPeriods(hidden.value));
+  const slots = officeEditSlots;
+  const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  const toggleClass = on => on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-700';
+  const buttonClass = on => slots
+    ? `flex h-9 items-center justify-center gap-1 rounded border px-1 text-sm ${toggleClass(on)}`
+    : `h-8 rounded border text-sm ${toggleClass(on)}`;
+  const buttonBody = n => slots
+    ? `<span class="font-medium leading-none">${Calc.CIRCLED_NUMBERS[n - 1]}</span><span class="text-[11px] leading-none">${escapeHtml(Calc.slotRangeLabel(slots[n - 1]))}</span>`
+    : String(n);
+  const popover = document.createElement('div');
+  popover.className = `oe-period-popover fixed z-[1100] ${slots ? 'w-64' : 'w-44'} rounded-lg border border-slate-300 bg-white p-2 shadow-lg`;
+  popover.innerHTML = `
+    <div class="grid ${slots ? 'grid-cols-2' : 'grid-cols-5'} gap-1">
+      ${numbers.map(n => `<button type="button" data-period-toggle="${n}" class="${buttonClass(selected.has(String(n)))}">${buttonBody(n)}</button>`).join('')}
+    </div>
+    <div class="mt-2 flex items-center justify-between">
+      <button type="button" data-period-clear class="text-xs text-slate-500 hover:text-slate-700">クリア</button>
+      <button type="button" data-period-close class="rounded bg-emerald-600 px-2 py-1 text-xs font-medium text-white hover:bg-emerald-700">閉じる</button>
+    </div>`;
+  document.body.appendChild(popover);
+  // ボタンの直下に表示（画面下端にかかる場合は上側へ・左右は画面内へクランプ）
+  const rect = btn.getBoundingClientRect();
+  const top = (rect.bottom + popover.offsetHeight + 8 > window.innerHeight)
+    ? Math.max(8, rect.top - popover.offsetHeight - 4)
+    : rect.bottom + 4;
+  popover.style.top = `${top}px`;
+  popover.style.left = `${Math.max(8, Math.min(rect.left, window.innerWidth - popover.offsetWidth - 8))}px`;
+  const commit = () => {
+    hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
+    oeRefreshPeriodCell(row.querySelector('[data-period-cell]'));
+    // コマ数から担当業務（分）・休憩時間（分）を自動入力し、業務開始〜終了時間へ連動させる
+    oeApplyPeriodAutoFill(row);
+    oeUpdateTotals();
+  };
+  popover.querySelectorAll('[data-period-toggle]').forEach(tb => {
+    tb.addEventListener('click', () => {
+      const n = tb.dataset.periodToggle;
+      if (selected.has(n)) selected.delete(n); else selected.add(n);
+      tb.className = buttonClass(selected.has(n));
+      commit();
+    });
+  });
+  popover.querySelector('[data-period-clear]').addEventListener('click', () => {
+    selected.clear();
+    popover.querySelectorAll('[data-period-toggle]').forEach(tb => { tb.className = buttonClass(false); });
+    commit();
+  });
+  popover.querySelector('[data-period-close]').addEventListener('click', closeOfficePeriodPopovers);
+}
+// ポップオーバーの外側クリックで閉じる（担当時限）
+document.addEventListener('click', event => {
+  if (!event.target.closest('.oe-period-popover') && !event.target.closest('[data-period-btn]')) closeOfficePeriodPopovers();
+});
+// 集計（勤務日数・種別回数・summable列の合計）: 講師フォームの updateLineSummary と同一ルール
+function oeLineHasData(line) {
+  return Object.values(line).some(value => String(value ?? '').trim() !== '');
+}
+function oeUpdateTotals() {
+  const area = document.getElementById('officeEditSummary');
+  if (!area) return;
+  const columns = officeEditColumnsCache.filter(column => column.summable);
+  const lines = collectOfficeEditLines();
+  let days = 0, paidLeave = 0, absent = 0, personalReason = 0, schoolEvent = 0;
+  const sums = {};
+  columns.forEach(column => {
+    if (column.type === 'count_minutes') { sums[column.count_key] = 0; sums[column.minutes_key] = 0; }
+    else sums[column.key] = 0;
+  });
+  lines.forEach(line => {
+    if (line.kind === 'paid_leave') { paidLeave += 1; return; }
+    if (line.kind === 'absent') { absent += 1; return; }
+    if (line.kind === 'personal_reason') personalReason += 1;
+    else if (line.kind === 'school_event') schoolEvent += 1;
+    else if (oeLineHasData(line)) days += 1;
+    columns.forEach(column => {
+      if (column.type === 'count_minutes') {
+        sums[column.count_key] += Calc.numberValue(line[column.count_key]);
+        sums[column.minutes_key] += Calc.numberValue(line[column.minutes_key]);
+      } else {
+        sums[column.key] += Calc.numberValue(line[column.key]);
+      }
+    });
+  });
+  const parts = [
+    `<div>勤務日数：<span class="font-semibold">${days}</span>日</div>`,
+    `<div>有給休暇：<span class="font-semibold text-amber-700">${paidLeave}</span>回</div>`,
+    `<div>欠勤：<span class="font-semibold text-rose-700">${absent}</span>回</div>`,
+    `<div>自己都合：<span class="font-semibold text-violet-700">${personalReason}</span>回</div>`,
+    `<div>学校行事：<span class="font-semibold text-sky-700">${schoolEvent}</span>回</div>`
+  ];
+  columns.forEach(column => {
+    if (column.type === 'count_minutes') {
+      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.count_key].toLocaleString()}</span>${escapeHtml(column.unit || '回')} / <span class="font-semibold">${sums[column.minutes_key].toLocaleString()}</span>分</div>`);
+    } else {
+      parts.push(`<div>${escapeHtml(column.label)}：<span class="font-semibold">${sums[column.key].toLocaleString()}</span></div>`);
+    }
+  });
+  area.innerHTML = parts.join('');
 }
 // 上部の横スクロールバーと表本体のスクロール位置を双方向同期する。
 // listener は一度だけ登録し、スペーサ幅は開くたびに表の実幅へ合わせる。
@@ -670,35 +996,107 @@ function syncOfficeEditScroll() {
     top.dataset.synced = '1';
     // 値が異なるときだけ書き戻すことで scroll イベントの無限ループを防ぐ。
     top.addEventListener('scroll', () => { if (body.scrollLeft !== top.scrollLeft) body.scrollLeft = top.scrollLeft; });
-    body.addEventListener('scroll', () => { if (top.scrollLeft !== body.scrollLeft) top.scrollLeft = body.scrollLeft; });
+    body.addEventListener('scroll', () => {
+      if (top.scrollLeft !== body.scrollLeft) top.scrollLeft = body.scrollLeft;
+      // fixed 配置のポップオーバー・通知はスクロールで位置がずれるため閉じる
+      closeOfficePeriodPopovers();
+      document.querySelectorAll('.oe-popup').forEach(el => el.remove());
+    });
   }
   // モーダル表示後にスペーサ幅を更新。表本体は縦スクロールバー分だけ可視幅が狭いため、
   // その差(top.clientWidth - body.clientWidth)を加味して上部バーと本体の横スクロール量を一致させる。
   spacer.style.width = (body.scrollWidth + top.clientWidth - body.clientWidth) + 'px';
 }
-function openOfficeEditModal(reportId) {
+function bindOfficeEditEvents() {
+  const body = document.getElementById('officeEditBody');
+  const minuteKeys = new Set(Calc.timeMinuteKeys(officeEditColumnsCache));
+  const secondaryKeys = new Set(Calc.secondaryMinuteKeys(officeEditColumnsCache));
+  body.querySelectorAll('.oe-line-input').forEach(input => {
+    input.addEventListener('input', () => {
+      const field = input.dataset.field;
+      if (field === 'date') {
+        const span = input.closest('td').querySelector('[data-weekday]');
+        if (span) span.textContent = Calc.weekdayParen(input.value);
+      }
+      // 分数の手動修正（1分単位）に休憩の自動計算・業務開始〜終了時間を連動させる
+      if (minuteKeys.has(field)) {
+        const row = input.closest('tr');
+        if (field !== 'break_minutes') {
+          const required = oeApplySlotBreakRules(row, secondaryKeys.has(field));
+          if (required) oeShowPopup(input, Calc.breakBumpMessage(required));
+        }
+        oeRecomputeRowTimes(row, true);
+      }
+      oeUpdateTotals();
+    });
+    // 休憩時間（分）の手動修正: 確定（change）時に労基下限を下回っていれば引き上げて通知する
+    if (input.dataset.field === 'break_minutes') {
+      input.addEventListener('change', () => {
+        const row = input.closest('tr');
+        const required = oeApplySlotBreakRules(row, false);
+        if (required) oeShowPopup(input, Calc.breakBumpMessage(required));
+        oeRecomputeRowTimes(row, true);
+        oeUpdateTotals();
+      });
+    }
+    if (input.dataset.field === 'date') {
+      input.addEventListener('change', () => oeValidateLineDateUnique(input));
+      // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
+      input.addEventListener('click', () => {
+        if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
+      });
+    }
+  });
+  body.querySelectorAll('[data-period-btn]').forEach(btn => {
+    btn.addEventListener('click', () => openOfficePeriodPopover(btn));
+  });
+  body.querySelectorAll('select[data-field="kind"]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const row = sel.closest('tr');
+      // 勤務へ戻したとき、自己都合・学校行事で0固定にしていた担当業務（分）の残り0をクリアする
+      if (!sel.value) {
+        oeWorkControls(row).forEach(el => { if (Calc.MAIN_DUTY_FIELD_RE.test(el.dataset.field) && el.value === '0') el.value = ''; });
+      }
+      oeApplyRowKind(row);
+      // コマ設定契約: 種別変更後も休憩の労基下限を維持する（有給・欠勤は対象外）
+      oeApplySlotBreakRules(row, false);
+      oeRecomputeRowTimes(row);
+      oeUpdateTotals();
+    });
+  });
+}
+async function openOfficeEditModal(reportId) {
   const report = reportById(reportId);
   if (!report) return;
+  await ensureContractsLoaded();
+  const contract = contractForReport(report);
+  officeEditSlots = (Array.isArray(contract?.period_slots) && contract.period_slots.length) ? contract.period_slots : null;
+  officeEditColumnsCache = officeEditColumns(report, contract);
   officeEditReportId = reportId;
-  const cols = officeEditColumns(report);
-  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
+  const cells = officeEditCells(officeEditColumnsCache);
+  const savedLines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
+  const lineCount = Math.max(OFFICE_EDIT_LINE_COUNT, savedLines.length);
+  const lines = Array.from({length: lineCount}, (_, i) => ({...oeEmptyLine(officeEditColumnsCache), ...(savedLines[i] || {})}));
   const headTr = document.getElementById('officeEditHead');
-  const widths = cols.map(col => officeEditColWidth(col));
+  const widths = cells.map(cell => officeEditColWidth(cell));
   const table = headTr.closest('table');
   if (table) table.style.minWidth = widths.reduce((sum, w) => sum + w, 0) + 'px';
-  // 見出し行は縦スクロールで固定(sticky top)。先頭=日付列は横スクロールでも固定(sticky left)。角セルは最前面(z-30)。
-  headTr.innerHTML =
-    cols.map((col, ci) => {
-      const pos = ci === 0 ? 'sticky left-0 top-0 z-30' : 'sticky top-0 z-20';
-      return `<th style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(col.label)}</th>`;
-    }).join('');
-  // 先頭=日付列は横スクロールで固定(sticky left)。固定セルは下層が透けないよう不透明背景(bg-white)にする。
-  document.getElementById('officeEditBody').innerHTML = lines.length
-    ? lines.map((line, i) => `<tr>${cols.map((col, ci) => {
-        const pos = ci === 0 ? 'sticky left-0 z-10 bg-white' : '';
-        return `<td style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 px-1 py-1">${officeEditCellInput(col, i, line)}</td>`;
-      }).join('')}</tr>`).join('')
-    : '<tr><td class="px-2 py-3 text-sm text-slate-500" colspan="' + cols.length + '">編集可能な明細行がありません。</td></tr>';
+  // 見出し行は縦スクロールで固定(sticky top)。先頭の回・日付列は横スクロールでも固定(sticky left)。角セルは最前面(z-30)。
+  headTr.innerHTML = cells.map((cell, ci) => {
+    const pos = ci === 0 ? 'sticky left-0 top-0 z-30' : (ci === 1 ? 'sticky left-[40px] top-0 z-30' : 'sticky top-0 z-20');
+    return `<th style="width:${widths[ci]}px" class="${pos} border-b border-r border-slate-200 bg-slate-50 px-2 py-1 text-left text-xs font-medium text-slate-600 whitespace-nowrap">${escapeHtml(officeEditHeaderLabel(cell))}</th>`;
+  }).join('');
+  // 先頭の回・日付列は横スクロールで固定(sticky left)。固定セルは下層が透けないよう不透明背景にする。
+  document.getElementById('officeEditBody').innerHTML = lines.map((line, i) => `<tr data-index="${i}">${cells.map((cell, ci) => {
+    const pos = ci === 0 ? 'sticky left-0 z-10 bg-white' : (ci === 1 ? 'sticky left-[40px] z-10 bg-white' : '');
+    const sticky = ci <= 1 ? ' data-sticky-cell' : '';
+    return `<td style="width:${widths[ci]}px"${sticky} class="${pos} border-b border-r border-slate-200 px-1 py-1">${officeEditCellHtml(cell, i, line)}</td>`;
+  }).join('')}</tr>`).join('');
+  bindOfficeEditEvents();
+  // 種別による活殺・自動計算値への正規化を初期反映する（講師フォームの編集可能時と同じ挙動）
+  const rows = [...document.getElementById('officeEditBody').querySelectorAll('tr[data-index]')];
+  rows.forEach(row => { oeApplyRowKind(row); oeRecomputeRowTimes(row); });
+  oeUpdateTotals();
   document.getElementById('officeEditComment').value = '';
   document.getElementById('officeEditError').classList.add('hidden');
   const modal = document.getElementById('officeEditModal');
@@ -708,49 +1106,72 @@ function openOfficeEditModal(reportId) {
 }
 function closeOfficeEditModal() {
   officeEditReportId = '';
+  closeOfficePeriodPopovers();
   const modal = document.getElementById('officeEditModal');
   modal.classList.add('hidden');
   modal.classList.remove('flex');
+}
+function collectOfficeEditLines() {
+  const numericKeys = new Set();
+  officeEditColumnsCache.forEach(col => {
+    if (col.type === 'count_minutes') { numericKeys.add(col.count_key); numericKeys.add(col.minutes_key); }
+    else if (col.type === 'number') numericKeys.add(col.key);
+  });
+  // 担当時限は複数選択（"1・3・6"）のため数値化せず文字列で保持する（講師フォームと同一）
+  numericKeys.delete('subject_period');
+  return [...document.getElementById('officeEditBody').querySelectorAll('tr[data-index]')].map(row => {
+    const line = oeEmptyLine(officeEditColumnsCache);
+    row.querySelectorAll('[data-field]').forEach(input => {
+      const key = input.dataset.field;
+      // 空欄は空のまま保持する（0埋めしない＝未記入行の判定・PDF/CSVの空欄表示と互換）
+      line[key] = numericKeys.has(key) ? (input.value === '' ? '' : Number(input.value)) : input.value.trim();
+    });
+    return line;
+  });
+}
+// 保存前の検証（講師フォームの保存時と同一ルール・同一メッセージ）
+function validateOfficeEditLines(lines) {
+  if (!lines.some(oeLineHasData)) return '少なくとも1行入力してください';
+  if (lines.some(line => line.kind && !line.date)) return '種別（有給休暇・欠勤・自己都合・学校行事）を選択した行は日付を入力してください';
+  const invalidPeriod = lines.some(line => Calc.parseSubjectPeriods(line.subject_period).some(p => {
+    const n = Number(p);
+    return !Number.isInteger(n) || n < 1 || n > 10;
+  }));
+  if (invalidPeriod) return '担当時限は1〜10で選択してください';
+  // コマ設定契約: 時限がコマ設定の範囲内か・労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか
+  if (officeEditSlots) {
+    const outIndex = lines.findIndex(line => Calc.parseSubjectPeriods(line.subject_period).some(p => Number(p) > officeEditSlots.length));
+    if (outIndex !== -1) return `${outIndex + 1}回目：担当時限にコマ設定（①〜${Calc.CIRCLED_NUMBERS[officeEditSlots.length - 1]}）にない時限が含まれています。選び直してください。`;
+    const workKeys = [...Calc.mainMinuteKeys(officeEditColumnsCache), ...Calc.secondaryMinuteKeys(officeEditColumnsCache)];
+    const shortIndex = lines.findIndex(line => {
+      if (Calc.isLeaveKind(line.kind)) return false;
+      const work = workKeys.reduce((sum, key) => sum + Calc.numberValue(line[key]), 0);
+      return Calc.numberValue(line.break_minutes) < Calc.requiredBreakMinutes(work);
+    });
+    if (shortIndex !== -1) return `${shortIndex + 1}回目：実働6時間超は45分以上・8時間超は60分以上の休憩が必要です。休憩時間（分）を調整してください。`;
+  }
+  if (lines.some(line => line.start && line.end && line.end < line.start)) return '業務終了時間が業務開始時間より早い行があります';
+  // 業務開始〜終了時間は自動計算のため、計算不可（分の合計が同日23:59を超過）の行は保存できない
+  const minuteKeys = Calc.timeMinuteKeys(officeEditColumnsCache);
+  const overflowIndex = lines.findIndex(line =>
+    !Calc.isLeaveKind(line.kind) && Calc.lineMinutesTotal(line, minuteKeys) > 0 && (!line.start || !line.end));
+  if (overflowIndex !== -1) return `${overflowIndex + 1}回目：時間（分）の合計が長すぎるため業務開始〜終了時間を計算できません。分数を修正してください。`;
+  const duplicateDate = Calc.findDuplicateLineDate(lines);
+  if (duplicateDate) return `同じ日付の行が複数あります（${Calc.dateLabelJa(duplicateDate)}）。日付を修正してください。`;
+  return null;
 }
 async function submitOfficeEdit() {
   const report = reportById(officeEditReportId);
   if (!report) return;
   const err = document.getElementById('officeEditError');
-  const cols = officeEditColumns(report);
-  const lines = Array.isArray(report.form_data?.lines) ? report.form_data.lines : [];
-  // 業務系キー（種別・日付・内容以外）。有給/欠勤に変更した行ではクリアする。
-  const workKeys = [];
-  cols.forEach(col => {
-    if (col.type === 'kind' || col.key === 'date' || col.key === 'note') return;
-    if (col.type === 'count_minutes') workKeys.push(col.count_key, col.minutes_key);
-    else workKeys.push(col.key);
-  });
-  const newLines = lines.map((line, i) => {
-    const updated = {...line};
-    cols.forEach(col => {
-      if (col.type === 'count_minutes') {
-        const cEl = document.getElementById(`oe_${i}_${col.key}__c`);
-        const mEl = document.getElementById(`oe_${i}_${col.key}__m`);
-        if (cEl) updated[col.count_key] = cEl.value === '' ? '' : Number(cEl.value);
-        if (mEl) updated[col.minutes_key] = mEl.value === '' ? '' : Number(mEl.value);
-        return;
-      }
-      const el = document.getElementById(`oe_${i}_${col.key}`);
-      if (!el) return;
-      const raw = el.value;
-      const isNum = col.type === 'number' && col.key !== 'subject_period';
-      updated[col.key] = isNum ? (raw === '' ? 0 : Number(raw)) : raw;
-    });
-    // 有給休暇・欠勤に変更した行は業務セルをクリアする（日付・内容・種別は残す）
-    if (updated.kind === 'paid_leave' || updated.kind === 'absent') {
-      workKeys.forEach(key => { updated[key] = (typeof updated[key] === 'number') ? 0 : ''; });
-    } else if (updated.kind === 'personal_reason' || updated.kind === 'school_event') {
-      // 自己都合・学校行事は担当時限をクリアし担当業務（分）を0にする（副業務等の入力値は保持）
-      workKeys.forEach(key => { if (MAIN_DUTY_KEY_RE.test(key)) updated[key] = 0; });
-      if ('subject_period' in updated) updated.subject_period = '';
-    }
-    return updated;
-  });
+  err.classList.add('hidden');
+  const newLines = collectOfficeEditLines();
+  const message = validateOfficeEditLines(newLines);
+  if (message) {
+    err.textContent = message;
+    err.classList.remove('hidden');
+    return;
+  }
   const formData = {...(report.form_data || {}), lines: newLines};
   const comment = document.getElementById('officeEditComment').value.trim();
   const btn = document.getElementById('officeEditSubmit');
