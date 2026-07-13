@@ -47,6 +47,13 @@
     return `${mins}分`;
   }
 
+  // 「HH:MM」表示（例: 270→「04:30」・45→「00:45」）。一覧テーブルの省スペース表示用。
+  // ※表示ヘルパーであり計算規約ではない（サーバ側 lesson_time.py に複製は無い）
+  function hhmmLabel(minutes) {
+    const total = Math.max(0, Math.floor(minutes));
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+  }
+
   window.LessonTime = {
     TEACHING_UNIT_MINUTES,
     minutesBetween,
@@ -55,6 +62,7 @@
     floorTeachingMinutes,
     teachingMinutes,
     durationLabel,
+    hhmmLabel,
   };
 })();
 // === 指導時間の計算規約（フロント側の唯一の定義源） END ===

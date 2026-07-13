@@ -3,22 +3,26 @@
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
 <!-- 生徒バッジは表示しないが、updateStudentBadge() が参照するため要素は残す（非表示） -->
 <div id="studentBadge" class="hidden">生徒：すべて</div>
-<div class="grid gap-4 lg:grid-cols-[1fr_380px]">
+<!-- フォーム列は lg〜xl=340px / 2xl以上=380px。一覧（9列）が折り返さない幅を優先して確保する
+     （xl=1280pxは1366px画面も含むため、380pxに戻すのは2xl=1536px以上に限定） -->
+<div class="grid gap-4 lg:grid-cols-[1fr_340px] 2xl:grid-cols-[1fr_380px]">
   <section class="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
     <div id="bulkSubmitPanel" class="hidden border-b border-slate-200 bg-slate-50 p-5"></div>
     <div class="overflow-x-auto">
+      <!-- 9列を折り返しなしで収めるため、余白はpx-2・全セルnowrap・時間量はHH:MM表示（例: 04:30）。
+           tracking-wide（字間拡大）は日本語ヘッダーの幅を浪費するため使わない -->
       <table class="hidden w-full text-sm md:table">
-        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+        <thead class="bg-slate-50 text-xs font-medium text-slate-500">
           <tr>
-            <th class="px-4 py-3 text-left">回数</th>
-            <th class="px-4 py-3 text-left">指導日</th>
-            <th class="px-4 py-3 text-left">在室した時間帯</th>
-            <th class="px-4 py-3 text-left">休憩（分）</th>
-            <th class="px-4 py-3 text-left">在室時間</th>
-            <th class="px-4 py-3 text-left">指導時間数</th>
-            <th class="px-4 py-3 text-left">教科</th>
-            <th class="px-4 py-3 text-left">状態</th>
-            <th class="px-4 py-3 text-left">アクション</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">回数</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">指導日</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">在室した時間帯</th>
+            <th class="whitespace-nowrap px-2 py-3 text-right">休憩</th>
+            <th class="whitespace-nowrap px-2 py-3 text-right">在室時間</th>
+            <th class="whitespace-nowrap px-2 py-3 text-right">指導時間数</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">教科</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">状態</th>
+            <th class="whitespace-nowrap px-2 py-3 text-left">アクション</th>
           </tr>
         </thead>
         <tbody id="rows"></tbody>
@@ -81,11 +85,11 @@
       <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <span class="block text-xs text-slate-500">在室時間（自動計算）</span>
+            <span class="whitespace-nowrap block text-xs text-slate-500">在室時間（自動）</span>
             <div id="presenceMinutesLabel" class="mt-1 text-base font-semibold text-slate-800">0分</div>
           </div>
           <div>
-            <span class="block text-xs text-slate-500">指導時間数（自動計算）</span>
+            <span class="whitespace-nowrap block text-xs text-slate-500">指導時間数（自動）</span>
             <div id="teachingMinutesLabel" class="mt-1 text-base font-semibold text-blue-700">0分</div>
           </div>
         </div>
@@ -131,7 +135,9 @@
         </label>
         <fieldset class="block text-sm">
           <legend class="mb-1 block text-slate-700">宿題／状況 <span class="text-red-500">＊</span></legend>
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <!-- lg以上はフォームが右サイドパネル（340/380px）になり3列ではラベルが折り返すため縦積みにする。
+               sm〜lg未満（フォームが全幅のとき）のみ3列 -->
+          <div class="grid grid-cols-1 gap-2 sm:grid-cols-3 lg:grid-cols-1">
             <label class="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 transition has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50 has-[:checked]:ring-2 has-[:checked]:ring-blue-500/20">
               <input type="radio" name="homework_status" value="A" required class="h-4 w-4 text-blue-600 focus:ring-blue-500">
               <span class="text-slate-700"><span class="font-semibold">A</span>：ほぼ完ぺき</span>
@@ -217,6 +223,12 @@ function dateLabel(value) {
   const d = new Date(`${value}T00:00:00`);
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
 }
+// 一覧テーブル用の短い日付表示（例: 7/12(土)・括弧は省スペースの半角）。フォーム・メッセージ類は従来の dateLabel を使う
+function shortDateLabel(value) {
+  if (!value) return '';
+  const d = new Date(`${value}T00:00:00`);
+  return `${d.getMonth() + 1}/${d.getDate()}(${WEEKDAYS[d.getDay()]})`;
+}
 function monthLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月分`;
@@ -225,21 +237,16 @@ function monthLabel(value) {
 function presenceMinutes(report) { return LessonTime.presenceMinutes(report); }
 function teachingMinutes(report) { return LessonTime.teachingMinutes(report); }
 function durationLabel(minutes) { return LessonTime.durationLabel(minutes); }
+function hhmmLabel(minutes) { return LessonTime.hhmmLabel(minutes); }
 function statusBadge(status) {
-  const label = statusLabel(status);
-  if (status === 'returned_to_tutor') {
-    return `<span class="inline-flex rounded-full bg-red-100 px-2.5 py-1 text-xs font-medium text-red-700">${label}</span>`;
-  }
-  if (status === 'draft') {
-    return `<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${label}</span>`;
-  }
-  if (status === 'admin_approved') {
-    return `<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">${label}</span>`;
-  }
-  if (status === 'closed') {
-    return `<span class="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">${label}</span>`;
-  }
-  return `<span class="inline-flex rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-700">${label}</span>`;
+  // バッジはラベル途中で折り返さない（whitespace-nowrap）。色はステータス種別ごとのマップで一元管理
+  const colors = {
+    returned_to_tutor: 'bg-red-100 text-red-700',
+    draft: 'bg-slate-100 text-slate-600',
+    admin_approved: 'bg-emerald-100 text-emerald-700',
+    closed: 'bg-slate-100 text-slate-600',
+  }[status] || 'bg-blue-100 text-blue-700';
+  return `<span class="inline-flex whitespace-nowrap rounded-full ${colors} px-2.5 py-1 text-xs font-medium">${statusLabel(status)}</span>`;
 }
 function returnComment(r) {
   if (r.status !== 'returned_to_tutor' || !r.last_return_comment) return '';
@@ -261,18 +268,19 @@ function closeInfo(r, showActor = false) {
     ${actor}
   </div>`;
 }
-function rowAction(r) {
+// compact=true はテーブル用の小型ボタン（列幅節約）。スマホのカード表示は従来サイズ＝タップしやすさを維持
+function rowAction(r, compact = false) {
   if (selectedMonth !== currentMonth) return '';
-  const parts = [];
-  if (r.status === 'draft') {
-    parts.push(`<button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="editReport('${r.id}')">編集</button>`);
-    parts.push(`<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>`);
-  } else if (r.status === 'returned_to_tutor') {
-    parts.push(`<button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="editReport('${r.id}')">編集</button>`);
-    parts.push(`<button class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>`);
-    parts.push('<span class="text-xs text-slate-500">承認管理から再依頼できます</span>');
-  }
-  return parts.length ? `<div class="flex flex-wrap gap-2">${parts.join('')}</div>` : '';
+  if (r.status !== 'draft' && r.status !== 'returned_to_tutor') return '';
+  const size = compact ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-sm';
+  // 編集・削除は折り返さない内側グループに固定（列が狭くてもボタンが縦積みにならない）。
+  // 差戻し時の注記だけは長いため、狭い幅では下の行に回り込める外側の flex-wrap に置く
+  const buttons = `<div class="flex shrink-0 items-center gap-2">
+    <button class="whitespace-nowrap rounded-lg bg-blue-600 ${size} font-medium text-white transition hover:bg-blue-700" onclick="editReport('${r.id}')">編集</button>
+    <button class="whitespace-nowrap rounded-lg border border-red-200 bg-red-50 ${size} font-medium text-red-700 transition hover:bg-red-100" onclick="deleteReport('${r.id}')">削除</button>
+  </div>`;
+  const note = r.status === 'returned_to_tutor' ? '<span class="text-xs text-slate-500">承認管理から再依頼できます</span>' : '';
+  return `<div class="flex flex-wrap items-center gap-2">${buttons}${note}</div>`;
 }
 function selectedAssignment() {
   return allAssignments.find(a => a.id === selectedAssignmentId);
@@ -399,16 +407,18 @@ function reportSummary(r) {
 }
 function renderRows(reports) {
   const totalMinutes = reports.reduce((sum, r) => sum + teachingMinutes(r), 0);
+  // 9列を折り返さず1行で収める：nowrap＋短い日付（7/12（土））＋時間量はHH:MM（例: 04:30）＋数値列は右揃え等幅。
+  // 教科のみ可変長のため、はみ出す場合は省略記号（…）で切ってツールチップ（title）で全文を示す
   rows.innerHTML = reports.map((r, index) => `<tr class="border-t border-slate-100 hover:bg-slate-50">
-    <td class="px-4 py-3">${index + 1}</td>
-    <td class="px-4 py-3">${dateLabel(r.lesson_date)}</td>
-    <td class="px-4 py-3">${timeText(r.start_time)} ～ ${timeText(r.end_time)}</td>
-    <td class="px-4 py-3">${Number(r.break_minutes || 0)}分</td>
-    <td class="px-4 py-3">${durationLabel(presenceMinutes(r))}</td>
-    <td class="px-4 py-3 font-medium">${durationLabel(teachingMinutes(r))}</td>
-    <td class="px-4 py-3">${escapeHtml(r.subject || '')}</td>
-    <td class="px-4 py-3">${statusBadge(r.status)}${returnComment(r)}${closeInfo(r)}</td>
-    <td class="px-4 py-3 align-middle">${rowAction(r)}</td>
+    <td class="px-2 py-3 text-slate-500">${index + 1}</td>
+    <td class="whitespace-nowrap px-2 py-3">${shortDateLabel(r.lesson_date)}</td>
+    <td class="whitespace-nowrap px-2 py-3 tabular-nums">${timeText(r.start_time)}～${timeText(r.end_time)}</td>
+    <td class="whitespace-nowrap px-2 py-3 text-right tabular-nums">${Number(r.break_minutes || 0)}分</td>
+    <td class="whitespace-nowrap px-2 py-3 text-right tabular-nums">${hhmmLabel(presenceMinutes(r))}</td>
+    <td class="whitespace-nowrap px-2 py-3 text-right font-medium tabular-nums">${hhmmLabel(teachingMinutes(r))}</td>
+    <td class="max-w-24 truncate px-2 py-3 2xl:max-w-40" title="${escapeHtml(r.subject || '')}">${escapeHtml(r.subject || '')}</td>
+    <td class="px-2 py-3">${statusBadge(r.status)}${returnComment(r)}${closeInfo(r)}</td>
+    <td class="px-2 py-3 align-middle">${rowAction(r, true)}</td>
   </tr>`).join('');
   cards.innerHTML = reports.map((r, index) => `<div class="p-4">
     <div class="flex flex-wrap items-start justify-between gap-2">
