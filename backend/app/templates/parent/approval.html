@@ -48,21 +48,9 @@ function monthOptionLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月`;
 }
-function minutesBetween(start, end) {
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-}
-function teachingMinutes(report) {
-  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
-}
-function durationLabel(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours && mins) return `${hours}時間${mins}分`;
-  if (hours) return `${hours}時間`;
-  return `${mins}分`;
-}
+// 指導時間数（在室時間の15分単位切り捨て）の計算は共通コア（/static/js/lesson_time.js）に委譲
+function teachingMinutes(report) { return LessonTime.teachingMinutes(report); }
+function durationLabel(minutes) { return LessonTime.durationLabel(minutes); }
 // 運営確認中の各状態（受付待ち〜最終承認待ち・運営内差戻し）は保護者には「運営確認中」とまとめて表示する。
 const ADMIN_PIPELINE_STATUSES = ['submitted_to_admin', 'received', 're_reviewed', 'returned_to_receiver'];
 function statusBadge(status) {

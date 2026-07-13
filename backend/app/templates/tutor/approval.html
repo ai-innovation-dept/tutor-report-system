@@ -62,13 +62,8 @@ function monthLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月分`;
 }
-function durationLabel(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours && mins) return `${hours}時間${mins}分`;
-  if (hours) return `${hours}時間`;
-  return `${mins}分`;
-}
+// 指導時間数（在室時間の15分単位切り捨て）の計算は共通コア（/static/js/lesson_time.js）に委譲
+function durationLabel(minutes) { return LessonTime.durationLabel(minutes); }
 function dateLabel(value) {
   const d = new Date(`${value}T00:00:00`);
   return `${d.getMonth() + 1}月${d.getDate()}日（${WEEKDAYS[d.getDay()]}）`;
@@ -85,15 +80,7 @@ function currentMonth() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 function timeText(value) { return (value || '').slice(0, 5); }
-function minutesBetween(start, end) {
-  if (!start || !end) return 0;
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-}
-function teachingMinutes(report) {
-  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
-}
+function teachingMinutes(report) { return LessonTime.teachingMinutes(report); }
 function latest(values) {
   return values.filter(Boolean).sort().at(-1) || null;
 }

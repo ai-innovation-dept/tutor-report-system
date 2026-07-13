@@ -13,6 +13,7 @@ from app.core.time import get_current_jst_month
 from app.database import get_db
 from app.deps import get_current_user_from_cookie
 from app.models import Assignment, LessonReport, ReportAction, ReportEvent, ReportStatus, User
+from app.services.lesson_time import duration_label, teaching_minutes
 
 templates = Jinja2Templates(directory="app/templates")
 router = APIRouter(tags=["pages"])
@@ -27,16 +28,6 @@ def _password_change_redirect() -> RedirectResponse:
     return RedirectResponse(url="/change-password", status_code=302)
 
 
-def _duration_label(minutes: int) -> str:
-    hours = minutes // 60
-    mins = minutes % 60
-    if hours and mins:
-        return f"{hours}時間{mins}分"
-    if hours:
-        return f"{hours}時間"
-    return f"{mins}分"
-
-
 def _tutor_month_total_label(db: Session, current_user: User) -> str:
     current_month = get_current_jst_month()
     reports = db.scalars(
@@ -45,12 +36,7 @@ def _tutor_month_total_label(db: Session, current_user: User) -> str:
             LessonReport.target_month == current_month,
         )
     ).all()
-    total = 0
-    for report in reports:
-        start = report.start_time.hour * 60 + report.start_time.minute
-        end = report.end_time.hour * 60 + report.end_time.minute
-        total += max(0, end - start - (report.break_minutes or 0))
-    return _duration_label(total)
+    return duration_label(sum(teaching_minutes(report) for report in reports))
 
 
 def _format_dt(value: datetime) -> str:
@@ -126,12 +112,6 @@ def _base_context(request: Request, current_user: User) -> dict:
     return {"request": request, "current_user": current_user}
 
 
-def _teaching_minutes(report: LessonReport) -> int:
-    start = report.start_time.hour * 60 + report.start_time.minute
-    end = report.end_time.hour * 60 + report.end_time.minute
-    return max(0, end - start - (report.break_minutes or 0))
-
-
 def _group_key(report: LessonReport) -> tuple[str, str]:
     return (str(report.assignment_id), report.target_month)
 
@@ -188,7 +168,7 @@ def _approval_groups(reports: list[LessonReport], events_by_report: dict, step_s
                 "tutor_name": first.tutor.display_name if first.tutor else "講師未設定",
                 "parent_name": first.parent.display_name if first.parent else "",
                 "total_count": len(items),
-                "total_minutes_label": _duration_label(sum(_teaching_minutes(report) for report in items)),
+                "total_minutes_label": duration_label(sum(teaching_minutes(report) for report in items)),
                 "current_status": _current_group_status(items),
                 "steps": steps,
                 "step_map": {step["label"]: step for step in steps},

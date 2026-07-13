@@ -83,10 +83,9 @@ test.describe('既存システム 講師 報告書一覧 レイアウト', () =>
     }
     expect(freeDate).not.toBe('');
 
-    await page.selectOption('#startHour', '10');
-    await page.selectOption('#startMin', '00');
-    await page.selectOption('#endHour', '11');
-    await page.selectOption('#endMin', '30');
+    // 開始・終了はネイティブtime入力（1分単位）
+    await page.fill('#startTime', '10:00');
+    await page.fill('#endTime', '11:30');
     await page.fill('#subject', 'E2E確認');
     await page.fill('#content', 'E2E自動テストによる送信確認');
 

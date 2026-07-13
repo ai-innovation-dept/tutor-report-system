@@ -21,6 +21,7 @@ from app.schemas import (
     MonthlyReportOut,
     MonthlyReportOverviewOut,
 )
+from app.services.lesson_time import teaching_minutes
 from app.services.monthly_report_service import (
     MOCK_SUBJECTS,
     SCHOOL_SUBJECTS,
@@ -38,12 +39,6 @@ def _validate_month(target_month: str) -> str:
     if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit() and 1 <= int(parts[1]) <= 12 and len(parts[0]) == 4:
         return f"{parts[0]}-{int(parts[1]):02d}"
     raise HTTPException(status_code=422, detail="target_month must be YYYY-MM")
-
-
-def _teaching_minutes(report) -> int:
-    start = report.start_time.hour * 60 + report.start_time.minute
-    end = report.end_time.hour * 60 + report.end_time.minute
-    return max(0, end - start - (report.break_minutes or 0))
 
 
 @router.get("/overview", response_model=MonthlyReportOverviewOut)
@@ -68,7 +63,7 @@ def monthly_report_overview(
         editable, lock_reason = editable_state(reports)
         monthly = get_monthly_report(db, assignment.id, target_month)
         lesson_days = sorted({r.lesson_date.day for r in reports})
-        total_minutes = sum(_teaching_minutes(r) for r in reports)
+        total_minutes = sum(teaching_minutes(r) for r in reports)
         items.append(
             MonthlyReportAssignmentOut(
                 assignment_id=assignment.id,

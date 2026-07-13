@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.core.rbac import has_role
 from app.models import ChatMessage, LessonReport, ReportAction, ReportEvent, ReportStatus, User
+from app.services.lesson_time import duration_label, teaching_minutes
 from app.services.notification_service import enqueue, send_email_notification
 
 logger = getLogger(__name__)
@@ -197,24 +198,8 @@ def _format_lesson_date(report: LessonReport) -> str:
     return f"{report.lesson_date.year}/{report.lesson_date.month}/{report.lesson_date.day}"
 
 
-def _duration_label(minutes: int) -> str:
-    hours = minutes // 60
-    mins = minutes % 60
-    if hours and mins:
-        return f"{hours}時間{mins}分"
-    if hours:
-        return f"{hours}時間"
-    return f"{mins}分"
-
-
-def _report_minutes(report: LessonReport) -> int:
-    start = report.start_time.hour * 60 + report.start_time.minute
-    end = report.end_time.hour * 60 + report.end_time.minute
-    return max(0, end - start - (report.break_minutes or 0))
-
-
 def _total_minutes(reports: list[LessonReport]) -> int:
-    return sum(_report_minutes(report) for report in reports)
+    return sum(teaching_minutes(report) for report in reports)
 
 
 async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
@@ -356,7 +341,7 @@ async def _send_group_notification(db: Session, action: str, reports: list[Lesso
         return
     report = sorted(reports, key=lambda item: (item.lesson_date, item.start_time))[0]
     count = len(reports)
-    total_hours = _duration_label(_total_minutes(reports))
+    total_hours = duration_label(_total_minutes(reports))
     context = {
         "base_url": _base_url(),
         "target_month": report.target_month,

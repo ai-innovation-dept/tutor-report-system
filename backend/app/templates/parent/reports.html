@@ -71,21 +71,10 @@ function monthOptionLabel(value) {
   const [year, month] = value.split('-');
   return `${year}年${Number(month)}月`;
 }
-function minutesBetween(start, end) {
-  const [sh, sm] = start.split(':').map(Number);
-  const [eh, em] = end.split(':').map(Number);
-  return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-}
-function teachingMinutes(report) {
-  return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
-}
-function durationLabel(minutes) {
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
-  if (hours && mins) return `${hours}時間${mins}分`;
-  if (hours) return `${hours}時間`;
-  return `${mins}分`;
-}
+// 在室時間・指導時間数（15分単位切り捨て）の計算は共通コア（/static/js/lesson_time.js）に委譲
+function presenceMinutes(report) { return LessonTime.presenceMinutes(report); }
+function teachingMinutes(report) { return LessonTime.teachingMinutes(report); }
+function durationLabel(minutes) { return LessonTime.durationLabel(minutes); }
 function sortReportsOldestFirst(reports) {
   return [...reports].sort((a, b) => {
     const dateCompare = a.lesson_date.localeCompare(b.lesson_date);
@@ -124,6 +113,7 @@ function renderReportRows(reports) {
     <td class="p-2">${dateLabel(report.lesson_date)}</td>
     <td class="p-2">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
     <td class="p-2">${Number(report.break_minutes || 0)}分</td>
+    <td class="p-2">${durationLabel(presenceMinutes(report))}</td>
     <td class="p-2">${durationLabel(teachingMinutes(report))}</td>
     <td class="p-2">${escapeHtml(report.subject || '')}</td>
     <td class="p-2">${statusBadge(report)}${closeInfo(report)}</td>
@@ -241,8 +231,9 @@ function renderMonthSection(month, reports) {
           <tr>
             <th class="px-4 py-3 text-left">回</th>
             <th class="px-4 py-3 text-left">指導日</th>
-            <th class="px-4 py-3 text-left">在室時間</th>
+            <th class="px-4 py-3 text-left">在室した時間帯</th>
             <th class="px-4 py-3 text-left">休憩（分）</th>
+            <th class="px-4 py-3 text-left">在室時間</th>
             <th class="px-4 py-3 text-left">指導時間数</th>
             <th class="px-4 py-3 text-left">教科</th>
             <th class="px-4 py-3 text-left">状態</th>

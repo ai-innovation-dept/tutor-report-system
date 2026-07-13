@@ -85,6 +85,8 @@
   <div id="toastContainer" class="fixed right-4 top-4 z-[1200] space-y-2"></div>
 
   <script src="/static/js/auth.js"></script>
+  <!-- 指導時間の計算規約（在室時間・指導時間数15分切り捨て）の共通コア。全画面で共用 -->
+  <script src="/static/js/lesson_time.js"></script>
   <script>
     window.currentUser = {
       id: '{{ current_user.id }}',
@@ -158,28 +160,9 @@
       return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
     }
 
-    function navDurationLabel(minutes) {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      if (hours && mins) return `${hours}時間${mins}分`;
-      if (hours) return `${hours}時間`;
-      return `${mins}分`;
-    }
-
-    function navTimeText(value) {
-      return (value || '').slice(0, 5);
-    }
-
-    function navMinutesBetween(start, end) {
-      if (!start || !end) return 0;
-      const [sh, sm] = start.split(':').map(Number);
-      const [eh, em] = end.split(':').map(Number);
-      return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-    }
-
-    function navTeachingMinutes(report) {
-      return Math.max(0, navMinutesBetween(navTimeText(report.start_time), navTimeText(report.end_time)) - Number(report.break_minutes || 0));
-    }
+    // 指導時間数（在室時間の15分単位切り捨て）の計算は共通コア（/static/js/lesson_time.js）に委譲
+    function navDurationLabel(minutes) { return LessonTime.durationLabel(minutes); }
+    function navTeachingMinutes(report) { return LessonTime.teachingMinutes(report); }
 
     function navLink(href, label) {
       const active = isActiveNavLink(href);

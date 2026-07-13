@@ -16,6 +16,7 @@ from app.deps import get_current_user, get_report_for_user
 from app.models import Assignment, ChatMessage, ChatRead, LessonReport, Notification, ReportAction, ReportEvent, ReportStatus, User
 from app.schemas import GroupAdminEditIn, ReportCreate, ReportEventOut, ReportOut, ReportPatch
 from app.services.daily_report_pdf import build_daily_reports_pdf
+from app.services.lesson_time import teaching_minutes
 from app.services.monthly_report_pdf import build_monthly_reports_pdf
 from app.services.monthly_report_service import get_monthly_report
 from app.services.pdf_fonts import register_pdf_font
@@ -91,21 +92,6 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
         for event in events
     ]
     return out
-
-
-def _teaching_minutes(report: LessonReport) -> int:
-    start = report.start_time.hour * 60 + report.start_time.minute
-    end = report.end_time.hour * 60 + report.end_time.minute
-    return max(0, end - start - (report.break_minutes or 0))
-
-
-def _duration_label(minutes: int) -> str:
-    hours, mins = divmod(minutes, 60)
-    if hours and mins:
-        return f"{hours}時間{mins}分"
-    if hours:
-        return f"{hours}時間"
-    return f"{mins}分"
 
 
 def _latest(values) -> object | None:
@@ -277,7 +263,7 @@ def monthly_summary(tutor_id: UUID | None = None, target_month: str | None = Non
             {
                 "target_month": month,
                 "total_count": len(items),
-                "total_minutes": sum(_teaching_minutes(report) for report in items),
+                "total_minutes": sum(teaching_minutes(report) for report in items),
                 "phase": phase,
                 "submitted_to_parent_at": _latest(submitted_to_parent_dates),
                 "first_submitted_to_parent_at": _earliest(submitted_to_parent_dates),
@@ -514,9 +500,12 @@ _COMPANY_FOOTER = "株式会社イスト　〒151-0053　東京都渋谷区代�
 
 
 def _hours_label(minutes: int) -> str:
-    """指導時間数を0.5時間単位で表示（120分→「2」、150分→「2.5」）。"""
-    hours = round(minutes / 30) / 2
-    return str(int(hours)) if hours == int(hours) else f"{hours:.1f}"
+    """指導時間数を時間単位で表示（120分→「2」、150分→「2.5」、75分→「1.25」）。
+
+    指導時間数は在室時間の15分単位切り捨て（services/lesson_time.py）のため
+    0.25時間刻みの正確な値になる。四捨五入はしない。"""
+    text = f"{minutes / 60:.2f}".rstrip("0").rstrip(".")
+    return text or "0"
 
 
 def _room_period_label(report: LessonReport) -> str:
@@ -535,7 +524,7 @@ def _confirmation_grid_cells(no: int, report: LessonReport | None) -> list[str]:
         f"{report.lesson_date.month}/{report.lesson_date.day}",
         weekday,
         _room_period_label(report),
-        f"{_hours_label(_teaching_minutes(report))} 時間",
+        f"{_hours_label(teaching_minutes(report))} 時間",
     ]
 
 
@@ -645,7 +634,7 @@ def _build_reports_pdf(db: Session, reports: list[LessonReport], target_month: s
         tutor_no = tutor.user_no if tutor and tutor.user_no else ""
         member_no = parent.user_no if parent and parent.user_no else ""
         parent_name = parent.display_name if parent else ""
-        total_minutes = sum(_teaching_minutes(report) for report in items)
+        total_minutes = sum(teaching_minutes(report) for report in items)
 
         # ヘッダー：講師名 / 講師No. / 合計時間数
         header = Table(

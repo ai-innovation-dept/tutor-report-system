@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>指導実績報告書（参照）</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- 指導時間の計算規約（在室時間・指導時間数15分切り捨て）の共通コア -->
+  <script src="/static/js/lesson_time.js"></script>
 </head>
 <body class="bg-slate-100">
   <div class="mx-auto max-w-5xl p-4">
@@ -41,21 +43,10 @@
       if (!value) return '-';
       return `${value.slice(0, 4)}年${Number(value.slice(5, 7))}月分`;
     }
-    function minutesBetween(start, end) {
-      const [sh, sm] = start.split(':').map(Number);
-      const [eh, em] = end.split(':').map(Number);
-      return Math.max(0, (eh * 60 + em) - (sh * 60 + sm));
-    }
-    function teachingMinutes(report) {
-      return Math.max(0, minutesBetween(timeText(report.start_time), timeText(report.end_time)) - Number(report.break_minutes || 0));
-    }
-    function durationLabel(minutes) {
-      const hours = Math.floor(minutes / 60);
-      const mins = minutes % 60;
-      if (hours && mins) return `${hours}時間${mins}分`;
-      if (hours) return `${hours}時間`;
-      return `${mins}分`;
-    }
+    // 在室時間・指導時間数（15分単位切り捨て）の計算は共通コア（/static/js/lesson_time.js）に委譲
+    function presenceMinutes(report) { return LessonTime.presenceMinutes(report); }
+    function teachingMinutes(report) { return LessonTime.teachingMinutes(report); }
+    function durationLabel(minutes) { return LessonTime.durationLabel(minutes); }
     // 全ステータスを明示マッピング（未マッピングを「承認済み」と誤表示しないこと）
     const STATUS_BADGE = {
       draft: ['下書き', 'bg-slate-100 text-slate-600'],
@@ -161,10 +152,11 @@
         <td class="border border-slate-200 px-2 py-1">${dateLabel(report.lesson_date)}</td>
         <td class="border border-slate-200 px-2 py-1">${timeText(report.start_time)} ～ ${timeText(report.end_time)}</td>
         <td class="border border-slate-200 px-2 py-1 text-right">${Number(report.break_minutes || 0)}分</td>
+        <td class="border border-slate-200 px-2 py-1 text-right">${durationLabel(presenceMinutes(report))}</td>
         <td class="border border-slate-200 px-2 py-1 text-right">${durationLabel(teachingMinutes(report))}</td>
         <td class="border border-slate-200 px-2 py-1">${escapeHtml(report.subject || '')}</td>
         <td class="border border-slate-200 px-2 py-1">${statusBadge(report.status)}</td>
-      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="7">入力された指導日はありません。</td></tr>`;
+      </tr>`).join('') : `<tr><td class="border border-slate-200 px-2 py-3 text-center text-slate-400" colspan="8">入力された指導日はありません。</td></tr>`;
 
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
@@ -183,9 +175,10 @@
               <tr class="bg-slate-50 text-xs font-medium text-slate-600">
                 <th class="border border-slate-300 px-2 py-1">回</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">指導日</th>
-                <th class="border border-slate-300 px-2 py-1 text-left">在室時間</th>
+                <th class="border border-slate-300 px-2 py-1 text-left">在室した時間帯</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">休憩</th>
-                <th class="border border-slate-300 px-2 py-1 text-left">指導時間</th>
+                <th class="border border-slate-300 px-2 py-1 text-left">在室時間</th>
+                <th class="border border-slate-300 px-2 py-1 text-left">指導時間数</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">教科</th>
                 <th class="border border-slate-300 px-2 py-1 text-left">状態</th>
               </tr>
