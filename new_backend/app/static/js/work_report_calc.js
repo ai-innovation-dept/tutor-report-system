@@ -89,9 +89,30 @@
   function mainMinuteKeys(columns) {
     return timeMinuteKeys(columns).filter(key => MAIN_DUTY_FIELD_RE.test(key));
   }
-  // 副担当業務等（担当業務・休憩以外の分列＝副業務・採点の分）: コマ間の隙間を消費する時間
+  // 副担当業務等（担当業務・休憩以外の分列＝副業務・採点の分）
   function secondaryMinuteKeys(columns) {
     return timeMinuteKeys(columns).filter(key => key !== 'break_minutes' && !MAIN_DUTY_FIELD_RE.test(key));
+  }
+
+  // ===== 副担当の位置（コマ設定契約のみ・lines[].secondary_placement） =====
+  // 副担当業務等をいつ実施したかの選択。休憩時間（分）の自動計算の基準になる（202607161853）。
+  //   ''（既定）＝「コマ後」: 最終コマの後に実施。休憩＝コマ間の隙間のまま・終了時間が副担当の分だけ後ろへ延びる。
+  //   'gap'    ＝「コマ間」: コマ間の隙間で実施。休憩＝隙間−副担当業務等の合計（0未満は0・旧仕様の既定と同じ）。
+  const SECONDARY_PLACEMENT_GAP = 'gap';
+  const SECONDARY_PLACEMENT_OPTIONS = [
+    {value: '', label: 'コマ後'},
+    {value: SECONDARY_PLACEMENT_GAP, label: 'コマ間'}
+  ];
+  function secondaryPlacementIsGap(line) {
+    return String((line && line.secondary_placement) || '') === SECONDARY_PLACEMENT_GAP;
+  }
+  // 保存用の正規化: 他に記入が無い行の「コマ間」は既定（空）へ戻す。
+  // 位置の選択だけで行が「記入あり」扱いになり、未記入行判定・日付未入力ガードへ影響するのを防ぐ。
+  function normalizedSecondaryPlacement(line) {
+    if (!secondaryPlacementIsGap(line)) return '';
+    const hasOther = Object.entries(line).some(([key, value]) =>
+      key !== 'secondary_placement' && String(value ?? '').trim() !== '');
+    return hasOther ? SECONDARY_PLACEMENT_GAP : '';
   }
   function lineMinutesTotal(line, keys) {
     return keys.reduce((sum, key) => sum + numberValue(line[key]), 0);
@@ -232,7 +253,9 @@
     return 0;
   }
   // 休憩時間（分）の自動計算コア。
-  // recompute=true（担当時限・副担当業務の変更時）はコマ間の隙間から副担当合計を除いた残りで上書きし、
+  // recompute=true（担当時限・副担当業務・副担当の位置の変更時）はコマ間の隙間を基準に上書きする。
+  //   「コマ後」（既定）: 休憩＝コマ間の隙間（副担当業務等は最終コマの後に実施＝終了時間側で加算される）
+  //   「コマ間」        : 休憩＝コマ間の隙間−副担当業務等の合計（0未満は0）
   // 常に労基下限を下回らないよう引き上げる（手動修正は次の変更まで保持される）。
   // 戻り値 {value: 書き込む休憩の分（null=変更なし）, required: 下限へ引き上げた分数（0=引き上げなし）}
   function slotBreakDecision(slots, line, recompute, columns) {
@@ -242,7 +265,9 @@
     const required = requiredBreakMinutes(work);
     const metrics = slotSelectionMetrics(slots, line.subject_period);
     let value = null;
-    if (recompute && metrics.selected) value = Math.max(metrics.gapMinutes - secondary, 0);
+    if (recompute && metrics.selected) {
+      value = secondaryPlacementIsGap(line) ? Math.max(metrics.gapMinutes - secondary, 0) : metrics.gapMinutes;
+    }
     const current = value != null ? value : numberValue(line.break_minutes);
     if (current < required) return {value: required, required};
     return {value, required: 0};
@@ -250,6 +275,8 @@
   function breakBumpMessage(required) {
     return `実働が${required >= 60 ? 8 : 6}時間を超えるため、休憩時間（分）を${required}分に自動調整しました`;
   }
+  // コマ設定契約で終了時間が同日23:59を超える行の調整案内（講師フォーム・事務修正で共通の文言）
+  const SLOT_OVERFLOW_MESSAGE = '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らすか、「副担当の位置」を「コマ間」にして調整してください。';
 
   // ===== 保存時の検証補助 =====
   function findDuplicateLineDate(lines) {
@@ -270,14 +297,18 @@
       && Object.entries(line).some(([key, value]) => key !== 'date' && String(value ?? '').trim() !== ''));
   }
 
-  // ===== 入力ルールのヒント文言（担当時限・業務開始〜終了時間） =====
+  // ===== 入力ルールのヒント文言（担当時限・業務開始〜終了時間・副担当の位置） =====
   function subjectPeriodHintText(slots) {
     if (!slots) return '1〜10から担当した時限を選択します。選択したコマ数×50分が右隣の担当業務（分）へ、（コマ数−1）×10分が休憩時間（分）へ自動入力されます。自動入力後の分数は1分単位で修正できます（担当時限を選び直すと自動値で上書きされます）。';
-    return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択したコマのうち時刻がいちばん早いコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間から副担当業務等の分を除いた時間が自動入力されます（分は1分単位で修正できます。時限を選び直すと自動値で上書きされます）。`;
+    return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択したコマのうち時刻がいちばん早いコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間が自動入力されます。副担当業務等は既定で最終コマの後に実施する扱い（「副担当の位置」＝コマ後）で、「コマ間」に切り替えた行は休憩時間（分）＝隙間−副担当業務等の分になります（分は1分単位で修正できます。時限や副担当を変更すると自動値で上書きされます）。`;
   }
   function timeRangeHintText(slots) {
     if (!slots) return '業務開始〜終了時間は自動計算のため手動入力できません。開始は8:40固定、終了は担当時限より右の時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計を開始時間に加算した時刻です。往復交通費（円）・採点の回数は加算しません。';
-    return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択したコマのうち時刻がいちばん早いコマの開始時刻（時限未選択の行は時間割の最早開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
+    return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択したコマのうち時刻がいちばん早いコマの開始時刻（時限未選択の行は時間割の最早開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です（副担当業務等は既定で最終コマの後に実施する扱い＝「副担当の位置」で変更できます）。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
+  }
+  // 「副担当の位置」（コマ後/コマ間）セレクトの説明（3UI共通: 講師PC行・スマホシート・事務修正）
+  function secondaryPlacementHintText() {
+    return '副担当業務・採点など（担当業務・休憩時間以外の分）をいつ実施したかを選択します。「コマ後」（既定）＝最終コマの後に実施し、休憩時間（分）はコマ間の隙間のまま（終了時間が副担当の分だけ後ろへ延びます）。「コマ間」＝コマとコマの間の隙間で実施し、休憩時間（分）＝隙間−副担当業務等の分になります。切り替えると休憩時間（分）と業務開始〜終了時間が自動で再計算されます（分は1分単位で修正できます）。';
   }
 
   window.WorkReportCalc = {
@@ -286,10 +317,11 @@
     isLeaveKind, isNoMainDutyKind, numberValue, timeToMinutes, minutesToTime,
     weekdayParen, dateLabelJa, parseSubjectPeriods,
     timeMinuteKeys, periodAutoFillKey, mainMinuteKeys, secondaryMinuteKeys, lineMinutesTotal,
+    SECONDARY_PLACEMENT_GAP, SECONDARY_PLACEMENT_OPTIONS, secondaryPlacementIsGap, normalizedSecondaryPlacement,
     termLabel, contractTermCases, localTodayIso, activeTermCaseForMonth, termSlotsForMonth, periodAutoFillKeyForCase,
     computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
     slotTimeLabel, slotRangeLabel, slotScheduleText, slotDuration, selectedSlotNumbers, slotSelectionMetrics,
-    requiredBreakMinutes, slotBreakDecision, breakBumpMessage,
-    findDuplicateLineDate, findUndatedLineIndex, subjectPeriodHintText, timeRangeHintText
+    requiredBreakMinutes, slotBreakDecision, breakBumpMessage, SLOT_OVERFLOW_MESSAGE,
+    findDuplicateLineDate, findUndatedLineIndex, subjectPeriodHintText, timeRangeHintText, secondaryPlacementHintText
   };
 })();

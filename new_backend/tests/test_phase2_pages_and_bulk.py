@@ -107,14 +107,22 @@ class TestPhase2Pages:
         res = client.get("/tutor/reports")
         assert res.status_code == 200
         assert '/static/js/work_report_calc.js' in res.text
+        # コマ設定契約の「副担当の位置」（コマ後/コマ間）列（202607161853）: 講師フォーム（行＋シート）に組み込み済み
+        assert 'data-field="secondary_placement"' in res.text
+        assert 'data-sheet-field="secondary_placement"' in res.text
         _login(client, "p2-office@example.com")
         res = client.get("/office/queue")
         assert res.status_code == 200
         assert '/static/js/work_report_calc.js' in res.text
         assert 'id="officeEditSummary"' in res.text  # 修正モーダルの集計欄
+        # 事務修正モーダルも「副担当の位置」を講師フォームと同一仕様で持つ
+        assert 'data-field="secondary_placement"' in res.text
         static = client.get("/static/js/work_report_calc.js")
         assert static.status_code == 200
         assert "WorkReportCalc" in static.text
+        # 副担当の位置の計算ルール（コマ後＝隙間のまま/コマ間＝隙間−副担当）は共通コアに集約されている
+        assert "secondaryPlacementIsGap" in static.text
+        assert "normalizedSecondaryPlacement" in static.text
 
 
 class TestPhase2Api:

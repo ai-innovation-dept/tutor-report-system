@@ -697,6 +697,10 @@ function officeEditCells(columns) {
     if (col.key === 'subject_period') { cells.push({kind: 'period', col}); continue; }
     if (col.type === 'count_minutes') { cells.push({kind: 'count_minutes', col}); continue; }
     cells.push({kind: 'input', col});
+    // 休憩時間の直後に「副担当の位置」（コマ後/コマ間）列を差し込む（コマ設定契約かつ副担当業務等の列がある場合のみ・講師フォームと同一）
+    if (col.key === 'break_minutes' && officeEditSlots && Calc.secondaryMinuteKeys(columns).length) {
+      cells.push({kind: 'secondary_placement'});
+    }
   }
   return cells;
 }
@@ -707,6 +711,7 @@ function officeEditColWidth(cell) {
   if (cell.kind === 'kind') return 84;
   if (cell.kind === 'time_range') return 130;
   if (cell.kind === 'period') return 110;
+  if (cell.kind === 'secondary_placement') return 96;
   if (cell.kind === 'count_minutes') return 132;
   if (cell.kind === 'date') return 124;
   if (cell.col?.key === 'note') return 160;
@@ -718,6 +723,7 @@ function officeEditHeaderLabel(cell) {
   if (cell.kind === 'kind') return '種別';
   if (cell.kind === 'time_range') return '業務開始〜終了時間';
   if (cell.kind === 'period') return '担当時限';
+  if (cell.kind === 'secondary_placement') return '副担当の位置';
   return cell.col.label;
 }
 function oeEmptyLine(columns) {
@@ -771,6 +777,13 @@ function officeEditCellHtml(cell, index, line) {
       <span class="text-[10px] text-slate-500">分</span>
     </div>`;
   }
+  if (cell.kind === 'secondary_placement') {
+    // 副担当業務等の実施位置（コマ後＝既定/コマ間）。休憩時間（分）の自動計算の基準（講師フォームと同一）
+    const placement = line.secondary_placement || '';
+    const opts = Calc.SECONDARY_PLACEMENT_OPTIONS.map(o =>
+      `<option value="${o.value}"${o.value === placement ? ' selected' : ''}>${o.label}</option>`).join('');
+    return `<select data-field="secondary_placement" title="${escapeHtml(Calc.secondaryPlacementHintText())}" class="${OE_INPUT_CLASS}">${opts}</select>`;
+  }
   const col = cell.col;
   const isNumber = col.type === 'number';
   const type = isNumber ? 'number' : col.type === 'date' ? 'date' : col.type === 'time' ? 'time' : 'text';
@@ -817,7 +830,8 @@ function oeApplyRowKind(row) {
   }
   oeWorkControls(row).forEach(el => {
     const field = el.dataset.field;
-    el.disabled = leave || (noMainDuty && (Calc.MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+    // 副担当の位置は担当時限と連動する設定のため、時限が選択不可の種別では同様にロックする
+    el.disabled = leave || (noMainDuty && (Calc.MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period' || field === 'secondary_placement'));
   });
   row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = leave || noMainDuty; });
 }
@@ -852,7 +866,7 @@ function oeRecomputeRowTimes(row, notify = false) {
     display.classList.toggle('bg-slate-50', !overflow);
   }
   if (overflow && notify) oeShowPopup(display, slots
-    ? '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らして調整してください。'
+    ? Calc.SLOT_OVERFLOW_MESSAGE
     : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
 }
 function oeRefreshPeriodCell(cell) {
@@ -1105,6 +1119,16 @@ function bindOfficeEditEvents() {
       oeUpdateTotals();
     });
   });
+  // 「副担当の位置」（コマ後/コマ間）の切替: 休憩時間（分）を自動再計算し、業務開始〜終了時間・集計へ連動させる（講師フォームと同一）
+  body.querySelectorAll('select[data-field="secondary_placement"]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const row = sel.closest('tr');
+      const required = oeApplySlotBreakRules(row, true);
+      if (required) oeShowPopup(sel, Calc.breakBumpMessage(required));
+      oeRecomputeRowTimes(row, true);
+      oeUpdateTotals();
+    });
+  });
 }
 async function openOfficeEditModal(reportId) {
   const report = reportById(reportId);
@@ -1172,6 +1196,8 @@ function collectOfficeEditLines() {
       // 空欄は空のまま保持する（0埋めしない＝未記入行の判定・PDF/CSVの空欄表示と互換）
       line[key] = numericKeys.has(key) ? (input.value === '' ? '' : Number(input.value)) : input.value.trim();
     });
+    // 「副担当の位置」は他に記入が無い行では既定（空）へ戻す（未記入行判定・日付未入力ガードと互換）
+    if ('secondary_placement' in line) line.secondary_placement = Calc.normalizedSecondaryPlacement(line);
     return line;
   });
 }

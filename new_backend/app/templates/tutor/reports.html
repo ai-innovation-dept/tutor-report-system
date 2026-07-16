@@ -693,6 +693,10 @@ function renderLineHeader(form) {
       headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.key === 'note') {
       headers.push(`<th class="w-12 px-1 py-2 text-center">${columnHeaderHtml(column)}</th>`);
+    } else if (column.key === 'break_minutes' && secondaryPlacementEnabled()) {
+      headers.push(`<th class="w-20 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
+      // 休憩時間の直後に「副担当の位置」（コマ後/コマ間）列を差し込む（コマ設定契約のみ・種別列と同じUI専用列）
+      headers.push(`<th class="w-24 px-1 py-2 text-left">副担当の位置${fieldHintButtonHtml(WorkReportCalc.secondaryPlacementHintText(), '副担当の位置の説明を表示')}</th>`);
     } else if (column.type === 'count_minutes') {
       headers.push(`<th class="w-40 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
     } else if (column.type === 'number') {
@@ -778,6 +782,17 @@ function renderCell(column, line) {
       </div>
     </td>`;
   }
+  if (column.key === 'break_minutes' && secondaryPlacementEnabled()) {
+    // 休憩時間の右隣に「副担当の位置」（コマ後＝既定/コマ間）セルを差し込む（コマ設定契約のみ）。
+    // 値は行（lines[].secondary_placement）に持ち、休憩の自動計算（slotBreakDecision）が参照する。
+    const placement = line.secondary_placement || '';
+    const options = WorkReportCalc.SECONDARY_PLACEMENT_OPTIONS.map(item =>
+      `<option value="${item.value}"${item.value === placement ? ' selected' : ''}>${item.label}</option>`).join('');
+    return `<td class="px-1 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>
+    <td class="px-1 py-1">
+      <select data-field="secondary_placement" title="${escapeHtml(WorkReportCalc.secondaryPlacementHintText())}" class="line-placement-select h-9 w-full rounded border border-slate-300 px-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20">${options}</select>
+    </td>`;
+  }
   return `<td class="px-1 py-1"><input type="${inputType(column)}" data-field="${escapeHtml(column.key)}" ${inputAttributes(column)} value="${escapeHtml(line[column.key] || '')}" class="${inputClasses()}"></td>`;
 }
 function buildLineRows(lines) {
@@ -846,6 +861,16 @@ function buildLineRows(lines) {
       updateLineSummary();
     });
   });
+  // 「副担当の位置」（コマ後/コマ間）の切替: 休憩時間（分）を自動再計算し、業務開始〜終了時間・集計へ連動させる
+  lineRows.querySelectorAll('.line-placement-select').forEach(sel => {
+    sel.addEventListener('change', () => {
+      const row = sel.closest('tr');
+      const required = applySlotBreakRules(row, true);
+      if (required) showTimePopup(sel.closest('td'), breakBumpMessage(required));
+      recomputeRowTimes(row, true);
+      updateLineSummary();
+    });
+  });
   // 行の勤怠区分に応じて業務セルの活殺・背景色を初期反映する
   lineRows.querySelectorAll('tr').forEach(applyRowKind);
   updateLineSummary();
@@ -882,9 +907,10 @@ function applyRowKind(row) {
     if (periodCell) refreshPeriodCell(periodCell);
   }
   // フォーム全体が読取専用のとき（!formEditable）は setReportInputsDisabled の制御を尊重し、ここでも無効のまま
+  // （副担当の位置は担当時限と連動する設定のため、時限が選択不可の種別では同様にロックする）
   rowWorkControls(row).forEach(el => {
     const field = el.dataset.field;
-    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period' || field === 'secondary_placement'));
     el.disabled = lockedByKind || !formEditable;
   });
   row.querySelectorAll('[data-period-btn]').forEach(el => { el.disabled = leave || noMainDuty || !formEditable; });
@@ -1058,6 +1084,10 @@ function activeContractTermCase() {
 function contractPeriodSlots() {
   return termSlotsForMonth(contractForSchool(selectedSchoolId), selectedMonth);
 }
+// 「副担当の位置」（コマ後/コマ間）列は、コマ設定契約かつ副担当業務等（分）の列がある場合のみ表示する
+function secondaryPlacementEnabled() {
+  return Boolean(contractPeriodSlots()) && secondaryMinuteKeys().length > 0;
+}
 // 担当時限の自動入力先の担当業務列（適用期の task_minutes_N を優先。2列時代のスナップショット対策）
 function periodAutoFillTaskKey() {
   return periodAutoFillKeyForCase(activeColumnDefinition(), activeContractTermCase());
@@ -1113,7 +1143,7 @@ function recomputeRowTimes(row, notify = false) {
     display.classList.toggle('bg-slate-50', !overflow);
   }
   if (overflow && notify) showTimePopup(cell, slots
-    ? '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らして調整してください。'
+    ? WorkReportCalc.SLOT_OVERFLOW_MESSAGE
     : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
 }
 function recomputeAllRowTimes() {
@@ -1401,9 +1431,22 @@ function openLineSheet(index) {
   });
   parts.push(sheetGroupBox('担当業務', mainCols.map(column => sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('')));
   if (breakCol) parts.push(sheetSimpleField(breakCol, line[breakCol.key], disabledMap[breakCol.key]));
+  // 「副担当の位置」（コマ後/コマ間）: コマ設定契約のみ。明細行のセレクトと同じ値を読み書きする
+  let placementField = '';
+  if (secondaryPlacementEnabled() && row.querySelector('[data-field="secondary_placement"]')) {
+    const placement = line.secondary_placement || '';
+    const isGap = placement === WorkReportCalc.SECONDARY_PLACEMENT_GAP;
+    placementField = `<div>${sheetFieldLabel('副担当の位置')}
+      <select data-sheet-field="secondary_placement" ${disabledMap.secondary_placement ? 'disabled' : ''} class="${sheetInputClass('w-full')}">
+        <option value=""${isGap ? '' : ' selected'}>コマ後（最終コマの後に実施・既定）</option>
+        <option value="${WorkReportCalc.SECONDARY_PLACEMENT_GAP}"${isGap ? ' selected' : ''}>コマ間（コマの間に実施・休憩から充当）</option>
+      </select>
+      <p class="mt-1 text-[11px] leading-relaxed text-slate-400">切り替えると休憩時間（分）を自動で再計算します（コマ後＝コマ間の隙間のまま／コマ間＝隙間−副担当業務等の分）。</p>
+    </div>`;
+  }
   parts.push(sheetGroupBox('管理業務（副担当業務）', subCols.map(column => column.type === 'count_minutes'
     ? sheetCountMinutesField(column, line, disabledMap)
-    : sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('')));
+    : sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('') + placementField));
   // 業務開始〜終了時間（自動計算・読取専用）
   parts.push(`<div>${sheetFieldLabel('業務開始〜終了時間（自動計算）')}
     <div data-sheet-time title="${escapeHtml(timeRangeHint())}" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-base text-slate-400">自動計算</div>
@@ -1481,7 +1524,7 @@ function applySheetKind() {
     const field = el.dataset.sheetField;
     if (leave) el.value = '';
     else if (noMainDuty && MAIN_DUTY_FIELD_RE.test(field)) el.value = '0';
-    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period'));
+    const lockedByKind = leave || (noMainDuty && (MAIN_DUTY_FIELD_RE.test(field) || field === 'subject_period' || field === 'secondary_placement'));
     el.disabled = lockedByKind || !formEditable;
   });
   if (leave || noMainDuty) {
@@ -1566,6 +1609,15 @@ function bindSheetEvents(body) {
       });
     }
   });
+  // 「副担当の位置」（コマ後/コマ間）の切替: 休憩時間（分）を自動再計算する（明細行と同一ルール）
+  const placementSelect = body.querySelector('select[data-sheet-field="secondary_placement"]');
+  if (placementSelect) {
+    placementSelect.addEventListener('change', () => {
+      const required = applySheetSlotBreakRules(true);
+      if (required) showSheetError(breakBumpMessage(required)); else hideSheetError();
+      recomputeSheetTime();
+    });
+  }
 }
 // 担当時限のトグル1回分（選択の反映＋自動入力）。ボタン組み直し後も同じ処理を共有する。
 function sheetTogglePeriod(n) {
@@ -1654,6 +1706,8 @@ function collectLines() {
         line[key] = input.value.trim();
       }
     });
+    // 「副担当の位置」は他に記入が無い行では既定（空）へ戻す（未記入行判定・日付未入力ガードと互換）
+    if ('secondary_placement' in line) line.secondary_placement = WorkReportCalc.normalizedSecondaryPlacement(line);
     return line;
   });
 }
