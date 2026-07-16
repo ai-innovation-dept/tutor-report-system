@@ -3,7 +3,7 @@
 列構成（左→右）:
   固定（先頭）: 日付 / 業務開始時間 / 業務終了時間 / 担当時限
     ※「回数」「曜日」はフロントが自動生成するためデータ列には含めない
-  動的: 担当業務（前期/後期のうち対象月の適用期間に該当する期のみ・通常1列）
+  動的: 担当業務（前期/後期のうち入力タイミング＝今日基準で適用中の期の1列のみ）
         → サブ業務①〜⑤（登録があるもののみ）。常に「業務名（分）」1列（数値入力）
         採点（専用欄・scoring_enabled=True のときのみ）。「採点（回）」1列。
         1セルに「回」「分」の2入力を併記（type='count_minutes'。回数＋分数固定）
@@ -11,8 +11,10 @@
 データキー: 担当業務=task_minutes_N（N=1:前期 / 2:後期。旧来と互換）、サブ=sub_minutes_N。
 """
 import calendar
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
+from app.core.config import settings
 from app.models.work import WorkAssignmentProfile
 
 _LEADING_COLUMNS = (
@@ -48,29 +50,42 @@ def _parse_date(value) -> date | None:
         return None
 
 
-def term_case_for_index(profile: WorkAssignmentProfile, index: int) -> dict | None:
-    """担当業務（task_index=index）の期別設定ケースを返す（旧データの task_index 無しは前期扱い）。"""
+def _today_jst() -> date:
+    return datetime.now(ZoneInfo(settings.TIMEZONE)).date()
+
+
+def active_term_case(profile: WorkAssignmentProfile, target_month: str | None, today: date | None = None) -> dict | None:
+    """対象月の報告書に適用する期別ケース（前期/後期）を**1つだけ**返す（該当なしは None）。
+
+    基準日＝入力タイミング（今日JST）。対象月外の月（過去月の差戻し編集・事務修正など）は
+    今日を対象月内へクランプした日（＝過去月なら月末時点）で判定する。
+    解決順: 基準日を含む期 → 対象月と重なる期（適用開始日順）。
+    適用期間（開始・終了）を持つ新形式のケースのみが対象で、期間なしの旧ケースしか無い契約は
+    None（列・コマ設定とも従来動作へフォールバック）。クライアント（work_report_calc.js の
+    activeTermCaseForMonth）と同一ルール。
+    """
+    dated_cases: list[tuple[date, date, dict]] = []
     for case in profile.workload_cases or []:
-        if isinstance(case, dict) and int(case.get("task_index") or 1) == index:
-            return case
-    return None
-
-
-def case_covers_month(case: dict | None, target_month: str | None) -> bool:
-    """ケースの適用期間が対象月と重なるか。期間未設定（旧データ）・月不明は常に適用扱い。"""
-    if case is None:
-        return True
+        if not isinstance(case, dict):
+            continue
+        start, end = _parse_date(case.get("start_date")), _parse_date(case.get("end_date"))
+        if start and end:
+            dated_cases.append((start, end, case))
+    if not dated_cases:
+        return None
+    dated_cases.sort(key=lambda item: (item[0], int(item[2].get("task_index") or 1)))
+    today = today or _today_jst()
     bounds = month_bounds(target_month)
-    if bounds is None:
-        return True
-    month_start, month_end = bounds
-    start = _parse_date(case.get("start_date"))
-    end = _parse_date(case.get("end_date"))
-    if start and start > month_end:
-        return False
-    if end and end < month_start:
-        return False
-    return True
+    ref = today if bounds is None else min(max(today, bounds[0]), bounds[1])
+    for start, end, case in dated_cases:
+        if start <= ref <= end:
+            return case
+    if bounds is not None:
+        month_start, month_end = bounds
+        for start, end, case in dated_cases:
+            if start <= month_end and end >= month_start:
+                return case
+    return None
 
 
 def _task_column(profile: WorkAssignmentProfile, prefix: str, key_format: str, index: int) -> dict | None:
@@ -86,22 +101,24 @@ def _task_column(profile: WorkAssignmentProfile, prefix: str, key_format: str, i
 
 
 def _main_task_columns(profile: WorkAssignmentProfile, target_month: str | None) -> list[dict]:
-    """担当業務（前期/後期）のうち、対象月の適用期間に該当する期の列のみ生成する。
+    """担当業務（前期/後期）のうち、対象月の報告書に適用する期の**1列のみ**生成する。
 
-    通常の月は1列。期の切替が月の途中にある場合は両期の列（行の日付で使い分ける）。
-    どの期にも該当しない月（期間の隙間・旧データ）は、入力不能にならないよう
-    登録済みの担当業務すべての列にフォールバックする。
+    適用期は入力タイミング（今日）基準で解決するため、期の切替が月の途中にある月でも常に1列
+    （active_term_case 参照）。該当期が無い月（期間の隙間）・期の業務名が未登録・旧データ
+    （期間なし）は、入力不能にならないよう登録済みの担当業務すべての列にフォールバックする。
     """
     all_columns: list[tuple[int, dict]] = []
     for index in range(1, MAX_MAIN_TASKS + 1):
         column = _task_column(profile, "", "task_minutes_{index}", index)
         if column is not None:
             all_columns.append((index, column))
-    active = [
-        column for index, column in all_columns
-        if case_covers_month(term_case_for_index(profile, index), target_month)
-    ]
-    return active if active else [column for _, column in all_columns]
+    case = active_term_case(profile, target_month)
+    if case is not None:
+        active_index = int(case.get("task_index") or 1)
+        column = next((column for index, column in all_columns if index == active_index), None)
+        if column is not None:
+            return [column]
+    return [column for _, column in all_columns]
 
 
 def _sub_task_columns(profile: WorkAssignmentProfile) -> list[dict]:

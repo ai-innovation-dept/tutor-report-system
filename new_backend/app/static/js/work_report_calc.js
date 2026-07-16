@@ -129,8 +129,9 @@
 
   // ===== 契約の前期/後期（期別設定）の解決 =====
   // 契約の workload_cases（[{task_index:1|2, start_date, end_date, slots:[{start,end}...], ...}]）から
-  // 行の日付（無ければ対象月）に応じて適用中の期を解決する。task_index 1=前期 / 2=後期。
-  // 旧形式（期間なしケース・契約単位の period_slots）は従来どおりのフォールバックで互換を保つ。
+  // 「入力タイミング＝今日」を基準に適用中の期を1つだけ解決する（task_index 1=前期 / 2=後期）。
+  // 過去月の報告書（差戻し編集・事務修正）は今日を対象月内へクランプした日（＝月末時点の期）で解決する。
+  // 旧形式（適用期間なしのケース・契約単位の period_slots）は従来どおりのフォールバックで互換を保つ。
   function termLabel(taskIndex) {
     return Number(taskIndex) === 1 ? '【前期】' : Number(taskIndex) === 2 ? '【後期】' : '';
   }
@@ -149,26 +150,41 @@
     // YYYY-MM-DD の文字列比較で判定（"-31"は月末超えでも比較上は月内日付を包含できる）
     return (!c.start_date || c.start_date <= `${month}-31`) && (!c.end_date || c.end_date >= `${month}-01`);
   }
-  // 行の日付 → 対象月の順で適用中の期ケースを解決する（該当なしは null）
-  function activeTermCase(contract, dateStr, month) {
-    const cases = contractTermCases(contract);
-    if (!cases.length) return null;
-    if (dateStr) {
-      const byDate = cases.find(c => caseContainsDate(c, dateStr));
-      if (byDate) return byDate;
-    }
-    return cases.find(c => caseOverlapsMonth(c, month)) || null;
+  // 端末ローカルの今日（YYYY-MM-DD）
+  function localTodayIso() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
-  // 適用中のコマ設定を解決する（期のコマ設定 → 旧形式の契約単位 period_slots の順）。無ければ null。
-  function termSlotsForContext(contract, dateStr, month) {
+  // 期判定の基準日＝入力タイミング（今日）。対象月外の月（過去月の差戻し編集など）は月内へクランプする。
+  function termReferenceDate(month, todayStr) {
+    const today = todayStr || localTodayIso();
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month || ''))) return today;
+    const [y, m] = String(month).split('-').map(Number);
+    const monthStart = `${month}-01`;
+    const monthEnd = `${month}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}`;
+    return today < monthStart ? monthStart : (today > monthEnd ? monthEnd : today);
+  }
+  // 対象月の報告書に適用する期ケースを1つだけ解決する（該当なしは null）。
+  // 基準日を含む期 → 対象月と重なる期（開始日順）の順。適用期間を持つ新形式のケースのみが対象で、
+  // 期間なしの旧ケースしか無い契約は null（列・コマ設定とも従来動作へフォールバック）。
+  function activeTermCaseForMonth(contract, month, todayStr) {
+    const cases = contractTermCases(contract).filter(c => c.start_date && c.end_date);
+    if (!cases.length) return null;
+    const ref = termReferenceDate(month, todayStr);
+    return cases.find(c => caseContainsDate(c, ref))
+      || cases.find(c => caseOverlapsMonth(c, month))
+      || null;
+  }
+  // 対象月の報告書に適用するコマ設定（適用期の slots → 旧形式の契約単位 period_slots の順）。無ければ null。
+  function termSlotsForMonth(contract, month, todayStr) {
     if (!contract) return null;
-    const activeCase = activeTermCase(contract, dateStr, month);
+    const activeCase = activeTermCaseForMonth(contract, month, todayStr);
     if (activeCase && Array.isArray(activeCase.slots) && activeCase.slots.length) return activeCase.slots;
     const legacy = contract.period_slots;
     return (Array.isArray(legacy) && legacy.length) ? legacy : null;
   }
-  // 担当時限の自動入力先。期の切替が月の途中にある場合（両期の列が並ぶ月）は、
-  // 行の日付の期に対応する task_minutes_{task_index} 列を優先する。
+  // 担当時限の自動入力先。適用期に対応する task_minutes_{task_index} 列があれば優先する
+  // （2列時代のスナップショットを持つ報告書でも正しい期の列へ入力するため）。無ければ右隣ルール。
   function periodAutoFillKeyForCase(columns, activeCase) {
     if (activeCase && activeCase.task_index) {
       const key = `task_minutes_${activeCase.task_index}`;
@@ -259,7 +275,7 @@
     isLeaveKind, isNoMainDutyKind, numberValue, timeToMinutes, minutesToTime,
     weekdayParen, dateLabelJa, parseSubjectPeriods,
     timeMinuteKeys, periodAutoFillKey, mainMinuteKeys, secondaryMinuteKeys, lineMinutesTotal,
-    termLabel, contractTermCases, activeTermCase, termSlotsForContext, periodAutoFillKeyForCase,
+    termLabel, contractTermCases, localTodayIso, activeTermCaseForMonth, termSlotsForMonth, periodAutoFillKeyForCase,
     computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
     slotTimeLabel, slotRangeLabel, slotScheduleText, slotDuration, selectedSlotNumbers, slotSelectionMetrics,
     requiredBreakMinutes, slotBreakDecision, breakBumpMessage,

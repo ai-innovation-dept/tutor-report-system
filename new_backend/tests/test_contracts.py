@@ -74,12 +74,18 @@ def _default_cases():
     ]
 
 
-def _split_cases():
-    """期の切替が当月の途中（15日/16日）にあるケース（当月は前期・後期の両方に重なる）。"""
+def _switch_cases(second_starts_today: bool):
+    """期の切替が当月の途中にあるケース。
+
+    second_starts_today=True: 後期が今日から始まる（今日＝後期）
+    second_starts_today=False: 前期が今日で終わる（今日＝前期）
+    いずれも当月は前期・後期の両方に重なるが、列・コマ設定は入力タイミング（今日）の期のみ適用される。
+    """
+    boundary = _TODAY if second_starts_today else _TODAY + timedelta(days=1)
     return [
         {"task_index": 1, "monthly_minutes": 600, "weekly_lessons": 3,
-         "start_date": _PAST, "end_date": _TODAY.replace(day=15).isoformat()},
-        {"task_index": 2, "start_date": _TODAY.replace(day=16).isoformat(), "end_date": _FUTURE},
+         "start_date": _PAST, "end_date": (boundary - timedelta(days=1)).isoformat()},
+        {"task_index": 2, "start_date": boundary.isoformat(), "end_date": _FUTURE},
     ]
 
 
@@ -395,7 +401,10 @@ class TestContractForTutor:
         assert "task_minutes_1" in keys
 
     def test_for_tutor_term_columns_by_month(self, client, db, setup):
-        """列定義は対象月の適用期間に該当する期の担当業務のみを含む。"""
+        """列定義は対象月の報告書に適用する期の担当業務**1列のみ**を含む。
+
+        基準日＝今日を対象月内へクランプした日（過去月は月末・未来月は月初時点の期）。
+        """
         self._create(
             client, setup,
             tasks=[
@@ -418,19 +427,34 @@ class TestContractForTutor:
         # どの期にも該当しない月は入力不能にならないよう全担当業務へフォールバック
         assert keys_for("2027-06") == ["task_minutes_1", "task_minutes_2"]
 
-    def test_for_tutor_split_month_shows_both_terms(self, client, db, setup):
-        """期の切替が月の途中にある月は前期・後期の両列を返す（行の日付で使い分ける）。"""
-        self._create(
-            client, setup,
-            tasks=[
-                {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
-                {"task_name": "数学指導（後期）", "task_id": "T2", "contract_id": "C2"},
-            ],
-            workload_cases=_split_cases(),
+    def test_for_tutor_switch_month_uses_term_at_today(self, client, db, setup):
+        """期の切替が月の途中にある月でも、入力タイミング（今日）の期の1列のみ返す。"""
+        tasks = [
+            {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
+            {"task_name": "数学指導（後期）", "task_id": "T2", "contract_id": "C2"},
+        ]
+        headers = _auth(client, "tutor@x.example.com")
+        admin = _auth(client, "master@x.example.com")
+
+        def keys_now():
+            entry = client.get("/api/w/contracts/for-tutor", headers=headers).json()[0]
+            return [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
+
+        # 今日から後期 → 後期の1列
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup, tasks=tasks, workload_cases=_switch_cases(second_starts_today=True)),
+            headers=admin,
         )
-        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
-        keys = [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
-        assert keys == ["task_minutes_1", "task_minutes_2"]
+        assert created.status_code == 201, created.text
+        assert keys_now() == ["task_minutes_2"]
+        # 今日まで前期（後期は明日から）へ更新 → 前期の1列
+        patched = client.patch(
+            f"/api/w/contracts/{created.json()['id']}",
+            json={"tasks": tasks, "workload_cases": _switch_cases(second_starts_today=False)},
+            headers=admin,
+        )
+        assert patched.status_code == 200, patched.text
+        assert keys_now() == ["task_minutes_1"]
 
     def test_for_tutor_term_slots_roundtrip(self, client, db, setup):
         """期別のコマ設定（workload_cases[].slots）が講師向けAPIへ返ること。"""
@@ -478,21 +502,21 @@ class TestMainSubTasks:
         assert [t["task_name"] for t in body["sub_tasks"]] == ["c", "d", "e"]
 
     def test_column_order_main_then_sub(self, client, db, setup):
-        """報告書の列は担当（前期・後期）→サブ①②③の順（例: 回数,日付,時間,担当時限,a,b,c,d,e,後は同じ）。
+        """報告書の列は担当（適用期の1列）→サブ①②③の順（例: 回数,日付,時間,担当時限,a,c,d,e,後は同じ）。
 
-        当月に両期の列が並ぶよう、期の切替が月の途中にあるケースを使う。
+        既定ケースでは今日＝前期のため、担当業務は前期（a）の1列のみ。
         """
-        assert self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB, workload_cases=_split_cases()).status_code == 201
+        assert self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB).status_code == 201
         entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
         keys = [c["key"] for c in entry["column_definition"]]
         assert keys == [
             "date", "start", "end", "subject_period",
-            "task_minutes_1", "task_minutes_2",
+            "task_minutes_1",
             "sub_minutes_1", "sub_minutes_2", "sub_minutes_3",
             "break_minutes", "commute_fee", "note",
         ]
-        labels = [c["label"] for c in entry["column_definition"][4:9]]
-        assert labels == ["a（分）", "b（分）", "c（分）", "d（分）", "e（分）"]
+        labels = [c["label"] for c in entry["column_definition"][4:8]]
+        assert labels == ["a（分）", "c（分）", "d（分）", "e（分）"]
         sub1 = next(c for c in entry["column_definition"] if c["key"] == "sub_minutes_1")
         assert sub1["task_id"] == "c"
         assert sub1["contract_id"] == "c"
