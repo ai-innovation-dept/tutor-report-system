@@ -56,12 +56,17 @@ class ContractPeriodSlot(BaseModel):
 
 
 def _validate_slot_list(value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
-    """コマ設定リストの共通検証（最大数・前のコマとの重なり）。契約単位・期単位で共用。"""
+    """コマ設定リストの共通検証（最大数・コマ同士の重なり）。契約単位・期単位で共用。
+
+    コマ番号は時間順でなくてもよい（例: ⑤に①より早い朝の時間帯を追加できる）。
+    どの2コマも時間帯が重ならないことのみ検証する。
+    """
     if len(value) > MAX_PERIOD_SLOTS:
         raise ValueError(f"コマ設定は最大{MAX_PERIOD_SLOTS}コマです")
-    for index in range(1, len(value)):
-        if value[index].start < value[index - 1].end:
-            raise ValueError(f"コマ{index + 1}が前のコマと時間が重なっています")
+    for i in range(len(value)):
+        for j in range(i):
+            if value[i].start < value[j].end and value[j].start < value[i].end:
+                raise ValueError(f"コマ{i + 1}がコマ{j + 1}と時間が重なっています")
     return value
 
 

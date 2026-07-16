@@ -1043,6 +1043,35 @@ class TestPeriodSlots:
         )
         assert res.status_code == 422
 
+    def test_slots_number_order_independent(self, client, db, setup):
+        # ⑤に①〜④より早い朝の時間帯を設定できる（コマ番号は時間順でなくてもよい）
+        slots = self.SLOTS + [{"start": "07:30", "end": "08:20"}]
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=slots),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["period_slots"] == slots
+        # 期別コマ設定（workload_cases[].slots）でも同様
+        cases = _default_cases()
+        cases[1]["slots"] = slots
+        patched = client.patch(
+            f"/api/w/contracts/{res.json()['id']}", json={"workload_cases": cases},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["workload_cases"][1]["slots"] == slots
+
+    def test_slots_nonadjacent_overlap_rejected(self, client, db, setup):
+        # 直前のコマとは重ならなくても、離れた番号のコマと重なる時間帯は不可（⑤が①と重なる例）
+        slots = self.SLOTS + [{"start": "08:00", "end": "08:40"}]
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, period_slots=slots),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+        assert "コマ5がコマ1と時間が重なっています" in res.text
+
     def test_max_10_slots(self, client, db, setup):
         slots = [{"start": f"{8 + i:02d}:00", "end": f"{8 + i:02d}:50"} for i in range(11)]
         res = client.post(

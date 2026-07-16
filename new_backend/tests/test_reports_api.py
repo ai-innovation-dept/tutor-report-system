@@ -852,3 +852,83 @@ class TestContractRequiredAndLocked:
         )
         assert patch.status_code == 200, patch.text
         assert patch.json()["form_data"]["meta"]["task_reference"] == snapshot
+
+
+# ---------------------------------------------------------------------------
+# 日付未入力（記入あり行）の提出ガード
+# ---------------------------------------------------------------------------
+
+class TestUndatedLineSubmitGuard:
+    """記入があるのに日付が未入力の行を含む報告書は提出できない（下書き保存は許容）。"""
+
+    def _create(self, client, users, lines, target_month="2026-06"):
+        res = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(users["assignment"].id), "target_month": target_month,
+                  "form_type": "monthly_dispatch", "form_data": {"lines": lines, "meta": {}}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert res.status_code == 201, res.text
+        return res.json()["id"]
+
+    def _submit(self, client, report_id):
+        return client.post(
+            f"/api/w/reports/{report_id}/action", json={"action": "submit"},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+
+    def test_submit_blocked_when_line_has_data_without_date(self, client, users):
+        # 下書き保存（作成）は許容されるが、提出は422でブロックされ下書きのまま
+        report_id = self._create(client, users, [
+            {"date": "2026-06-01", "teach_minutes": 60},
+            {"teach_minutes": 30, "note": "日付を入れ忘れた行"},
+        ])
+        res = self._submit(client, report_id)
+        assert res.status_code == 422, res.text
+        assert "2回目" in res.json()["detail"]
+        assert "日付が未入力" in res.json()["detail"]
+        got = client.get(f"/api/w/reports/{report_id}", headers=_auth(client, "tutor@work.example.com"))
+        assert got.json()["status"] == WorkStatus.DRAFT
+
+    def test_submit_ok_when_blank_rows_only(self, client, users):
+        # 全項目未入力の空欄行は対象外（提出できる）
+        report_id = self._create(client, users, [
+            {"date": "2026-06-01", "teach_minutes": 60},
+            {"date": "", "teach_minutes": "", "note": ""},
+        ])
+        res = self._submit(client, report_id)
+        assert res.status_code == 200, res.text
+        assert res.json()["status"] == WorkStatus.AWAITING_SCHOOL
+
+    def test_bulk_submit_skips_undated_report(self, client, users):
+        good = self._create(client, users, [{"date": "2026-06-01", "teach_minutes": 60}], target_month="2026-06")
+        bad = self._create(client, users, [{"teach_minutes": 30}], target_month="2026-07")
+        res = client.post(
+            "/api/w/reports/bulk-action",
+            json={"action": "submit", "report_ids": [good, bad]},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["processed"] == 1
+        assert body["skipped"] == 1
+        assert str(bad) in [str(x) for x in body["skip_ids"]]
+
+    def test_office_edit_rejects_undated_line(self, client, users):
+        # 提出済みの報告書への事務修正でも、記入があるのに日付が無い行は保存不可
+        report_id = self._create(client, users, [{"date": "2026-06-01", "teach_minutes": 60}])
+        assert self._submit(client, report_id).status_code == 200
+        assert client.post(
+            f"/api/w/reports/{report_id}/action", json={"action": "approve"},
+            headers=_auth(client, "school@work.example.com"),
+        ).status_code == 200  # awaiting_office へ
+        res = client.patch(
+            f"/api/w/reports/{report_id}/office-edit",
+            json={"form_data": {"lines": [
+                {"date": "2026-06-01", "teach_minutes": 60},
+                {"teach_minutes": 30},
+            ], "meta": {}}},
+            headers=_auth(client, "office@work.example.com"),
+        )
+        assert res.status_code == 422, res.text
+        assert "日付が未入力" in res.json()["detail"]

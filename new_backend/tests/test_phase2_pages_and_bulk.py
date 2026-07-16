@@ -53,7 +53,7 @@ def _create_report(client, users, month="2026-06"):
             "assignment_id": str(users["assignment"].id),
             "target_month": month,
             "form_type": "monthly_dispatch",
-            "form_data": {"lines": [{"teach_minutes": 90, "break_minutes": 10, "commute_fee": 700}]},
+            "form_data": {"lines": [{"date": f"{month}-01", "teach_minutes": 90, "break_minutes": 10, "commute_fee": 700}]},
         },
         headers=_login(client, "p2-tutor@example.com"),
     )

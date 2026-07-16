@@ -1179,6 +1179,9 @@ function collectOfficeEditLines() {
 function validateOfficeEditLines(lines) {
   if (!lines.some(oeLineHasData)) return '少なくとも1行入力してください';
   if (lines.some(line => line.kind && !line.date)) return '種別（有給休暇・欠勤・自己都合・学校行事）を選択した行は日付を入力してください';
+  // 提出済みの報告書を扱うため、記入があるのに日付が未入力の行は保存不可（講師の提出ガードと同一ルール）
+  const undated = Calc.findUndatedLineIndex(lines);
+  if (undated !== -1) return `${undated + 1}回目：日付が未入力の行があります。日付を入力してください。`;
   const invalidPeriod = lines.some(line => Calc.parseSubjectPeriods(line.subject_period).some(p => {
     const n = Number(p);
     return !Number.isInteger(n) || n < 1 || n > 10;

@@ -77,7 +77,12 @@
 
   async function submitReport() {
     if (!confirm('学校へ提出します。よろしいですか？')) return;
-    await api(`/api/w/reports/${reportId}/action`, {method: 'POST', body: JSON.stringify({action: 'submit'})});
+    try {
+      await api(`/api/w/reports/${reportId}/action`, {method: 'POST', body: JSON.stringify({action: 'submit'})});
+    } catch (error) {
+      showToast(error.message || '提出できませんでした', 'error');
+      return;
+    }
     showToast('提出しました', 'success');
     await loadReport();
   }

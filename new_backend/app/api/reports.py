@@ -205,6 +205,34 @@ def _assert_no_duplicate_line_dates(form_data: dict) -> None:
         seen.add(value)
 
 
+def _undated_line_number(form_data: dict) -> int | None:
+    """記入があるのに日付が未入力の明細行の行番号（1はじまり。無ければ None）。
+
+    下書き保存では日付未入力の書きかけ行を許容し、提出（submit）・事務修正の確定時に
+    ブロックする。空欄行（全項目未入力）は対象外。フロント側の
+    work_report_calc.findUndatedLineIndex と同一ルール。
+    """
+    if not isinstance(form_data, dict):
+        return None
+    lines = form_data.get("lines")
+    if not isinstance(lines, list):
+        return None
+    for number, line in enumerate(lines, start=1):
+        if not isinstance(line, dict):
+            continue
+        if str(line.get("date") or "").strip():
+            continue
+        if any(str(value if value is not None else "").strip() for key, value in line.items() if key != "date"):
+            return number
+    return None
+
+
+def _assert_no_undated_lines(form_data: dict, detail_suffix: str) -> None:
+    number = _undated_line_number(form_data)
+    if number is not None:
+        raise HTTPException(status_code=422, detail=f"{number}回目：日付が未入力の行があります。{detail_suffix}")
+
+
 @router.post("", response_model=ReportOut, status_code=201)
 def create(
     payload: ReportCreate,
@@ -335,6 +363,8 @@ async def bulk_action(
             report is None
             or (payload.target_month and report.target_month != payload.target_month)
             or not _report_in_role_scope(db, report, user, actor_role)
+            # 日付未入力の記入行を含む報告書は提出しない（単票の提出ガードと同一ルール）
+            or (payload.action == WorkAction.SUBMIT and _undated_line_number(report.form_data or {}) is not None)
         ):
             skip_ids.append(report_id)
             continue
@@ -565,6 +595,9 @@ async def office_edit_report(
     勤怠区分（有給休暇・欠勤）の取得回数・欠勤回数の管理にも用いる。
     """
     report = get_report_or_404(db, report_id)
+    _assert_no_duplicate_line_dates(payload.form_data)
+    # 提出済みの報告書を扱うため、記入があるのに日付が未入力の行は保存不可（提出ガードと同一ルール）
+    _assert_no_undated_lines(payload.form_data, "日付を入力してください。")
     from_status = report.status
     # 修正前の内容を退避し、適用後に差分（修正前→修正後）を算出する
     old_form_data = copy.deepcopy(report.form_data or {})
@@ -623,6 +656,9 @@ async def workflow_action(
 ):
     report = get_report_or_404(db, report_id)
     notify_action = payload.action
+    # 記入があるのに日付が未入力の行を含む報告書は提出できない（下書き保存は許容・提出時にブロック）
+    if payload.action == WorkAction.SUBMIT:
+        _assert_no_undated_lines(report.form_data or {}, "日付を入力してから提出してください。")
     try:
         actor_role = _resolve_actor_role(user, active_role, payload.actor_role)
         if not _report_in_role_scope(db, report, user, actor_role):

@@ -592,11 +592,16 @@ async function submitToParentGroup(assignmentId) {
   // リマインド設定は講師では行わない（運営の進捗パイプラインで設定する）
   const ids = reportIdsForParentSubmit(group);
   if (!(await confirmSubmitGroup(group, ids))) return;
-  for (const id of ids) {
-    await api(`/api/w/reports/${id}/action`, {
-      method: 'POST',
-      body: JSON.stringify({action: 'submit'})
-    });
+  try {
+    for (const id of ids) {
+      await api(`/api/w/reports/${id}/action`, {
+        method: 'POST',
+        body: JSON.stringify({action: 'submit'})
+      });
+    }
+  } catch (error) {
+    // 日付未入力の行がある等、サーバ側の提出ガードの理由を表示する（報告書一覧で修正できる）
+    showToast(error.message || '承認依頼できませんでした', 'error');
   }
   await loadApproval();
 }
@@ -604,11 +609,15 @@ async function resendReturnedReports(assignmentId) {
   const group = groups.find(item => item.assignment_id === assignmentId);
   const ids = returnedReportIds(group);
   if (!(await confirmSubmitGroup(group, ids))) return;
-  for (const id of ids) {
-    await api(`/api/w/reports/${id}/action`, {
-      method: 'POST',
-      body: JSON.stringify({action: 'submit'})
-    });
+  try {
+    for (const id of ids) {
+      await api(`/api/w/reports/${id}/action`, {
+        method: 'POST',
+        body: JSON.stringify({action: 'submit'})
+      });
+    }
+  } catch (error) {
+    showToast(error.message || '再提出できませんでした', 'error');
   }
   await loadApproval();
 }

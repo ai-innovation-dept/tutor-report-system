@@ -208,18 +208,22 @@
       .filter(n => Number.isInteger(n) && n >= 1 && n <= slots.length)
       .sort((a, b) => a - b);
   }
-  // コマ選択から導く自動値。startMinutes＝最初の選択コマの開始（未選択の行はコマ①の開始）、
+  // コマ選択から導く自動値。startMinutes＝時刻がいちばん早い選択コマの開始（未選択の行は全コマ中の最早開始）、
   // taskMinutes＝選択コマの実時間の合計、gapMinutes＝選択コマ間の隙間（休憩・副担当業務へ割当可能）。
+  // コマ番号は時間順とは限らない（例: ⑤が①より早い朝コマ）ため、選択コマを開始時刻順に並べ替えて計算する。
   function slotSelectionMetrics(slots, subjectPeriod) {
     const picked = selectedSlotNumbers(slots, subjectPeriod);
-    if (!picked.length) return {selected: false, startMinutes: timeToMinutes(slots[0].start), taskMinutes: 0, gapMinutes: 0};
+    if (!picked.length) {
+      return {selected: false, startMinutes: Math.min(...slots.map(slot => timeToMinutes(slot.start))), taskMinutes: 0, gapMinutes: 0};
+    }
+    const ordered = picked.map(n => slots[n - 1]).sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start));
     let taskMinutes = 0;
     let gapMinutes = 0;
-    picked.forEach((n, index) => {
-      taskMinutes += slotDuration(slots[n - 1]);
-      if (index > 0) gapMinutes += Math.max(0, timeToMinutes(slots[n - 1].start) - timeToMinutes(slots[picked[index - 1] - 1].end));
+    ordered.forEach((slot, index) => {
+      taskMinutes += slotDuration(slot);
+      if (index > 0) gapMinutes += Math.max(0, timeToMinutes(slot.start) - timeToMinutes(ordered[index - 1].end));
     });
-    return {selected: true, startMinutes: timeToMinutes(slots[picked[0] - 1].start), taskMinutes, gapMinutes};
+    return {selected: true, startMinutes: timeToMinutes(ordered[0].start), taskMinutes, gapMinutes};
   }
   // 労基法の休憩下限: 実働（休憩を除く担当＋副担当等の合計）が6時間超→45分以上・8時間超→60分以上
   function requiredBreakMinutes(workMinutes) {
@@ -258,15 +262,22 @@
     }
     return null;
   }
+  // 記入があるのに日付が未入力の明細行の位置（0はじまり。無ければ-1）。
+  // 提出前ガードで使用する（サーバ側 api/reports._assert_no_undated_lines と同一ルール）。
+  function findUndatedLineIndex(lines) {
+    return (lines || []).findIndex(line => line && typeof line === 'object'
+      && !String(line.date || '').trim()
+      && Object.entries(line).some(([key, value]) => key !== 'date' && String(value ?? '').trim() !== ''));
+  }
 
   // ===== 入力ルールのヒント文言（担当時限・業務開始〜終了時間） =====
   function subjectPeriodHintText(slots) {
     if (!slots) return '1〜10から担当した時限を選択します。選択したコマ数×50分が右隣の担当業務（分）へ、（コマ数−1）×10分が休憩時間（分）へ自動入力されます。自動入力後の分数は1分単位で修正できます（担当時限を選び直すと自動値で上書きされます）。';
-    return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択した最初のコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間から副担当業務等の分を除いた時間が自動入力されます（分は1分単位で修正できます。時限を選び直すと自動値で上書きされます）。`;
+    return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択したコマのうち時刻がいちばん早いコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間から副担当業務等の分を除いた時間が自動入力されます（分は1分単位で修正できます。時限を選び直すと自動値で上書きされます）。`;
   }
   function timeRangeHintText(slots) {
     if (!slots) return '業務開始〜終了時間は自動計算のため手動入力できません。開始は8:40固定、終了は担当時限より右の時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計を開始時間に加算した時刻です。往復交通費（円）・採点の回数は加算しません。';
-    return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択した最初のコマの開始時刻（時限未選択の行はコマ①の開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
+    return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択したコマのうち時刻がいちばん早いコマの開始時刻（時限未選択の行は時間割の最早開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
   }
 
   window.WorkReportCalc = {
@@ -279,6 +290,6 @@
     computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
     slotTimeLabel, slotRangeLabel, slotScheduleText, slotDuration, selectedSlotNumbers, slotSelectionMetrics,
     requiredBreakMinutes, slotBreakDecision, breakBumpMessage,
-    findDuplicateLineDate, subjectPeriodHintText, timeRangeHintText
+    findDuplicateLineDate, findUndatedLineIndex, subjectPeriodHintText, timeRangeHintText
   };
 })();

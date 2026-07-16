@@ -272,7 +272,7 @@ function termPeriodSection(termDef, slots) {
     <div class="space-y-2">
       ${Array.from({length: MAX_PERIOD_SLOTS}, (_, i) => periodSlotRow(term, i + 1, slots[i])).join('')}
     </div>
-    <p class="mt-2 text-xs text-slate-500">講師が${termDef.label}の適用期間内に報告書を入力するとき、担当時限に各コマの時間帯が表示され、業務開始時刻・担当業務（分）・休憩時間（分）を時間割から自動計算します（スケジュール欄にも「【${termDef.label}】① 8:30〜9:20、…」を自動反映）。①から順に、時間が重ならないように設定してください（未設定の期は従来どおり 開始8:40固定・1コマ50分）。</p>
+    <p class="mt-2 text-xs text-slate-500">講師が${termDef.label}の適用期間内に報告書を入力するとき、担当時限に各コマの時間帯が表示され、業務開始時刻・担当業務（分）・休憩時間（分）を時間割から自動計算します（スケジュール欄にも「【${termDef.label}】① 8:30〜9:20、…」を自動反映）。番号は①から詰めて入力してください（コマ番号は時間順でなくても構いません。例: ⑤に①より早い朝の時間帯を追加可。コマ同士の時間帯の重なりは不可）。未設定の期は従来どおり 開始8:40固定・1コマ50分です。</p>
   </div>`;
 }
 // 担当業務（前期/後期）のブロック。名称・ID類＋月時間・週コマ・適用期間＋期別コマ設定を1箇所で設定する。
@@ -467,7 +467,8 @@ function updatePeriodAddButton(term) {
   const btn = formDrawer.querySelector(`[data-period-add="${term}"]`);
   if (btn) btn.classList.toggle('hidden', visiblePeriodCounts[term] >= MAX_PERIOD_SLOTS);
 }
-// 期別コマ設定を収集して検証する。①から連番（途中の空き不可）・開始<終了・前のコマと重なり不可。
+// 期別コマ設定を収集して検証する。①から連番（途中の空き不可）・開始<終了・コマ同士の重なり不可。
+// コマ番号は時間順でなくてもよい（例: ⑤に①より早い朝の時間帯を追加できる）。
 function collectPeriodSlots(termDef) {
   const term = termDef.index;
   const prefix = `担当業務（${termDef.label}）のコマ設定: `;
@@ -480,8 +481,8 @@ function collectPeriodSlots(termDef) {
     if (blankSeen) return {error: `${prefix}${PERIOD_CIRCLED[0]}から順に設定してください（途中に空きコマがあります）`};
     if (!start || !end) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}は開始・終了の両方を入力してください`};
     if (end <= start) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}は終了時刻を開始時刻より後にしてください`};
-    const prev = slots[slots.length - 1];
-    if (prev && start < prev.end) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}が前のコマと時間が重なっています`};
+    const overlap = slots.findIndex(slot => start < slot.end && slot.start < end);
+    if (overlap !== -1) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}がコマ${PERIOD_CIRCLED[overlap]}と時間が重なっています`};
     slots.push({start, end});
   }
   return {slots};
