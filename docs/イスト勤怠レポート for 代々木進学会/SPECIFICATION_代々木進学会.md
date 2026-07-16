@@ -714,6 +714,30 @@ APScheduler によって毎日 **09:00 JST** に自動実行される。
 | `awaiting_parent_approval` の報告書が存在 | 保護者 | `reminder_unapproved` |
 | `draft` / `returned_to_tutor` / `parent_approved` の報告書が存在 | 講師 | `reminder_unsubmitted` |
 
+### 提出締切通知（画面バナー＋メール・改修依頼 202607161428）
+
+講師向けに、指導報告（勤務時間・日報・月報）の**提出締切＝対象月の翌月第一営業日**を2段階で通知する。
+営業日 = 土日・日本の祝日（`jpholiday`）・`BUSINESS_CLOSED_DAYS`（MM-DD カンマ区切り・毎年適用。既定 `12-29〜01-03` の年末年始休業）を除く日。実装は `backend/app/services/deadline_service.py` に集約。
+
+**① 画面バナー（講師ロールのみ・常時有効）**
+
+- 表示場所: 全画面共通ヘッダー（`base.html`）の黒帯下段。スライドイン表示・締切日はチップ強調・右端に「入力する」（/tutor/reports）ボタン。
+- 表示期間: 対象月の月中通知日（`DEADLINE_NOTICE_MIDMONTH_DAY` 既定 **15日**）〜締切当日。
+  - 通常表示（アンバー帯）: 「〇月分の指導報告の提出締切は、〇月〇日（曜）です。期限までに勤務時間・日報・月報の入力を完了してください。」
+  - **締切前日から至急表示（赤帯・アイコン点滅）**: 「【提出締切が近づいています】〇月分の指導報告は、〇月〇日（曜）までに提出してください。未提出の場合、確認・報酬処理に影響する可能性があります。」
+- 今日の日付（JST）だけで決まるため DB 参照なし（Jinja グローバル `deadline_notice()`＝`active_notice()`）。
+
+**② メール通知（`DEADLINE_NOTICE_ENABLED=true` のときのみ送信・既定 false＝誤送信防止）**
+
+| 通知 | 件名 | 送信窓 | テンプレート |
+|------|------|--------|-------------|
+| 1回目（月中） | 【重要】指導報告提出締切のお知らせ | 月中通知日〜締切2日前 | `deadline_first.txt` |
+| 2回目（締切前日） | 【至急確認依頼】指導報告提出締切のお知らせ | 締切前日〜締切当日 | `deadline_eve.txt` |
+
+- 対象者: **提出対象の講師のうち未提出の講師のみ**（提出済みには送らない）。判定は「有効な legacy 担当を持つ有効な講師で、対象月の報告書が『未作成』または『draft / returned_to_tutor の行が残っている』」。全行が承認フロー上（awaiting〜admin_approved）・closed のみの担当は提出済み扱い。対象月終了後に作成された担当は対象外。
+- 送信: 日次 09:00 JST ジョブ（`run_deadline_notice_job`・APScheduler `deadline_notices`）が送信キュー（`mail_outbox`）へ投函。**月×種別につき1回だけ**（送信済みガード: `deadline_notice_sends` テーブル・migration 0020）。窓方式のためジョブ停止日を挟んでも次回起動で追い送りされる。アプリ内通知ログは `notifications`（type: `deadline_first` / `deadline_eve`）。
+- コンテキスト変数: `month_label`（例: 7月）/ `deadline_label`（例: 8月3日（月））/ `base_url`。
+
 ### メール通知のコンテキスト変数
 
 | 変数名 | 内容 |

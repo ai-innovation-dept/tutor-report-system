@@ -268,6 +268,22 @@ class Notification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class DeadlineNoticeSend(Base):
+    """提出締切メール通知（deadline_first=月中 / deadline_eve=締切前日）の送信済み記録。
+
+    「月×種別につき1回だけ送る」ためのガード。日次ジョブが停止日を挟んでも、送信窓の
+    期間内の次回起動で未送信分を追い送りでき、再送はこの記録で防ぐ。宛先ごとの内容は
+    notifications（アプリ内通知ログ）と mail_outbox（実配信キュー）に残る。
+    """
+    __tablename__ = "deadline_notice_sends"
+    __table_args__ = (UniqueConstraint("target_month", "notice_type", name="uq_deadline_notice_month_type"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    target_month: Mapped[str] = mapped_column(String(7), index=True)
+    notice_type: Mapped[str] = mapped_column(String(32))
+    recipient_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class MailOutbox(Base):
     """送信待ちメールのキュー（アウトボックス）。
 

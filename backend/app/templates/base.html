@@ -6,6 +6,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>指導報告・指導時間確認票</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* 提出締切バナー（講師のみ・ヘッダー黒帯の下段）。メッセージが帯へスライドインする */
+    @keyframes deadlineSlideIn {
+      from { transform: translateX(2.5rem); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+    .deadline-band-inner { animation: deadlineSlideIn .6s ease-out both; }
+    @media (prefers-reduced-motion: reduce) {
+      .deadline-band-inner { animation: none; }
+    }
+  </style>
 </head>
 <body class="bg-slate-100 text-slate-900">
   <div id="stale-banner" class="hidden border-l-4 border-yellow-400 bg-yellow-50 p-3 text-sm text-yellow-800 md:pl-60">
@@ -61,6 +72,34 @@
           <span class="text-xs text-slate-400">{{ role_labels.get(current_user.role, current_user.role) }}{% if current_user.tutor_no %}・{{ current_user.tutor_no }}{% endif %}</span>
         </div>
       </div>
+      {# 提出締切バナー（講師のみ・改修依頼 202607161428）。月中通知日〜締切当日に表示し、締切前日からは至急表示 #}
+      {% if current_user.role == 'tutor' %}
+      {% set deadline = deadline_notice() %}
+      {% if deadline %}
+      <div id="deadlineBanner" role="status"
+           class="{% if deadline.phase == 'urgent' %}bg-gradient-to-r from-red-600 to-rose-500 text-white{% else %}bg-gradient-to-r from-amber-400 to-amber-300 text-slate-900{% endif %} overflow-hidden shadow-inner">
+        <div class="deadline-band-inner flex items-center gap-2.5 px-4 py-2 md:px-8">
+          {% if deadline.phase == 'urgent' %}
+          <svg class="h-4 w-4 flex-none animate-pulse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126ZM12 15.75h.007v.008H12v-.008Z" />
+          </svg>
+          <p class="min-w-0 flex-1 text-xs font-semibold leading-snug sm:text-sm">
+            【提出締切が近づいています】{{ deadline.month_label }}分の指導報告は、<span class="mx-0.5 inline-block rounded bg-white/25 px-1.5 font-bold">{{ deadline.deadline_label }}</span>までに提出してください。未提出の場合、確認・報酬処理に影響する可能性があります。
+          </p>
+          <a href="/tutor/reports" class="hidden flex-none items-center rounded-lg bg-white/20 px-3 py-1 text-xs font-semibold text-white transition hover:bg-white/30 sm:inline-flex">入力する</a>
+          {% else %}
+          <svg class="h-4 w-4 flex-none" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 0 1 2.25-2.25h13.5A2.25 2.25 0 0 1 21 7.5v11.25m-18 0A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75m-18 0v-7.5A2.25 2.25 0 0 1 5.25 9h13.5A2.25 2.25 0 0 1 21 11.25v7.5" />
+          </svg>
+          <p class="min-w-0 flex-1 text-xs font-medium leading-snug sm:text-sm">
+            {{ deadline.month_label }}分の指導報告の提出締切は、<span class="mx-0.5 inline-block rounded bg-white/60 px-1.5 font-bold">{{ deadline.deadline_label }}</span>です。期限までに勤務時間・日報・月報の入力を完了してください。
+          </p>
+          <a href="/tutor/reports" class="hidden flex-none items-center rounded-lg bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-900 transition hover:bg-slate-900/20 sm:inline-flex">入力する</a>
+          {% endif %}
+        </div>
+      </div>
+      {% endif %}
+      {% endif %}
     </header>
 
     <main class="px-4 py-6 md:px-8">

@@ -212,8 +212,12 @@ def daily_stale_check(db: Session) -> None:
 
 
 def start_scheduler() -> BackgroundScheduler:
+    from app.services.deadline_service import run_deadline_notice_job
+
     scheduler = BackgroundScheduler(timezone=ZoneInfo(settings.timezone))
     scheduler.add_job(run_reminder_job, "cron", hour=9, minute=0, id="month_end_reminders", replace_existing=True)
+    # 提出締切通知メール（改修依頼 202607161428）。DEADLINE_NOTICE_ENABLED=true のときのみ実送信対象を投函する
+    scheduler.add_job(run_deadline_notice_job, "cron", hour=9, minute=0, id="deadline_notices", replace_existing=True)
     scheduler.add_job(_run_stale_job, "cron", hour=6, minute=0, id="stale_report_check", replace_existing=True)
     # メール送信キューのドレイナ（実送信する smtp 時のみ起動）。送信間隔ごとに起動し、
     # 1通ずつ間隔をあけて順次送信する。max_instances=1+coalesce で多重実行を防ぐ。

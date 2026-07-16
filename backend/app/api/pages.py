@@ -13,9 +13,13 @@ from app.core.time import get_current_jst_month
 from app.database import get_db
 from app.deps import get_current_user_from_cookie
 from app.models import Assignment, LessonReport, ReportAction, ReportEvent, ReportStatus, User
+from app.services.deadline_service import active_notice
 from app.services.lesson_time import duration_label, teaching_minutes
 
 templates = Jinja2Templates(directory="app/templates")
+# 講師向け提出締切バナー（base.html のヘッダー帯）。今日の日付だけで決まる（DB不要）ため、
+# 全ページ共通のグローバル関数としてレンダー時に都度評価する（改修依頼 202607161428）。
+templates.env.globals["deadline_notice"] = active_notice
 router = APIRouter(tags=["pages"])
 
 

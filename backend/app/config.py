@@ -29,6 +29,15 @@ class Settings(BaseSettings):
     mail_max_attempts: int = 5
     base_url: str = "http://localhost:8000"
     reminder_days_before_month_end: int = 3
+    # === 提出締切通知（講師向け・改修依頼 202607161428） ===
+    # メール送信の有効化フラグ。誤送信防止のため既定は無効。
+    # 本番で .env に DEADLINE_NOTICE_ENABLED=true を設定して有効化する（画面バナーは常時表示）。
+    deadline_notice_enabled: bool = False
+    # 1回目（月中）通知の開始日（毎月N日）。提出締切は対象月の翌月第一営業日。
+    deadline_notice_midmonth_day: int = 15
+    # 営業日判定で休業扱いにする日（MM-DD をカンマ区切り・毎年適用）。既定は年末年始休業。
+    # 土日・日本の祝日は自動で休業扱い（jpholiday）のため、ここには会社独自の休業日のみ書く。
+    business_closed_days: str = "12-29,12-30,12-31,01-01,01-02,01-03"
     timezone: str = "Asia/Tokyo"
     cors_origins: str = ""
     auto_create_tables: bool = Field(False, description="Test/dev fallback; migrations are primary.")
