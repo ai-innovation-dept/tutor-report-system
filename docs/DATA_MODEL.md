@@ -283,6 +283,7 @@ erDiagram
 | customer_id | VARCHAR(50) | NULL | お客様ID |
 | our_staff | VARCHAR(100) | NULL | 弊社担当 |
 | dispatch_place_address | VARCHAR(255) | NULL | 派遣先事業所の所在地。報告書の同名欄へ自動反映（講師側は読取専用） |
+| work_location | VARCHAR(255) | NULL | 就業場所。報告書の「事業所の所在地」の下に表示（契約由来・講師読取専用。参照画面・PDFにも出力） |
 | classroom_name | VARCHAR(100) | NULL | 教室名。報告書の「事業所の名称」の隣に表示（契約由来・講師読取専用） |
 | contract_start | DATE | NULL | 契約開始日 |
 | contract_end | DATE | NULL | 契約終了日 |
@@ -359,6 +360,7 @@ erDiagram
     "dispatch_place_school_id": "<UUID>",  // 派遣先（学校）= assignment.parent
     "dispatch_place_name": "○○学園",       // 学校名スナップショット
     "dispatch_place_address": "...",
+    "work_location": "...",        // 就業場所（契約から初期反映・講師読取専用）
     "tutor_no": "T1001",
     "customer_id": "...",          // 契約から初期反映
     "our_staff": "...",

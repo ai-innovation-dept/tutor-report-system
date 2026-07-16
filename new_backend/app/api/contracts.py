@@ -32,7 +32,7 @@ from app.services.contract_form_service import build_column_definition
 router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 
 _DETAIL_FIELDS = (
-    "customer_id", "our_staff", "dispatch_place_address", "classroom_name", "contract_start", "contract_end",
+    "customer_id", "our_staff", "dispatch_place_address", "work_location", "classroom_name", "contract_start", "contract_end",
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
     "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
@@ -82,6 +82,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         customer_id=profile.customer_id,
         our_staff=profile.our_staff,
         dispatch_place_address=profile.dispatch_place_address,
+        work_location=profile.work_location,
         classroom_name=profile.classroom_name,
         show_dispatch_address=profile.show_dispatch_address,
         show_work_content=profile.show_work_content,
@@ -336,6 +337,7 @@ def list_contracts_for_tutor(
             customer_id=p.customer_id,
             our_staff=p.our_staff,
             dispatch_place_address=p.dispatch_place_address,
+            work_location=p.work_location,
             classroom_name=p.classroom_name,
             show_dispatch_address=p.show_dispatch_address,
             show_work_content=p.show_work_content,

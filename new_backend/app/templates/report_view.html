@@ -264,10 +264,11 @@
           </div>
           <!-- 基本情報: 講師フォームのヘッダー項目（事業所の名称・組織単位〜従事業務内容）を漏れなく表示する。
                sm以上は grid-flow-col で 左列＝事業所情報・右列＝講師情報 の2列に分ける。 -->
-          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-3">
+          <dl class="mt-3 grid grid-cols-1 gap-x-6 gap-y-1 text-sm sm:grid-flow-col sm:grid-cols-2 sm:grid-rows-4">
             <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">事業所の名称・組織単位</dt><dd class="font-medium text-slate-800">${escapeHtml(report.school_name || meta.dispatch_place_name || '-')}${report.school_no ? `（${escapeHtml(report.school_no)}）` : ''}</dd></div>
             <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">教室名</dt><dd class="text-slate-800">${textOrDash(meta.classroom_name)}</dd></div>
             <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">事業所の所在地</dt><dd class="text-slate-800">${textOrDash(meta.dispatch_place_address)}</dd></div>
+            <div class="flex gap-2"><dt class="w-44 shrink-0 text-slate-500">就業場所</dt><dd class="text-slate-800">${textOrDash(meta.work_location)}</dd></div>
             <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">氏名</dt><dd class="font-medium text-slate-800">${textOrDash(report.tutor_name)}</dd></div>
             <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">講師番号</dt><dd class="text-slate-800">${textOrDash(meta.tutor_no || report.tutor_no)}</dd></div>
             <div class="flex gap-2"><dt class="w-44 shrink-0 sm:w-24 text-slate-500">お客様ID</dt><dd class="text-slate-800">${textOrDash(meta.customer_id)}</dd></div>

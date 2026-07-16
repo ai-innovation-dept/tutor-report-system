@@ -139,6 +139,27 @@ class TestContractCreate:
         assert patched.status_code == 200, patched.text
         assert patched.json()["dispatch_place_address"] == "東京都新宿区△△4-5-6"
 
+    def test_work_location_roundtrip(self, client, db, setup):
+        """就業場所を契約で登録し、講師向けAPIにも返ること（報告書の所在地の下に表示する項目）。"""
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, work_location="〇〇高等学校 △△校舎"),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 201, res.text
+        assert res.json()["work_location"] == "〇〇高等学校 △△校舎"
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["work_location"] == "〇〇高等学校 △△校舎"
+        # PATCHでも更新できる
+        contract_id = res.json()["id"]
+        patched = client.patch(
+            f"/api/w/contracts/{contract_id}",
+            json={"work_location": "□□中学校 本校舎"},
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert patched.status_code == 200, patched.text
+        assert patched.json()["work_location"] == "□□中学校 本校舎"
+
 
 class TestContractWorkloadCases:
     """月時間（分）・週コマの期間付き複数ケース。"""
@@ -599,9 +620,10 @@ class TestContractImport:
         assert db.query(WorkAssignmentProfile).count() == 0
 
     def test_import_dispatch_address_and_schedule(self, client, db, import_setup):
-        # 所在地・スケジュール欄（旧シフト指定欄）のCSV取り込み
+        # 所在地・就業場所・スケジュール欄（旧シフト指定欄）のCSV取り込み
         row = _csv_row("T100", "S100", **{
             cis.DISPATCH_ADDRESS: "東京都渋谷区〇〇1-2-3",
+            cis.WORK_LOCATION: "〇〇高等学校 △△校舎",
             cis.SHIFT_NOTE: "月(9:30～10:20)金(11:30～12:20)",
         })
         res = self._upload(client, _csv_bytes([row]))
@@ -609,6 +631,7 @@ class TestContractImport:
         profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
             WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
         assert profile.dispatch_place_address == "東京都渋谷区〇〇1-2-3"
+        assert profile.work_location == "〇〇高等学校 △△校舎"
         assert profile.shift_note == "月(9:30～10:20)金(11:30～12:20)"
 
     def test_import_sub_tasks(self, client, db, import_setup):

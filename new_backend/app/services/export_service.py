@@ -307,8 +307,8 @@ def _report_header_values(
 ) -> tuple[str, list[tuple[str, str]]]:
     """参照画面と同じタイトル・基本情報をPDFヘッダー用に返す。
 
-    講師フォームのヘッダー項目（事業所の名称・組織単位／教室名／所在地／氏名／講師番号／
-    お客様ID／従事業務内容）を漏れなく含める。2列で左＝事業所・右＝講師の並び。
+    講師フォームのヘッダー項目（事業所の名称・組織単位／教室名／所在地／就業場所／氏名／
+    講師番号／お客様ID／従事業務内容）を漏れなく含める。2列で左＝事業所・右＝講師の並び。
     弊社担当以降（〜定期代）は _report_footer_values で明細の下に出力する。
     """
     year, month_str = report.target_month.split("-")
@@ -326,6 +326,9 @@ def _report_header_values(
             ("講師番号", str(meta.get("tutor_no") or report.tutor_no or "-")),
             ("事業所の所在地", str(meta.get("dispatch_place_address") or "-")),
             ("お客様ID", str(meta.get("customer_id") or "-")),
+            # 就業場所は「事業所の所在地」の直下（左列）。参照画面と同じく右列は空欄にする。
+            ("就業場所", str(meta.get("work_location") or "-")),
+            ("", ""),
             ("従事業務内容", str(meta.get("work_content") or "-")),
         ],
     )
@@ -335,7 +338,7 @@ def _header_grid_rows(fields: list[tuple[str, str]]) -> list[list[tuple[str, str
     """基本情報を参照画面(report_view)の grid-cols-2 と同じ並びに整形する。
 
     左→右の順で1行2項目:
-    [事業所の名称・組織単位|氏名] [教室名|講師番号] [事業所の所在地|お客様ID] [従事業務内容]。
+    [事業所の名称・組織単位|氏名] [教室名|講師番号] [事業所の所在地|お客様ID] [就業場所|（空欄）] [従事業務内容]。
     """
     return [fields[i:i + 2] for i in range(0, len(fields), 2)]
 
@@ -445,7 +448,7 @@ def _report_header_story(report: WorkReport, school_name: str, tutor_name: str, 
     """参照画面(report_view)のヘッダーと同じレイアウトのPDFヘッダーを生成する。
 
     タイトル（例: 2026年6月分 業務連絡表。画面の「（参照）」表記は付けない）の下に、
-    基本情報7項目（事業所の名称・組織単位〜従事業務内容）を画面と同じ2列グリッド
+    基本情報（事業所の名称・組織単位〜従事業務内容）を画面と同じ2列グリッド
     （罫線・背景なし、ラベル灰色・値濃色）で配置する。
     """
     from xml.sax.saxutils import escape

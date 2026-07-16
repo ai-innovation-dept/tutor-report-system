@@ -84,6 +84,8 @@ class ContractBase(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    # 就業場所（報告書の「事業所の所在地」の下に表示・講師読取専用）
+    work_location: str | None = None
     # 教室名（報告書の「事業所の名称」の隣に表示・講師読取専用）
     classroom_name: str | None = None
     # 報告書フォームの項目表示/非表示（既定は全て表示）。契約からライブ反映する。
@@ -172,6 +174,7 @@ class ContractForTutorOut(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    work_location: str | None = None
     classroom_name: str | None = None
     show_dispatch_address: bool = True
     show_work_content: bool = True
@@ -201,6 +204,7 @@ class ContractOut(BaseModel):
     customer_id: str | None = None
     our_staff: str | None = None
     dispatch_place_address: str | None = None
+    work_location: str | None = None
     classroom_name: str | None = None
     show_dispatch_address: bool = True
     show_work_content: bool = True

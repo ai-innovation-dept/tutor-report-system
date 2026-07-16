@@ -485,6 +485,7 @@ _CONTRACT_LOCKED_META_KEYS = (
     "customer_id",
     "our_staff",
     "dispatch_place_address",
+    "work_location",
     "classroom_name",
     "requests",
     "contract_period",

@@ -182,6 +182,7 @@ def test_pdf_header_matches_report_view():
     report = _dynamic_report()
     report.form_data["meta"]["classroom_name"] = "第2教室"
     report.form_data["meta"]["customer_id"] = "C-100"
+    report.form_data["meta"]["work_location"] = "〇〇高等学校 △△校舎"
     school = User(display_name="渋谷高校", user_no="40001")
     tutor = User(display_name="山田太郎", user_no="10002", tutor_no="10002")
     report.assignment = Assignment(student_name="旧表示名", parent=school)
@@ -197,6 +198,8 @@ def test_pdf_header_matches_report_view():
         ("講師番号", "10002"),
         ("事業所の所在地", "渋谷区1-1"),
         ("お客様ID", "C-100"),
+        ("就業場所", "〇〇高等学校 △△校舎"),
+        ("", ""),
         ("従事業務内容", "数学指導"),
     ]
 
@@ -212,12 +215,16 @@ def test_pdf_header_grid_matches_report_view_layout():
         ("講師番号", "10002"),
         ("事業所の所在地", "渋谷区1-1"),
         ("お客様ID", "C-100"),
+        ("就業場所", "〇〇高等学校 △△校舎"),
+        ("", ""),
         ("従事業務内容", "数学指導"),
     ]
     assert _header_grid_rows(fields) == [
         [("事業所の名称・組織単位", "渋谷高校（40001）"), ("氏名", "山田太郎")],
         [("教室名", "第2教室"), ("講師番号", "10002")],
         [("事業所の所在地", "渋谷区1-1"), ("お客様ID", "C-100")],
+        # 就業場所は「事業所の所在地」の直下（左列）。右列は空欄。
+        [("就業場所", "〇〇高等学校 △△校舎"), ("", "")],
         [("従事業務内容", "数学指導")],
     ]
 

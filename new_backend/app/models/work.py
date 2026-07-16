@@ -41,6 +41,8 @@ class WorkAssignmentProfile(Base):
     our_staff: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 派遣先事業所の所在地。報告書の同名欄へ自動反映（講師側は読取専用）
     dispatch_place_address: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # 就業場所。報告書の「事業所の所在地」の下に表示（契約由来・講師読取専用）
+    work_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # 教室名。報告書の「事業所の名称」の隣に表示（契約由来・講師読取専用）。
     classroom_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     # 報告書フォームの項目表示/非表示フラグ（既定は全て表示）。契約からライブ反映する。

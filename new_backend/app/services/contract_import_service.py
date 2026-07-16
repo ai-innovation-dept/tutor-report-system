@@ -25,6 +25,7 @@ SCHOOL_NAME = "学校名(参考)"
 CUSTOMER_ID = "お客様ID"
 OUR_STAFF = "弊社担当"
 DISPATCH_ADDRESS = "事業所の所在地"
+WORK_LOCATION = "就業場所"
 CLASSROOM_NAME = "教室名"
 CONTRACT_START = "契約開始(YYYY-MM-DD)"
 CONTRACT_END = "契約終了(YYYY-MM-DD)"
@@ -67,8 +68,8 @@ def _sub_contract_id_h(i: int) -> str:
 
 def headers() -> list[str]:
     cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NO, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
-            DISPATCH_ADDRESS, CLASSROOM_NAME, CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES, WEEKLY_LESSONS,
-            SHIFT_NOTE, WORK_CONTENT]
+            DISPATCH_ADDRESS, WORK_LOCATION, CLASSROOM_NAME, CONTRACT_START, CONTRACT_END, MONTHLY_MINUTES,
+            WEEKLY_LESSONS, SHIFT_NOTE, WORK_CONTENT]
     for i in range(1, MAX_MAIN_TASKS + 1):
         cols += [_main_name_h(i), _main_id_h(i), _main_contract_id_h(i)]
     for i in range(1, MAX_SUB_TASKS + 1):
@@ -96,6 +97,7 @@ def _row_from_profile(profile) -> dict:
         CUSTOMER_ID: profile.customer_id or "",
         OUR_STAFF: profile.our_staff or "",
         DISPATCH_ADDRESS: profile.dispatch_place_address or "",
+        WORK_LOCATION: profile.work_location or "",
         CLASSROOM_NAME: profile.classroom_name or "",
         CONTRACT_START: profile.contract_start.isoformat() if profile.contract_start else "",
         CONTRACT_END: profile.contract_end.isoformat() if profile.contract_end else "",
@@ -278,6 +280,7 @@ def row_to_payload(db: Session, row: dict) -> tuple[ContractCreate | None, list[
         customer_id=row.get(CUSTOMER_ID) or None,
         our_staff=row.get(OUR_STAFF) or None,
         dispatch_place_address=row.get(DISPATCH_ADDRESS) or None,
+        work_location=row.get(WORK_LOCATION) or None,
         classroom_name=row.get(CLASSROOM_NAME) or None,
         contract_start=contract_start,
         contract_end=contract_end,
