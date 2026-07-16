@@ -478,7 +478,8 @@ def get_report(
 
 
 # 契約管理で登録した内容（契約由来）のメタ項目。講師は変更不可。
-# requests（要望連絡事項）は月時間・週コマの期間付きケース＋契約期間の自動反映欄。
+# requests（要望連絡事項）は期別設定（前期/後期の月時間・週コマ・適用期間）＋契約期間の自動反映欄。
+# task_reference（委託業務（契約より））は前期・後期の業務名・ID類のスナップショット。
 # contract_period / monthly_minutes_fixed / weekly_lessons は旧形式の報告書の
 # スナップショット保全のために残している（新規報告書では使用しない）。
 _CONTRACT_LOCKED_META_KEYS = (
@@ -488,6 +489,7 @@ _CONTRACT_LOCKED_META_KEYS = (
     "work_location",
     "classroom_name",
     "requests",
+    "task_reference",
     "contract_period",
     "monthly_minutes_fixed",
     "weekly_lessons",

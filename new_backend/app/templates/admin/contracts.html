@@ -129,7 +129,7 @@
             <p class="mt-1 text-xs leading-relaxed text-emerald-900/80">その講師×学校の契約が無ければ、<strong>新しい契約</strong>として追加します。</p>
           </div>
         </div>
-        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ <strong>講師番号・学校番号はどちらも必須</strong>です。登録済みの講師・学校の番号を指定してください（見つからない・講師/学校でない番号はエラーになります）。<strong>担当業務①</strong>も必須です。</p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ <strong>講師番号・学校番号はどちらも必須</strong>です。登録済みの講師・学校の番号を指定してください（見つからない・講師/学校でない番号はエラーになります）。<strong>担当業務（前期）（後期）の委託業務名・適用期間</strong>も必須です。</p>
         <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 text-slate-500">
@@ -138,9 +138,10 @@
             <tbody class="divide-y divide-slate-100">
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">講師番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの講師の番号（講師Noまたは tutor_no）を指定します。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">学校番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの学校の番号を指定します。講師番号＋学校番号で契約を1件に特定します。</td></tr>
-              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">担当業務①名／ID／個別契約ID</td><td class="px-3 py-2 text-slate-600">担当業務①は必須（名前・ID・個別契約IDのいずれかを入力）。②〜⑤・副業務①〜③は任意です。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">担当業務(前期)／(後期)の名・ID・個別契約ID</td><td class="px-3 py-2 text-slate-600">担当業務は前期・後期の2本で、<strong>委託業務名はどちらも必須</strong>です（ID・個別契約IDは任意）。副業務①〜⑤は任意です。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">月時間(分)(前期/後期)／週コマ(前期/後期)</td><td class="px-3 py-2 text-slate-600">数値で入力します（任意）。超えて提出された報告書は事務の事前確認を挟む承認ルートになります。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">適用開始／適用終了(前期/後期)</td><td class="px-3 py-2 text-slate-600"><strong>必須</strong>。各期の適用期間（YYYY-MM-DD）。前期と後期で期間を重複させることはできません。報告書の対象月がどちらの期かをこの期間で判定します。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">契約開始／契約終了</td><td class="px-3 py-2 text-slate-600">日付（YYYY-MM-DD）。「2026/4/1」のような「/」区切り・ゼロ詰めなしも取り込めます。</td></tr>
-              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">月時間(分)／週コマ</td><td class="px-3 py-2 text-slate-600">数値で入力します（担当業務①の1ケース分）。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">採点を追加する(有/無) ほか採点列</td><td class="px-3 py-2 text-slate-600">「有」で採点項目を追加し、項目名・単位・委託業務ID・個別契約IDを設定します。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">講師氏名(参考)・学校名(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。照合・取り込みには使われません。</td></tr>
             </tbody>
@@ -161,7 +162,7 @@
         </figure>
       </section>
 
-      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。報告書の表示項目（表示／非表示）やリマインダーなど一部の設定はCSVでは変更できません（各契約の編集画面で設定します）。</p>
+      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。報告書の表示項目（表示／非表示）や前期・後期のコマ設定（担当時限の時間割）など一部の設定はCSVでは変更できません（各契約の編集画面で設定します。取込時も既存の設定を保持します）。</p>
     </div>
     <div class="flex justify-end border-t border-slate-200 px-5 py-3">
       <button type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeCsvHelp()">OK</button>
@@ -190,22 +191,24 @@
 {% block scripts %}
 <script>
 setBreadcrumb('管理ポータル', '契約管理');
-// 委託業務は担当業務（①〜③・①必須）と副業務（①〜⑤・任意）の2区分。
-// 報告書の列は担当→副の順に並ぶ（データ上の区分名は main / sub のまま）。
-const TASK_KINDS = {
-  main: {max: 3, label: '担当業務'},
-  sub: {max: 5, label: '副業務'},
-};
-// コマ設定（担当時限の時間割）: 最大10コマ。①から順・時間の重なり不可。
-// 設定がある契約は講師の報告書で選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
+// 委託業務は担当業務（前期・後期の2本・いずれも必須）と副業務（①〜⑤・任意）の2区分。
+// 担当業務はデータ上 [0]=前期 / [1]=後期（task_index 1/2）の位置で保持し、
+// 報告書の列は「対象月の適用期間に該当する期の担当業務 → 副業務」の順に生成される。
+const TERMS = [
+  {index: 1, label: '前期'},
+  {index: 2, label: '後期'},
+];
+const SUB_TASK_MAX = 5;
+// コマ設定（担当時限の時間割）: 期ごとに最大10コマ。①から順・時間の重なり不可。
+// 設定がある期は講師の報告書で選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
 const MAX_PERIOD_SLOTS = 10;
 const PERIOD_CIRCLED = '①②③④⑤⑥⑦⑧⑨⑩';
 let contracts = [];
 let tutors = [];
 let schools = [];
 let editingId = null;
-let visibleTaskCounts = {main: 1, sub: 1};
-let visiblePeriodCount = 1;
+let visibleSubTaskCount = 1;
+let visiblePeriodCounts = {1: 1, 2: 1};  // 期(task_index)ごとのコマ設定の表示行数
 let deleteTarget = null;
 
 function escapeHtml(value) {
@@ -239,102 +242,126 @@ function userOptions(users, selectedId) {
     `<option value="${u.id}" ${String(u.id) === String(selectedId || '') ? 'selected' : ''}>${escapeHtml(u.display_name)}${u.user_no ? `（${escapeHtml(u.user_no)}）` : ''}</option>`
   )].join('');
 }
-// 担当業務(main)の行は「業務名/ID/個別契約ID」＋「月時間（分）/週コマ/適用期間」の2段構成。
-// 月時間（分）はその業務の月の上限として講師の報告書（要望連絡事項）に表示される。
-function taskWorkloadInputs(index, workloadCase) {
-  const cls = 'w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
-  return `<div class="mt-2 grid gap-2 sm:grid-cols-4">
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">月時間（分）</span>
-      <input data-task="monthly_minutes" data-kind="main" data-index="${index}" type="number" min="0" value="${workloadCase?.monthly_minutes ?? ''}" class="${cls}">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">週コマ</span>
-      <input data-task="weekly_lessons" data-kind="main" data-index="${index}" type="number" min="0" value="${workloadCase?.weekly_lessons ?? ''}" class="${cls}">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">適用開始日</span>
-      <input data-task="case_start" data-kind="main" data-index="${index}" type="date" value="${escapeHtml(workloadCase?.start_date || '')}" class="${cls}">
-    </label>
-    <label class="block text-sm">
-      <span class="mb-1 block text-slate-600">適用終了日</span>
-      <input data-task="case_end" data-kind="main" data-index="${index}" type="date" value="${escapeHtml(workloadCase?.end_date || '')}" class="${cls}">
-    </label>
-  </div>`;
-}
-function caseForTaskIndex(workloadCases, index) {
+// 期(task_index)に紐づく期別設定（月時間・週コマ・適用期間・コマ設定）を取り出す。
+// 旧データの task_index 無しケースは前期(1)扱い。
+function caseForTerm(workloadCases, index) {
   const cases = workloadCases || [];
   return cases.find(c => Number(c.task_index) === index)
     || (index === 1 ? cases.find(c => c.task_index == null) : null);
 }
-function taskRow(kind, index, task, workloadCase) {
-  const hidden = index > visibleTaskCounts[kind];
-  const required = kind === 'main' && index === 1;
-  const wrapClass = kind === 'main' ? 'rounded-lg border border-slate-200 p-3' : '';
-  return `<div class="task-row ${wrapClass} ${hidden ? 'hidden' : ''}" data-task-kind="${kind}" data-task-index="${index}">
+const FORM_INPUT_CLS = 'w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+// 期別コマ設定の1行（コマ番号＋開始〜終了の時刻入力）。必要な行だけ表示して追加していく。
+function periodSlotRow(term, index, slot) {
+  const hidden = index > visiblePeriodCounts[term];
+  const cls = 'w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+  return `<div class="period-slot-row flex items-center gap-2 ${hidden ? 'hidden' : ''}" data-period-term="${term}" data-period-index="${index}">
+    <span class="w-8 shrink-0 text-center text-base font-medium text-slate-700">${PERIOD_CIRCLED[index - 1]}</span>
+    <input data-period="start" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.start || '')}" class="${cls}">
+    <span class="text-slate-500">〜</span>
+    <input data-period="end" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.end || '')}" class="${cls}">
+  </div>`;
+}
+// 期別コマ設定のブロック（担当業務ブロック内に配置）
+function termPeriodSection(termDef, slots) {
+  const term = termDef.index;
+  return `<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+    <div class="mb-2 flex items-center justify-between">
+      <span class="text-sm font-medium text-slate-700">コマ設定（${termDef.label}の担当時限の時間割）</span>
+      <button type="button" data-period-add="${term}" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ コマを追加</button>
+    </div>
+    <div class="space-y-2">
+      ${Array.from({length: MAX_PERIOD_SLOTS}, (_, i) => periodSlotRow(term, i + 1, slots[i])).join('')}
+    </div>
+    <p class="mt-2 text-xs text-slate-500">設定すると、対象月が${termDef.label}の適用期間内の報告書で担当時限に各コマの時間帯が表示され、業務開始時刻・担当業務（分）・休憩時間（分）を時間割から自動計算します（スケジュール欄にも「【${termDef.label}】① 8:30〜9:20、…」を自動反映）。①から順に、時間が重ならないように設定してください（未設定の期は従来どおり 開始8:40固定・1コマ50分）。</p>
+  </div>`;
+}
+// 担当業務（前期/後期）のブロック。名称・ID類＋月時間・週コマ・適用期間＋期別コマ設定を1箇所で設定する。
+function termSection(termDef, task, workloadCase, slots) {
+  const term = termDef.index;
+  return `<div class="rounded-lg border border-slate-200 p-4" data-term-section="${term}">
+    <div class="mb-3 text-sm font-medium text-slate-800">担当業務（${termDef.label}） <span class="text-red-600">*</span></div>
     <div class="grid gap-2 sm:grid-cols-3">
       <label class="block text-sm">
-        <span class="mb-1 block text-slate-600">委託業務名${'①②③④⑤'[index - 1]}${required ? '（必須）' : ''}</span>
-        <input data-task="name" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+        <span class="mb-1 block text-slate-600">委託業務名（必須）</span>
+        <input data-task="name" data-term="${term}" value="${escapeHtml(task?.task_name || '')}" class="${FORM_INPUT_CLS}">
       </label>
       <label class="block text-sm">
         <span class="mb-1 block text-slate-600">委託業務ID</span>
-        <input data-task="task_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+        <input data-task="task_id" data-term="${term}" value="${escapeHtml(task?.task_id || '')}" class="${FORM_INPUT_CLS}">
       </label>
       <label class="block text-sm">
         <span class="mb-1 block text-slate-600">個別契約ID</span>
-        <input data-task="contract_id" data-kind="${kind}" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+        <input data-task="contract_id" data-term="${term}" value="${escapeHtml(task?.contract_id || '')}" class="${FORM_INPUT_CLS}">
       </label>
     </div>
-    ${kind === 'main' ? taskWorkloadInputs(index, workloadCase) : ''}
+    <div class="mt-2 grid gap-2 sm:grid-cols-4">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">月時間（分）</span>
+        <input data-task="monthly_minutes" data-term="${term}" type="number" min="0" value="${workloadCase?.monthly_minutes ?? ''}" class="${FORM_INPUT_CLS}">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">週コマ</span>
+        <input data-task="weekly_lessons" data-term="${term}" type="number" min="0" value="${workloadCase?.weekly_lessons ?? ''}" class="${FORM_INPUT_CLS}">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">適用開始日（必須）</span>
+        <input data-task="case_start" data-term="${term}" type="date" value="${escapeHtml(workloadCase?.start_date || '')}" class="${FORM_INPUT_CLS}">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">適用終了日（必須）</span>
+        <input data-task="case_end" data-term="${term}" type="date" value="${escapeHtml(workloadCase?.end_date || '')}" class="${FORM_INPUT_CLS}">
+      </label>
+    </div>
+    ${termPeriodSection(termDef, slots)}
+    <p class="mt-2 text-xs text-slate-500">対象月が適用期間内の報告書に、この期の「業務名（分）」列とコマ設定が適用されます。月時間（分）・週コマを超えて提出された報告書は、学校確認の前に事務の事前確認を挟む承認ルートへ切り替わります。設定内容は講師の報告書の要望連絡事項に「【${termDef.label}】業務名：（月　n,nnn　分固定　：　週nコマ）[適用期間]」として表示されます。</p>
   </div>`;
 }
-// コマ設定の1行（コマ番号＋開始〜終了の時刻入力）。委託業務と同じく必要な行だけ表示して追加していく。
-function periodSlotRow(index, slot) {
-  const hidden = index > visiblePeriodCount;
-  const cls = 'w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
-  return `<div class="period-slot-row flex items-center gap-2 ${hidden ? 'hidden' : ''}" data-period-index="${index}">
-    <span class="w-8 shrink-0 text-center text-base font-medium text-slate-700">${PERIOD_CIRCLED[index - 1]}</span>
-    <input data-period="start" data-index="${index}" type="time" value="${escapeHtml(slot?.start || '')}" class="${cls}">
-    <span class="text-slate-500">〜</span>
-    <input data-period="end" data-index="${index}" type="time" value="${escapeHtml(slot?.end || '')}" class="${cls}">
+// 副業務の1行（任意・最大5件・追加式）
+function subTaskRow(index, task) {
+  const hidden = index > visibleSubTaskCount;
+  return `<div class="task-row ${hidden ? 'hidden' : ''}" data-task-kind="sub" data-task-index="${index}">
+    <div class="grid gap-2 sm:grid-cols-3">
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務名${'①②③④⑤'[index - 1]}</span>
+        <input data-task="name" data-kind="sub" data-index="${index}" value="${escapeHtml(task?.task_name || '')}" class="${FORM_INPUT_CLS}">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">委託業務ID</span>
+        <input data-task="task_id" data-kind="sub" data-index="${index}" value="${escapeHtml(task?.task_id || '')}" class="${FORM_INPUT_CLS}">
+      </label>
+      <label class="block text-sm">
+        <span class="mb-1 block text-slate-600">個別契約ID</span>
+        <input data-task="contract_id" data-kind="sub" data-index="${index}" value="${escapeHtml(task?.contract_id || '')}" class="${FORM_INPUT_CLS}">
+      </label>
+    </div>
   </div>`;
 }
-function periodSlotSection(slots) {
+function subTaskSection(subTasks) {
   return `<div class="rounded-lg border border-slate-200 p-4">
     <div class="mb-2 flex items-center justify-between">
-      <span class="text-sm font-medium text-slate-800">コマ設定（担当時限の時間割）</span>
-      <button type="button" id="periodAddBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ コマを追加</button>
+      <span class="text-sm font-medium text-slate-800">副業務（任意）</span>
+      <button type="button" id="subAddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ 副業務を追加</button>
     </div>
-    <div id="periodSlotRows" class="space-y-2">
-      ${Array.from({length: MAX_PERIOD_SLOTS}, (_, i) => periodSlotRow(i + 1, slots[i])).join('')}
+    <div id="subTaskRows" class="space-y-3">
+      ${Array.from({length: SUB_TASK_MAX}, (_, i) => subTaskRow(i + 1, subTasks[i])).join('')}
     </div>
-    <p class="mt-2 text-xs text-slate-500">設定すると講師の報告書の担当時限に各コマの時間帯が表示され、スケジュール欄に「① 8:30〜9:20、…」を自動反映します。業務開始時刻・担当業務（分）・休憩時間（分）はこの時間割から自動計算されます。①から順に、時間が重ならないように設定してください（未設定の契約は従来どおり 開始8:40固定・1コマ50分）。</p>
-  </div>`;
-}
-function taskSection(kind, tasks, workloadCases) {
-  const def = TASK_KINDS[kind];
-  const note = kind === 'main'
-    ? '担当業務①は必須です。登録した業務は報告書で「業務名（分）」列になります（担当→副の順）。月時間（分）・週コマ・適用期間は講師の報告書の要望連絡事項に「業務名：（月　n,nnn　分固定　：　週nコマ）[適用期間]」として表示されます。'
-    : '副業務はすべて任意です。報告書では担当業務の右に「業務名（分）」列として並びます。';
-  return `<div class="rounded-lg border border-slate-200 p-4">
-    <div class="mb-2 flex items-center justify-between">
-      <span class="text-sm font-medium text-slate-800">${def.label}${kind === 'main' ? '（①は必須）' : '（任意）'}</span>
-      <button type="button" id="${kind}AddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ ${def.label}を追加</button>
-    </div>
-    <div id="${kind}TaskRows" class="space-y-3">
-      ${Array.from({length: def.max}, (_, i) => taskRow(kind, i + 1, tasks[i], kind === 'main' ? caseForTaskIndex(workloadCases, i + 1) : null)).join('')}
-    </div>
-    <p class="mt-2 text-xs text-slate-500">${note}</p>
+    <p class="mt-2 text-xs text-slate-500">副業務はすべて任意です。報告書では担当業務の右に「業務名（分）」列として並びます。</p>
   </div>`;
 }
 function renderForm(contract) {
   const isEdit = Boolean(contract);
   const tasks = contract?.tasks || [];
   const subTasks = contract?.sub_tasks || [];
-  const periodSlots = contract?.period_slots || [];
-  visibleTaskCounts = {main: Math.max(1, tasks.length), sub: Math.max(1, subTasks.length)};
-  visiblePeriodCount = Math.max(1, periodSlots.length);
+  // 期別データ（[0]=前期/[1]=後期）。旧形式（契約単位のコマ設定）の契約は、
+  // 期別コマ設定が未設定の期に旧コマ設定をプリフィルして引き継げるようにする。
+  const legacySlots = contract?.period_slots || [];
+  const termData = TERMS.map(termDef => {
+    const workloadCase = caseForTerm(contract?.workload_cases, termDef.index);
+    const slots = (workloadCase?.slots?.length) ? workloadCase.slots : legacySlots;
+    return {termDef, task: tasks[termDef.index - 1] || null, workloadCase, slots};
+  });
+  visibleSubTaskCount = Math.max(1, subTasks.length);
+  visiblePeriodCounts = Object.fromEntries(termData.map(t => [t.termDef.index, Math.max(1, t.slots.length)]));
   formDrawer.innerHTML = `
     <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
       <h2 class="font-semibold text-slate-800">${isEdit ? '契約を編集' : '契約を新規登録'}</h2>
@@ -364,12 +391,11 @@ function renderForm(contract) {
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
       </div>
-      ${periodSlotSection(periodSlots)}
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます（コマ設定がある場合は「① 8:30〜9:20、…」の後ろに併記されます）。</span></label>
+      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます（コマ設定がある場合は「【前期】① 8:30〜9:20、…」の後ろに併記されます）。</span></label>
       <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
 
-      ${taskSection('main', tasks, contract?.workload_cases || [])}
-      ${taskSection('sub', subTasks, [])}
+      ${termData.map(t => termSection(t.termDef, t.task, t.workloadCase, t.slots)).join('')}
+      ${subTaskSection(subTasks)}
 
       <div class="rounded-lg border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3">
@@ -423,90 +449,95 @@ function renderForm(contract) {
         <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">${isEdit ? '更新' : '登録'}</button>
       </div>
     </form>`;
-  document.getElementById('mainAddTaskBtn').addEventListener('click', () => revealNextTask('main'));
-  document.getElementById('subAddTaskBtn').addEventListener('click', () => revealNextTask('sub'));
-  document.getElementById('periodAddBtn').addEventListener('click', revealNextPeriod);
+  document.getElementById('subAddTaskBtn').addEventListener('click', revealNextSubTask);
+  formDrawer.querySelectorAll('[data-period-add]').forEach(btn => {
+    btn.addEventListener('click', () => revealNextPeriod(Number(btn.dataset.periodAdd)));
+  });
   document.getElementById('contractForm').addEventListener('submit', saveContract);
-  updateAddTaskButton('main');
-  updateAddTaskButton('sub');
-  updatePeriodAddButton();
+  updateSubAddTaskButton();
+  TERMS.forEach(termDef => updatePeriodAddButton(termDef.index));
 }
-function revealNextPeriod() {
-  if (visiblePeriodCount >= MAX_PERIOD_SLOTS) return;
-  visiblePeriodCount += 1;
-  formDrawer.querySelector(`.period-slot-row[data-period-index="${visiblePeriodCount}"]`)?.classList.remove('hidden');
-  updatePeriodAddButton();
+function revealNextPeriod(term) {
+  if (visiblePeriodCounts[term] >= MAX_PERIOD_SLOTS) return;
+  visiblePeriodCounts[term] += 1;
+  formDrawer.querySelector(`.period-slot-row[data-period-term="${term}"][data-period-index="${visiblePeriodCounts[term]}"]`)?.classList.remove('hidden');
+  updatePeriodAddButton(term);
 }
-function updatePeriodAddButton() {
-  const btn = document.getElementById('periodAddBtn');
-  if (btn) btn.classList.toggle('hidden', visiblePeriodCount >= MAX_PERIOD_SLOTS);
+function updatePeriodAddButton(term) {
+  const btn = formDrawer.querySelector(`[data-period-add="${term}"]`);
+  if (btn) btn.classList.toggle('hidden', visiblePeriodCounts[term] >= MAX_PERIOD_SLOTS);
 }
-// コマ設定を収集して検証する。①から連番（途中の空き不可）・開始<終了・前のコマと重なり不可。
-function collectPeriodSlots() {
+// 期別コマ設定を収集して検証する。①から連番（途中の空き不可）・開始<終了・前のコマと重なり不可。
+function collectPeriodSlots(termDef) {
+  const term = termDef.index;
+  const prefix = `担当業務（${termDef.label}）のコマ設定: `;
   const slots = [];
   let blankSeen = false;
   for (let i = 1; i <= MAX_PERIOD_SLOTS; i++) {
-    const start = formDrawer.querySelector(`[data-period="start"][data-index="${i}"]`)?.value || '';
-    const end = formDrawer.querySelector(`[data-period="end"][data-index="${i}"]`)?.value || '';
+    const start = formDrawer.querySelector(`[data-period="start"][data-term="${term}"][data-index="${i}"]`)?.value || '';
+    const end = formDrawer.querySelector(`[data-period="end"][data-term="${term}"][data-index="${i}"]`)?.value || '';
     if (!start && !end) { blankSeen = true; continue; }
-    if (blankSeen) return {error: `コマ設定は${PERIOD_CIRCLED[0]}から順に設定してください（途中に空きコマがあります）`};
-    if (!start || !end) return {error: `コマ${PERIOD_CIRCLED[i - 1]}は開始・終了の両方を入力してください`};
-    if (end <= start) return {error: `コマ${PERIOD_CIRCLED[i - 1]}は終了時刻を開始時刻より後にしてください`};
+    if (blankSeen) return {error: `${prefix}${PERIOD_CIRCLED[0]}から順に設定してください（途中に空きコマがあります）`};
+    if (!start || !end) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}は開始・終了の両方を入力してください`};
+    if (end <= start) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}は終了時刻を開始時刻より後にしてください`};
     const prev = slots[slots.length - 1];
-    if (prev && start < prev.end) return {error: `コマ${PERIOD_CIRCLED[i - 1]}が前のコマと時間が重なっています`};
+    if (prev && start < prev.end) return {error: `${prefix}コマ${PERIOD_CIRCLED[i - 1]}が前のコマと時間が重なっています`};
     slots.push({start, end});
   }
   return {slots};
 }
-function revealNextTask(kind) {
-  if (visibleTaskCounts[kind] >= TASK_KINDS[kind].max) return;
-  visibleTaskCounts[kind] += 1;
-  const row = formDrawer.querySelector(`[data-task-kind="${kind}"][data-task-index="${visibleTaskCounts[kind]}"]`);
+function revealNextSubTask() {
+  if (visibleSubTaskCount >= SUB_TASK_MAX) return;
+  visibleSubTaskCount += 1;
+  const row = formDrawer.querySelector(`[data-task-kind="sub"][data-task-index="${visibleSubTaskCount}"]`);
   row?.classList.remove('hidden');
-  updateAddTaskButton(kind);
+  updateSubAddTaskButton();
 }
-function updateAddTaskButton(kind) {
-  const btn = document.getElementById(`${kind}AddTaskBtn`);
-  if (btn) btn.classList.toggle('hidden', visibleTaskCounts[kind] >= TASK_KINDS[kind].max);
+function updateSubAddTaskButton() {
+  const btn = document.getElementById('subAddTaskBtn');
+  if (btn) btn.classList.toggle('hidden', visibleSubTaskCount >= SUB_TASK_MAX);
 }
 function toggleScoringFields() {
   const enabled = document.getElementById('scoringEnabled')?.checked;
   document.getElementById('scoringFields')?.classList.toggle('hidden', !enabled);
 }
-function collectTasks(kind) {
+function collectSubTasks() {
   const tasks = [];
-  for (let i = 1; i <= TASK_KINDS[kind].max; i++) {
-    const name = formDrawer.querySelector(`[data-task="name"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
-    const taskId = formDrawer.querySelector(`[data-task="task_id"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
-    const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-kind="${kind}"][data-index="${i}"]`)?.value.trim() || '';
+  for (let i = 1; i <= SUB_TASK_MAX; i++) {
+    const name = formDrawer.querySelector(`[data-task="name"][data-kind="sub"][data-index="${i}"]`)?.value.trim() || '';
+    const taskId = formDrawer.querySelector(`[data-task="task_id"][data-kind="sub"][data-index="${i}"]`)?.value.trim() || '';
+    const contractId = formDrawer.querySelector(`[data-task="contract_id"][data-kind="sub"][data-index="${i}"]`)?.value.trim() || '';
     if (name || taskId || contractId) tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
   }
   return tasks;
 }
-// 担当業務と月時間（分）ケースをセットで収集する。
-// 行を飛ばして入力された場合も保存後の業務番号（詰めた位置）とケースの task_index が一致するようにする。
-function collectMainTasksAndCases() {
+// 担当業務（前期・後期）と期別設定（月時間・週コマ・適用期間・コマ設定）をセットで収集・検証する。
+// サーバ（term_payload_errors）と同じ必須ルール: 委託業務名・適用期間は両期とも必須、期間の重複は不可。
+function collectTerms() {
   const tasks = [];
   const cases = [];
-  for (let i = 1; i <= TASK_KINDS.main.max; i++) {
-    const value = field => formDrawer.querySelector(`[data-task="${field}"][data-kind="main"][data-index="${i}"]`)?.value.trim() || '';
+  for (const termDef of TERMS) {
+    const value = field => formDrawer.querySelector(`[data-task="${field}"][data-term="${termDef.index}"]`)?.value.trim() || '';
     const name = value('name');
-    const taskId = value('task_id');
-    const contractId = value('contract_id');
-    const monthly = numberOrNull(value('monthly_minutes'));
-    const weekly = numberOrNull(value('weekly_lessons'));
-    const start = value('case_start') || null;
-    const end = value('case_end') || null;
-    const hasTask = Boolean(name || taskId || contractId);
-    const hasCase = monthly != null || weekly != null || start || end;
-    if (!hasTask && !hasCase) continue;
-    if (!hasTask) {
-      return {error: `担当業務${'①②③'[i - 1]}の月時間・週コマ・適用期間は委託業務名とセットで入力してください`};
-    }
-    tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
-    if (hasCase) {
-      cases.push({task_index: tasks.length, monthly_minutes: monthly, weekly_lessons: weekly, start_date: start, end_date: end});
-    }
+    if (!name) return {error: `担当業務（${termDef.label}）の委託業務名は必須です`};
+    const start = value('case_start');
+    const end = value('case_end');
+    if (!start || !end) return {error: `担当業務（${termDef.label}）の適用期間（開始日・終了日）を入力してください`};
+    if (end < start) return {error: `担当業務（${termDef.label}）の適用期間は終了日を開始日以降にしてください`};
+    const periods = collectPeriodSlots(termDef);
+    if (periods.error) return {error: periods.error};
+    tasks.push({task_name: name, task_id: value('task_id'), contract_id: value('contract_id')});
+    cases.push({
+      task_index: termDef.index,
+      monthly_minutes: numberOrNull(value('monthly_minutes')),
+      weekly_lessons: numberOrNull(value('weekly_lessons')),
+      start_date: start,
+      end_date: end,
+      slots: periods.slots,
+    });
+  }
+  if (cases[0].start_date <= cases[1].end_date && cases[1].start_date <= cases[0].end_date) {
+    return {error: '担当業務（前期）と（後期）の適用期間が重複しています'};
   }
   return {tasks, cases};
 }
@@ -520,12 +551,11 @@ function showFormMessage(text) {
   el.className = 'rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
 }
 function buildPayload() {
-  const main = collectMainTasksAndCases();
-  if (main.error) return {error: main.error};
-  const periods = collectPeriodSlots();
-  if (periods.error) return {error: periods.error};
+  const terms = collectTerms();
+  if (terms.error) return {error: terms.error};
   return {
-    period_slots: periods.slots,
+    // 旧形式（契約単位のコマ設定）はクリアし、期別（workload_cases[].slots）へ一本化する
+    period_slots: [],
     tutor_id: document.getElementById('tutorSelect').value,
     school_id: document.getElementById('schoolSelect').value,
     customer_id: document.getElementById('customerId').value.trim() || null,
@@ -540,7 +570,7 @@ function buildPayload() {
     show_schedule_note: document.getElementById('showScheduleNote').checked,
     contract_start: document.getElementById('contractStart').value || null,
     contract_end: document.getElementById('contractEnd').value || null,
-    workload_cases: main.cases,
+    workload_cases: terms.cases,
     shift_note: document.getElementById('shiftNote').value.trim() || null,
     work_content: document.getElementById('workContent').value.trim() || null,
     scoring_enabled: document.getElementById('scoringEnabled').checked,
@@ -548,8 +578,8 @@ function buildPayload() {
     scoring_unit: document.getElementById('scoringUnit').value.trim() || null,
     scoring_task_id: document.getElementById('scoringTaskId').value.trim() || null,
     scoring_contract_id: document.getElementById('scoringContractId').value.trim() || null,
-    tasks: main.tasks,
-    sub_tasks: collectTasks('sub'),
+    tasks: terms.tasks,
+    sub_tasks: collectSubTasks(),
   };
 }
 async function saveContract(event) {
@@ -557,12 +587,7 @@ async function saveContract(event) {
   const payload = buildPayload();
   if (payload.error) { showFormMessage(payload.error); return; }
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
-  if (!payload.tasks.length) { showFormMessage('担当業務①は必須です'); return; }
-  if (payload.workload_cases.some(item => item.start_date && item.end_date && item.end_date < item.start_date)) {
-    showFormMessage('月時間・週コマの適用期間は終了日を開始日以降にしてください');
-    return;
-  }
-  if (payload.period_slots.length && !payload.show_break_minutes) {
+  if (payload.workload_cases.some(item => item.slots.length) && !payload.show_break_minutes) {
     showFormMessage('休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）');
     return;
   }

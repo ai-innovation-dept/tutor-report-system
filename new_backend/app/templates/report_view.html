@@ -93,9 +93,12 @@
       const [y, m, d] = String(value).split('-');
       return (y && m && d) ? `${y}年${m}月${d}日` : String(value);
     }
-    // 委託業務（契約より）: 講師フォーム(renderTaskReference)と同じく列定義スナップショットから
-    // 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)を導出する。
+    // 委託業務（契約より）: 保存済みスナップショット（meta.task_reference。前期・後期の
+    // 名称・委託業務ID・個別契約IDを含む）を優先し、旧報告書は講師フォームと同じく
+    // 列定義スナップショットから担当業務→副業務→採点を導出する（従来表記）。
     function taskReferenceText(report) {
+      const saved = report && report.form_data && report.form_data.meta && report.form_data.meta.task_reference;
+      if (saved) return saved;
       return snapshotColumns(report).filter(c =>
         c.type === 'count_minutes'
         || String(c.key || '').startsWith('task_minutes_')

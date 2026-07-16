@@ -1,6 +1,8 @@
 """契約管理 API（/api/w/contracts）のテスト。"""
+import calendar
 import csv
 import io
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -55,6 +57,32 @@ def setup(db):
     return {"master": master, "tutor": tutor, "school": school}
 
 
+# 期別ケースの基準日。for-tutor の列定義は既定で「現在月」の期を使うため、
+# 実行日に依存しないよう「当月」を基準に前期・後期の適用期間を組み立てる。
+_TODAY = date.today()
+_MONTH_END = date(_TODAY.year, _TODAY.month, calendar.monthrange(_TODAY.year, _TODAY.month)[1])
+_PAST = "2020-01-01"
+_FUTURE = "2099-12-31"
+
+
+def _default_cases():
+    """既定の期別設定: 前期=過去〜当月末（当月は常に前期）／後期=翌月〜将来。"""
+    return [
+        {"task_index": 1, "monthly_minutes": 600, "weekly_lessons": 3,
+         "start_date": _PAST, "end_date": _MONTH_END.isoformat()},
+        {"task_index": 2, "start_date": (_MONTH_END + timedelta(days=1)).isoformat(), "end_date": _FUTURE},
+    ]
+
+
+def _split_cases():
+    """期の切替が当月の途中（15日/16日）にあるケース（当月は前期・後期の両方に重なる）。"""
+    return [
+        {"task_index": 1, "monthly_minutes": 600, "weekly_lessons": 3,
+         "start_date": _PAST, "end_date": _TODAY.replace(day=15).isoformat()},
+        {"task_index": 2, "start_date": _TODAY.replace(day=16).isoformat(), "end_date": _FUTURE},
+    ]
+
+
 def _payload(setup, **overrides):
     data = {
         "tutor_id": str(setup["tutor"].id),
@@ -67,7 +95,12 @@ def _payload(setup, **overrides):
         "weekly_lessons": 3,
         "shift_note": "月9:30-",
         "work_content": "数学指導",
-        "tasks": [{"task_name": "数学指導", "task_id": "11111", "contract_id": "99992601"}],
+        # 担当業務は前期・後期の2本必須（[0]=前期 / [1]=後期）
+        "tasks": [
+            {"task_name": "数学指導", "task_id": "11111", "contract_id": "99992601"},
+            {"task_name": "数学指導（後期）", "task_id": "22222", "contract_id": "99992602"},
+        ],
+        "workload_cases": _default_cases(),
     }
     data.update(overrides)
     return data
@@ -80,8 +113,9 @@ class TestContractCreate:
         body = res.json()
         assert body["tutor_name"] == "tutorユーザー"
         assert body["school_name"] == "schoolユーザー"
-        assert len(body["tasks"]) == 1
+        assert len(body["tasks"]) == 2  # 前期・後期の2本
         assert body["tasks"][0]["task_id"] == "11111"
+        assert body["tasks"][1]["task_id"] == "22222"
         assert body["scoring_enabled"] is False
         # assignment が自動作成され紐付く
         assert db.query(Assignment).filter_by(tutor_id=setup["tutor"].id, parent_id=setup["school"].id).count() == 1
@@ -110,9 +144,31 @@ class TestContractCreate:
         res = client.post("/api/w/contracts", json=_payload(setup, school_id=str(other.id)), headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 422
 
-    def test_first_task_required(self, client, db, setup):
+    def test_terms_required(self, client, db, setup):
+        # 前期・後期とも委託業務名が必須
         res = client.post("/api/w/contracts", json=_payload(setup, tasks=[]), headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 422
+        # 後期の名称だけ欠けても不可
+        one_term = [{"task_name": "数学指導", "task_id": "11111", "contract_id": "99992601"}]
+        res = client.post("/api/w/contracts", json=_payload(setup, tasks=one_term), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 422
+        assert "担当業務（後期）の委託業務名は必須です" in res.json()["detail"]
+
+    def test_term_periods_required(self, client, db, setup):
+        # 前期・後期とも適用期間（開始・終了）が必須
+        cases = _default_cases()
+        cases[1].pop("end_date")
+        res = client.post("/api/w/contracts", json=_payload(setup, workload_cases=cases), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 422
+        assert "担当業務（後期）の適用期間（開始日・終了日）は必須です" in res.json()["detail"]
+
+    def test_term_periods_overlap_rejected(self, client, db, setup):
+        # 前期と後期の適用期間の重複は不可
+        cases = _default_cases()
+        cases[1]["start_date"] = _MONTH_END.isoformat()  # 前期の終了日と同日から後期開始
+        res = client.post("/api/w/contracts", json=_payload(setup, workload_cases=cases), headers=_auth(client, "master@x.example.com"))
+        assert res.status_code == 422
+        assert "適用期間が重複しています" in res.json()["detail"]
 
     def test_non_admin_forbidden(self, client, db, setup):
         res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "tutor@x.example.com"))
@@ -162,56 +218,45 @@ class TestContractCreate:
 
 
 class TestContractWorkloadCases:
-    """月時間（分）・週コマの期間付き複数ケース。"""
+    """前期・後期の期別設定（月時間（分）・週コマ・適用期間）。"""
 
     CASES = [
-        {"monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-04-01", "end_date": "2026-08-31"},
-        {"monthly_minutes": 4000, "weekly_lessons": 20, "start_date": "2026-09-01", "end_date": "2027-03-31"},
+        {"task_index": 1, "monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-04-01", "end_date": "2026-08-31"},
+        {"task_index": 2, "monthly_minutes": 4000, "weekly_lessons": 20, "start_date": "2026-09-01", "end_date": "2027-03-31"},
     ]
 
-    def test_create_with_multiple_cases(self, client, db, setup):
+    def test_create_with_term_cases(self, client, db, setup):
         payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, workload_cases=self.CASES)
         res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 201, res.text
         body = res.json()
-        assert len(body["workload_cases"]) == 2
+        assert [c["task_index"] for c in body["workload_cases"]] == [1, 2]
         assert body["workload_cases"][0]["monthly_minutes"] == 3000
         assert body["workload_cases"][1]["start_date"] == "2026-09-01"
 
-    def test_legacy_single_values_become_one_case(self, client, db, setup):
-        """ケース未指定で単一値のみ（CSV取込互換）→ 契約期間を適用期間とした担当業務①の1ケースに合成。"""
+    def test_single_values_no_longer_become_case(self, client, db, setup):
+        """旧形式の単一値（monthly_minutes / weekly_lessons）はケースへ合成しない（期別設定のみ保存）。"""
         res = client.post("/api/w/contracts", json=_payload(setup), headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 201, res.text
         cases = res.json()["workload_cases"]
-        assert cases == [{
-            "monthly_minutes": 600,
-            "weekly_lessons": 3,
-            "start_date": "2026-04-01",
-            "end_date": "2027-03-31",
-            "task_index": 1,
-        }]
+        assert [c["task_index"] for c in cases] == [1, 2]
+        assert cases[0]["monthly_minutes"] == 600  # _default_cases の前期の値（単一値600とは別管理）
+        assert cases[1]["monthly_minutes"] is None
 
     def test_case_task_index_roundtrip(self, client, db, setup):
-        """担当業務ごとのケース（task_index付き）が保存・返却されること。範囲外は422。"""
-        tasks = [
-            {"task_name": "数学科指導", "task_id": "T1", "contract_id": "C1"},
-            {"task_name": "教科会", "task_id": "T2", "contract_id": "C2"},
-        ]
-        cases = [
-            {"task_index": 1, "monthly_minutes": 1200, "weekly_lessons": 6, "start_date": "2026-04-01", "end_date": "2027-03-31"},
-            {"task_index": 2, "monthly_minutes": 800, "weekly_lessons": 4, "start_date": "2026-04-01", "end_date": "2027-03-31"},
-        ]
-        payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, tasks=tasks, workload_cases=cases)
+        """期別ケース（task_index付き）が保存・返却されること。範囲外は422。"""
+        payload = _payload(setup, monthly_minutes=None, weekly_lessons=None, workload_cases=self.CASES)
         res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 201, res.text
         saved = res.json()["workload_cases"]
         assert [c["task_index"] for c in saved] == [1, 2]
-        assert saved[0]["monthly_minutes"] == 1200
+        assert saved[0]["monthly_minutes"] == 3000
         # 講師向けAPIにも task_index 付きで返る
         entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
         assert [c["task_index"] for c in entry["workload_cases"]] == [1, 2]
-        # task_index は1〜3のみ
-        bad = _payload(setup, workload_cases=[{"task_index": 4, "monthly_minutes": 100}])
+        # task_index は1（前期）・2（後期）のみ
+        bad_case = dict(self.CASES[0], task_index=3)
+        bad = _payload(setup, workload_cases=[bad_case, self.CASES[1]])
         assert client.post("/api/w/contracts", json=bad, headers=_auth(client, "master@x.example.com")).status_code == 422
 
     def test_patch_replaces_cases(self, client, db, setup):
@@ -221,9 +266,41 @@ class TestContractWorkloadCases:
         assert res.status_code == 200, res.text
         assert len(res.json()["workload_cases"]) == 2
 
+    def test_patch_terms_validated_on_final_state(self, client, db, setup):
+        """期別設定を更新するPATCHは最終状態で前期・後期の必須（適用期間）を検証する。"""
+        headers = _auth(client, "master@x.example.com")
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=headers).json()
+        # 後期のケースを落とす（前期のみ）→ 422
+        res = client.patch(f"/api/w/contracts/{created['id']}", json={"workload_cases": [self.CASES[0]]}, headers=headers)
+        assert res.status_code == 422
+        assert "担当業務（後期）の適用期間" in res.json()["detail"]
+        # 拒否後は契約が変わっていない
+        body = client.get(f"/api/w/contracts/{created['id']}", headers=headers).json()
+        assert len(body["workload_cases"]) == 2
+
+    def test_patch_other_fields_ok_on_legacy_contract(self, client, db, setup):
+        """旧形式（担当業務①のみ・期間なしケース）の契約でも、他フィールドのみの部分更新は通る。"""
+        assignment = Assignment(tutor_id=setup["tutor"].id, parent_id=setup["school"].id, student_name="-", system_type="new")
+        db.add(assignment)
+        db.flush()
+        profile = WorkAssignmentProfile(
+            assignment_id=assignment.id, tutor_id=setup["tutor"].id, school_id=setup["school"].id,
+            form_type="monthly_dispatch", task_name_1="数学指導", workload_cases=[{"monthly_minutes": 600}],
+        )
+        db.add(profile)
+        db.commit()
+        headers = _auth(client, "master@x.example.com")
+        res = client.patch(f"/api/w/contracts/{profile.id}", json={"our_staff": "新担当"}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["our_staff"] == "新担当"
+        # 期別設定に触るPATCHは新仕様の検証がかかる
+        res = client.patch(f"/api/w/contracts/{profile.id}", json={"workload_cases": [self.CASES[0]]}, headers=headers)
+        assert res.status_code == 422
+
     def test_invalid_case_period_rejected(self, client, db, setup):
-        bad = [{"monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-09-01", "end_date": "2026-03-31"}]
-        payload = _payload(setup, workload_cases=bad)
+        cases = _default_cases()
+        cases[0]["start_date"], cases[0]["end_date"] = "2026-09-01", "2026-03-31"  # 終了日が開始日より前
+        payload = _payload(setup, workload_cases=cases)
         res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@x.example.com"))
         assert res.status_code == 422
 
@@ -242,7 +319,8 @@ class TestContractForTutor:
         return client.post("/api/w/contracts", json=_payload(setup, **ov), headers=_auth(client, "master@x.example.com")).json()
 
     def test_for_tutor_returns_column_definition(self, client, db, setup):
-        # 委託業務（分のみ）＋採点専用欄を有効化 → 末尾に採点（回）の1列(count_minutes)
+        # 委託業務（分のみ）＋採点専用欄を有効化 → 末尾に採点（回）の1列(count_minutes)。
+        # 担当業務は対象月（既定=当月）の期のみ（_default_cases では当月=前期）。
         self._create(
             client, setup,
             tasks=[
@@ -260,10 +338,10 @@ class TestContractForTutor:
         entry = body[0]
         assert entry["school_id"] == str(setup["school"].id)
         keys = [c["key"] for c in entry["column_definition"]]
-        # 固定先頭 → 委託業務①②(分のみ) → 採点(回＋分=1列) → 固定末尾 の順
+        # 固定先頭 → 当月の期の担当業務（前期のみ）→ 採点(回＋分=1列) → 固定末尾 の順
         assert keys == [
             "date", "start", "end", "subject_period",
-            "task_minutes_1", "task_minutes_2",
+            "task_minutes_1",
             "scoring",
             "break_minutes", "commute_fee", "note",
         ]
@@ -286,7 +364,6 @@ class TestContractForTutor:
         # 項目名・単位を任意指定 → 見出し・単位・分見出しに反映（分は固定）
         self._create(
             client, setup,
-            tasks=[{"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"}],
             scoring_enabled=True,
             scoring_label="進路相談",
             scoring_unit="人",
@@ -317,6 +394,54 @@ class TestContractForTutor:
         assert "scoring" not in keys
         assert "task_minutes_1" in keys
 
+    def test_for_tutor_term_columns_by_month(self, client, db, setup):
+        """列定義は対象月の適用期間に該当する期の担当業務のみを含む。"""
+        self._create(
+            client, setup,
+            tasks=[
+                {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
+                {"task_name": "数学指導（後期）", "task_id": "T2", "contract_id": "C2"},
+            ],
+            workload_cases=[
+                {"task_index": 1, "monthly_minutes": 3000, "weekly_lessons": 15, "start_date": "2026-04-01", "end_date": "2026-08-31"},
+                {"task_index": 2, "monthly_minutes": 6000, "weekly_lessons": 20, "start_date": "2026-09-01", "end_date": "2027-03-31"},
+            ],
+        )
+        headers = _auth(client, "tutor@x.example.com")
+
+        def keys_for(month):
+            entry = client.get(f"/api/w/contracts/for-tutor?target_month={month}", headers=headers).json()[0]
+            return [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
+
+        assert keys_for("2026-06") == ["task_minutes_1"]  # 前期の月
+        assert keys_for("2026-10") == ["task_minutes_2"]  # 後期の月
+        # どの期にも該当しない月は入力不能にならないよう全担当業務へフォールバック
+        assert keys_for("2027-06") == ["task_minutes_1", "task_minutes_2"]
+
+    def test_for_tutor_split_month_shows_both_terms(self, client, db, setup):
+        """期の切替が月の途中にある月は前期・後期の両列を返す（行の日付で使い分ける）。"""
+        self._create(
+            client, setup,
+            tasks=[
+                {"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"},
+                {"task_name": "数学指導（後期）", "task_id": "T2", "contract_id": "C2"},
+            ],
+            workload_cases=_split_cases(),
+        )
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        keys = [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
+        assert keys == ["task_minutes_1", "task_minutes_2"]
+
+    def test_for_tutor_term_slots_roundtrip(self, client, db, setup):
+        """期別のコマ設定（workload_cases[].slots）が講師向けAPIへ返ること。"""
+        cases = _default_cases()
+        cases[0]["slots"] = [{"start": "08:30", "end": "09:20"}, {"start": "09:30", "end": "10:20"}]
+        cases[1]["slots"] = [{"start": "13:00", "end": "13:50"}]
+        self._create(client, setup, workload_cases=cases)
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["workload_cases"][0]["slots"] == [{"start": "08:30", "end": "09:20"}, {"start": "09:30", "end": "10:20"}]
+        assert entry["workload_cases"][1]["slots"] == [{"start": "13:00", "end": "13:50"}]
+
     def test_for_tutor_only_own_contracts(self, client, db, setup):
         self._create(client, setup)
         other_tutor = _add_user(db, "tutor2@x.example.com", "tutor")
@@ -330,7 +455,7 @@ class TestContractForTutor:
 
 
 class TestMainSubTasks:
-    """委託業務のメイン業務（①〜③・①必須）／サブ業務（①〜⑤・任意）分割。"""
+    """委託業務の担当業務（前期・後期の2本必須）／サブ業務（①〜⑤・任意）分割。"""
 
     MAIN = [
         {"task_name": "a", "task_id": "a", "contract_id": "a"},
@@ -353,8 +478,11 @@ class TestMainSubTasks:
         assert [t["task_name"] for t in body["sub_tasks"]] == ["c", "d", "e"]
 
     def test_column_order_main_then_sub(self, client, db, setup):
-        """報告書の列はメイン①②→サブ①②③の順（例: 回数,日付,時間,担当時限,a,b,c,d,e,後は同じ）。"""
-        assert self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB).status_code == 201
+        """報告書の列は担当（前期・後期）→サブ①②③の順（例: 回数,日付,時間,担当時限,a,b,c,d,e,後は同じ）。
+
+        当月に両期の列が並ぶよう、期の切替が月の途中にあるケースを使う。
+        """
+        assert self._create(client, setup, tasks=self.MAIN, sub_tasks=self.SUB, workload_cases=_split_cases()).status_code == 201
         entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
         keys = [c["key"] for c in entry["column_definition"]]
         assert keys == [
@@ -371,7 +499,8 @@ class TestMainSubTasks:
         assert sub1["summable"] is True
 
     def test_main_over_limit_rejected(self, client, db, setup):
-        over = [{"task_name": f"m{i}"} for i in range(4)]
+        # 担当業務は前期・後期の2件固定（3件以上は不可）
+        over = [{"task_name": f"m{i}"} for i in range(3)]
         assert self._create(client, setup, tasks=over).status_code == 422
 
     def test_sub_over_limit_rejected(self, client, db, setup):
@@ -460,8 +589,16 @@ def _csv_row(tutor_no, school_no="S100", **over):
         cis.TUTOR_NO: tutor_no,
         cis.SCHOOL_NO: school_no,
         cis.CUSTOMER_ID: "9999",
+        # 担当業務は前期・後期の2本（名称・適用期間が必須）
         cis._main_name_h(1): "数学指導",
         cis._main_id_h(1): "T1",
+        cis._monthly_minutes_h(1): "600",
+        cis._weekly_lessons_h(1): "3",
+        cis._case_start_h(1): "2026-04-01",
+        cis._case_end_h(1): "2026-08-31",
+        cis._main_name_h(2): "数学指導（後期）",
+        cis._case_start_h(2): "2026-09-01",
+        cis._case_end_h(2): "2027-03-31",
     }
     row.update(over)
     return row
@@ -492,6 +629,11 @@ class TestContractImport:
         assert "text/csv" in res.headers["content-type"]
         header = res.content.decode("utf-8-sig").splitlines()[0]
         assert cis.TUTOR_NO in header and cis.SCHOOL_NO in header and cis.CLASSROOM_NAME in header
+        # 前期・後期の期別列（名称・月時間・週コマ・適用期間）を持つ
+        for i in (1, 2):
+            for h in (cis._main_name_h(i), cis._monthly_minutes_h(i), cis._weekly_lessons_h(i),
+                      cis._case_start_h(i), cis._case_end_h(i)):
+                assert h in header, h
 
     def test_export_includes_registered_contract(self, client, db, import_setup):
         self._upload(client, _csv_bytes([_csv_row("T100", "S100", **{cis.OUR_STAFF: "佐藤"})]))
@@ -547,6 +689,14 @@ class TestContractImport:
         assert res2.json() == {"imported": 1, "created": 0, "updated": 1}
         db.refresh(profile)
         assert profile.our_staff == "新担当"
+        # 前期・後期の名称＋期別設定（月時間・週コマ・適用期間）も取り込まれている
+        assert profile.task_name_2 == "数学指導（後期）"
+        cases = {c["task_index"]: c for c in profile.workload_cases}
+        assert cases[1]["monthly_minutes"] == 600
+        assert cases[1]["weekly_lessons"] == 3
+        assert cases[1]["start_date"] == "2026-04-01"
+        assert cases[2]["start_date"] == "2026-09-01"
+        assert cases[2]["end_date"] == "2027-03-31"
 
     def test_parse_date_accepts_excel_variants(self):
         # Excelが「2026/6/1」(スラッシュ・ゼロ詰めなし)等へ変換しても受理する
@@ -618,6 +768,58 @@ class TestContractImport:
         res = self._upload(client, _csv_bytes([row]))
         assert res.status_code == 400
         assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_term_periods_required(self, client, db, import_setup):
+        # 後期の適用期間が欠けた行はエラー（全件中止）
+        row = _csv_row("T100", "S100")
+        row[cis._case_start_h(2)] = ""
+        row[cis._case_end_h(2)] = ""
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 400
+        detail = res.json()["detail"]
+        assert any("担当業務（後期）の適用期間" in e for e in detail["errors"])
+        assert db.query(WorkAssignmentProfile).count() == 0
+
+    def test_import_term_period_overlap_rejected(self, client, db, import_setup):
+        # 前期と後期の適用期間が重複する行はエラー
+        row = _csv_row("T100", "S100", **{cis._case_start_h(2): "2026-08-01"})
+        res = self._upload(client, _csv_bytes([row]))
+        assert res.status_code == 400
+        detail = res.json()["detail"]
+        assert any("適用期間が重複しています" in e for e in detail["errors"])
+
+    def test_export_import_roundtrip_terms(self, client, db, import_setup):
+        # 取込→エクスポート→再取込で期別設定（前期・後期）が保たれる
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100")]))
+        exported = client.get("/api/w/contracts/export", headers=_auth(client, "master@x.example.com"))
+        assert exported.status_code == 200
+        res = self._upload(client, exported.content)
+        assert res.status_code == 200, res.text
+        assert res.json() == {"imported": 1, "created": 0, "updated": 1}
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        db.refresh(profile)
+        cases = {c["task_index"]: c for c in profile.workload_cases}
+        assert cases[1]["monthly_minutes"] == 600
+        assert cases[2]["start_date"] == "2026-09-01"
+
+    def test_csv_upsert_preserves_term_slots(self, client, db, import_setup):
+        # 画面で設定した期別コマ設定は、CSV再取込しても task_index で引き継がれる（CSVはコマ設定を扱わない）
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100")]))
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        cases = [dict(c) for c in profile.workload_cases]
+        for case in cases:
+            if case["task_index"] == 1:
+                case["slots"] = [{"start": "08:30", "end": "09:20"}]
+        profile.workload_cases = cases
+        db.commit()
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100", **{cis.OUR_STAFF: "更新後"})]))
+        db.refresh(profile)
+        assert profile.our_staff == "更新後"
+        slots_by_index = {c["task_index"]: c.get("slots") or [] for c in profile.workload_cases}
+        assert slots_by_index[1] == [{"start": "08:30", "end": "09:20"}]
+        assert slots_by_index[2] == []
 
     def test_import_dispatch_address_and_schedule(self, client, db, import_setup):
         # 所在地・就業場所・スケジュール欄（旧シフト指定欄）のCSV取り込み
@@ -839,6 +1041,31 @@ class TestPeriodSlots:
         res = client.post(
             "/api/w/contracts",
             json=_payload(setup, period_slots=self.SLOTS, show_break_minutes=False),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_break_hidden_conflicts_with_term_slots(self, client, db, setup):
+        # 期別コマ設定（workload_cases[].slots）でも休憩非表示との併用は不可
+        cases = _default_cases()
+        cases[0]["slots"] = self.SLOTS
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, workload_cases=cases, show_break_minutes=False),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert res.status_code == 422
+
+    def test_patch_break_hidden_rejected_when_term_slots_exist(self, client, db, setup):
+        cases = _default_cases()
+        cases[1]["slots"] = self.SLOTS
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup, workload_cases=cases),
+            headers=_auth(client, "master@x.example.com"),
+        )
+        assert created.status_code == 201, created.text
+        res = client.patch(
+            f"/api/w/contracts/{created.json()['id']}", json={"show_break_minutes": False},
             headers=_auth(client, "master@x.example.com"),
         )
         assert res.status_code == 422

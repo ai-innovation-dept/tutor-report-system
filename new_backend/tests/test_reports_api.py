@@ -833,3 +833,22 @@ class TestContractRequiredAndLocked:
         assert meta["customer_id"] == "C-001"
         assert meta["our_staff"] == "担当A"
         assert meta["requests"] == "初回"
+
+    def test_tutor_cannot_change_task_reference_on_patch(self, client, users):
+        # 委託業務（契約より）のスナップショット（meta.task_reference）も講師変更不可
+        snapshot = "【前期】数学指導（分） / 委託業務ID:T1\n【後期】数学指導（後期）（分） / 委託業務ID:T2"
+        create = client.post(
+            "/api/w/reports",
+            json={"assignment_id": str(users["assignment"].id), "target_month": "2026-06",
+                  "form_type": "monthly_dispatch",
+                  "form_data": {"lines": [], "meta": {"task_reference": snapshot}}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert create.status_code == 201, create.text
+        patch = client.patch(
+            f"/api/w/reports/{create.json()['id']}",
+            json={"form_data": {"lines": [], "meta": {"task_reference": "改変してみる"}}},
+            headers=_auth(client, "tutor@work.example.com"),
+        )
+        assert patch.status_code == 200, patch.text
+        assert patch.json()["form_data"]["meta"]["task_reference"] == snapshot

@@ -127,6 +127,56 @@
     return `${minutesToTime(start)}〜${minutesToTime(start + MINUTES_PER_PERIOD)}`;
   }
 
+  // ===== 契約の前期/後期（期別設定）の解決 =====
+  // 契約の workload_cases（[{task_index:1|2, start_date, end_date, slots:[{start,end}...], ...}]）から
+  // 行の日付（無ければ対象月）に応じて適用中の期を解決する。task_index 1=前期 / 2=後期。
+  // 旧形式（期間なしケース・契約単位の period_slots）は従来どおりのフォールバックで互換を保つ。
+  function termLabel(taskIndex) {
+    return Number(taskIndex) === 1 ? '【前期】' : Number(taskIndex) === 2 ? '【後期】' : '';
+  }
+  // 期別設定を task_index 正規化＋適用開始日順で返す（旧データの task_index 無しは前期扱い）
+  function contractTermCases(contract) {
+    return (Array.isArray(contract?.workload_cases) ? contract.workload_cases : [])
+      .filter(c => c && typeof c === 'object')
+      .map(c => ({...c, task_index: Number(c.task_index) || 1}))
+      .sort((a, b) => String(a.start_date || '').localeCompare(String(b.start_date || '')) || a.task_index - b.task_index);
+  }
+  function caseContainsDate(c, dateStr) {
+    return (!c.start_date || c.start_date <= dateStr) && (!c.end_date || dateStr <= c.end_date);
+  }
+  function caseOverlapsMonth(c, month) {
+    if (!month) return true;
+    // YYYY-MM-DD の文字列比較で判定（"-31"は月末超えでも比較上は月内日付を包含できる）
+    return (!c.start_date || c.start_date <= `${month}-31`) && (!c.end_date || c.end_date >= `${month}-01`);
+  }
+  // 行の日付 → 対象月の順で適用中の期ケースを解決する（該当なしは null）
+  function activeTermCase(contract, dateStr, month) {
+    const cases = contractTermCases(contract);
+    if (!cases.length) return null;
+    if (dateStr) {
+      const byDate = cases.find(c => caseContainsDate(c, dateStr));
+      if (byDate) return byDate;
+    }
+    return cases.find(c => caseOverlapsMonth(c, month)) || null;
+  }
+  // 適用中のコマ設定を解決する（期のコマ設定 → 旧形式の契約単位 period_slots の順）。無ければ null。
+  function termSlotsForContext(contract, dateStr, month) {
+    if (!contract) return null;
+    const activeCase = activeTermCase(contract, dateStr, month);
+    if (activeCase && Array.isArray(activeCase.slots) && activeCase.slots.length) return activeCase.slots;
+    const legacy = contract.period_slots;
+    return (Array.isArray(legacy) && legacy.length) ? legacy : null;
+  }
+  // 担当時限の自動入力先。期の切替が月の途中にある場合（両期の列が並ぶ月）は、
+  // 行の日付の期に対応する task_minutes_{task_index} 列を優先する。
+  function periodAutoFillKeyForCase(columns, activeCase) {
+    if (activeCase && activeCase.task_index) {
+      const key = `task_minutes_${activeCase.task_index}`;
+      if (columns.some(column => column.key === key)) return key;
+    }
+    return periodAutoFillKey(columns);
+  }
+
   // ===== コマ設定（契約の時間割）による自動計算 =====
   // 「08:30」→「8:30」（表示用に時の先頭0を省く）
   function slotTimeLabel(value) { return String(value || '').replace(/^0/, ''); }
@@ -209,6 +259,7 @@
     isLeaveKind, isNoMainDutyKind, numberValue, timeToMinutes, minutesToTime,
     weekdayParen, dateLabelJa, parseSubjectPeriods,
     timeMinuteKeys, periodAutoFillKey, mainMinuteKeys, secondaryMinuteKeys, lineMinutesTotal,
+    termLabel, contractTermCases, activeTermCase, termSlotsForContext, periodAutoFillKeyForCase,
     computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
     slotTimeLabel, slotRangeLabel, slotScheduleText, slotDuration, selectedSlotNumbers, slotSelectionMetrics,
     requiredBreakMinutes, slotBreakDecision, breakBumpMessage,

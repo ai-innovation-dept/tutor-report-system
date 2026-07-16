@@ -3,13 +3,17 @@
 契約は (講師, 学校) ごとに1件で、work_assignment_profiles に格納する。
 作成時に (講師, 学校) の assignment を取得/自動作成して紐付ける。
 """
+import re
 import uuid
+from datetime import datetime
 from urllib.parse import quote
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.dependencies.auth import require_role
 from app.models.shared import User
@@ -24,6 +28,7 @@ from app.schemas.contracts import (
     ContractTask,
     ContractUpdate,
     ContractWorkloadCase,
+    term_payload_errors,
 )
 from app.services import contract_import_service
 from app.services.assignment_service import get_or_create_new_assignment
@@ -51,7 +56,7 @@ def _has_role(user: User | None, role: str) -> bool:
 
 
 # 委託業務カラム（メイン: task_name_N 等 / サブ: sub_task_name_N 等）の読み書き。
-# prefix="" がメイン（最大3件）、prefix="sub_" がサブ（最大5件）。
+# prefix="" がメイン（前期=1/後期=2の位置固定）、prefix="sub_" がサブ（最大5件）。
 def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask], prefix: str = "", max_count: int = MAX_MAIN_TASKS) -> None:
     for index in range(1, max_count + 1):
         task = tasks[index - 1] if index <= len(tasks) else None
@@ -60,7 +65,11 @@ def _tasks_to_columns(profile: WorkAssignmentProfile, tasks: list[ContractTask],
         setattr(profile, f"{prefix}contract_id_{index}", (task.contract_id or None) if task else None)
 
 
-def _tasks_from_columns(profile: WorkAssignmentProfile, prefix: str = "", max_count: int = MAX_MAIN_TASKS) -> list[ContractTask]:
+def _tasks_from_columns(
+    profile: WorkAssignmentProfile, prefix: str = "", max_count: int = MAX_MAIN_TASKS, positional: bool = False,
+) -> list[ContractTask]:
+    """委託業務カラムをリスト化する。positional=True（メイン用）は [0]=前期/[1]=後期 の位置を
+    保ったまま返す（欠けた期は空タスク。末尾の空きは詰める）。サブは従来どおり空行を詰める。"""
     tasks: list[ContractTask] = []
     for index in range(1, max_count + 1):
         name = getattr(profile, f"{prefix}task_name_{index}")
@@ -68,6 +77,11 @@ def _tasks_from_columns(profile: WorkAssignmentProfile, prefix: str = "", max_co
         contract_id = getattr(profile, f"{prefix}contract_id_{index}")
         if name or task_id or contract_id:
             tasks.append(ContractTask(task_name=name, task_id=task_id, contract_id=contract_id))
+        elif positional:
+            tasks.append(ContractTask())
+    if positional:
+        while tasks and tasks[-1].is_empty():
+            tasks.pop()
     return tasks
 
 
@@ -101,7 +115,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         scoring_unit=profile.scoring_unit,
         scoring_task_id=profile.scoring_task_id,
         scoring_contract_id=profile.scoring_contract_id,
-        tasks=_tasks_from_columns(profile),
+        tasks=_tasks_from_columns(profile, positional=True),
         sub_tasks=_tasks_from_columns(profile, prefix="sub_", max_count=MAX_SUB_TASKS),
         period_slots=_period_slots_from_json(profile),
         is_active=profile.is_active,
@@ -122,21 +136,8 @@ def _get_profile_loaded(db: Session, profile_id: uuid.UUID) -> WorkAssignmentPro
 
 
 def _workload_cases_to_json(payload: ContractCreate | ContractUpdate) -> list[dict]:
-    """月時間・週コマのケースをJSONへ変換する。
-
-    ケース未指定で旧来の単一値（monthly_minutes / weekly_lessons）だけが
-    指定された場合（CSV取込など）は、契約期間を適用期間とした1ケースに合成する。
-    """
-    cases = list(payload.workload_cases)
-    if not cases and (payload.monthly_minutes is not None or payload.weekly_lessons is not None):
-        cases = [ContractWorkloadCase(
-            monthly_minutes=payload.monthly_minutes,
-            weekly_lessons=payload.weekly_lessons,
-            start_date=payload.contract_start,
-            end_date=payload.contract_end,
-            task_index=1,
-        )]
-    return [case.model_dump(mode="json") for case in cases]
+    """期別設定（月時間・週コマ・適用期間・コマ設定）のケースをJSONへ変換する。"""
+    return [case.model_dump(mode="json") for case in payload.workload_cases]
 
 
 def _workload_cases_from_json(profile: WorkAssignmentProfile) -> list[ContractWorkloadCase]:
@@ -186,8 +187,9 @@ def create_contract(
     db: Session = Depends(get_db),
     _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
 ):
-    if not payload.tasks:
-        raise HTTPException(status_code=422, detail="担当業務①は必須です")
+    term_errors = term_payload_errors(payload.tasks, payload.workload_cases)
+    if term_errors:
+        raise HTTPException(status_code=422, detail="／".join(term_errors))
     tutor, school = _resolve_pair(db, payload.tutor_id, payload.school_id)
 
     duplicate = db.scalar(
@@ -240,9 +242,17 @@ def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
         profile.is_active = True
         # 既存契約の表示項目フラグ・コマ設定（CSV対象外）を保持してから上書きする
         preserved = {field: getattr(profile, field) for field in _CSV_PRESERVED_FIELDS}
+        old_cases = [case for case in (profile.workload_cases or []) if isinstance(case, dict)]
         _apply_payload(profile, payload)
         for field, value in preserved.items():
             setattr(profile, field, value)
+        # CSVは期別のコマ設定(slots)を扱わないため、既存ケースのコマ設定を task_index で引き継ぐ
+        old_slots = {int(case.get("task_index") or 1): case["slots"] for case in old_cases if case.get("slots")}
+        profile.workload_cases = [
+            ({**case, "slots": old_slots[int(case.get("task_index") or 1)]}
+             if not case.get("slots") and int(case.get("task_index") or 1) in old_slots else case)
+            for case in (profile.workload_cases or [])
+        ]
     return created
 
 
@@ -319,12 +329,22 @@ def import_contracts(
     return {"imported": len(payloads), "created": created, "updated": updated}
 
 
+_MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+
+
 @router.get("/for-tutor", response_model=list[ContractForTutorOut])
 def list_contracts_for_tutor(
+    target_month: str | None = None,
     db: Session = Depends(get_db),
     user: User = Depends(require_role("tutor")),
 ):
-    """ログイン中の講師に紐づく契約一覧＋報告書フォーム用の動的列定義を返す。"""
+    """ログイン中の講師に紐づく契約一覧＋報告書フォーム用の動的列定義を返す。
+
+    列定義は対象月（target_month。省略時は現在月）に適用される期（前期/後期）の
+    担当業務のみを含む（新規報告書は当月のみ作成できるため、画面は当月を渡す）。
+    """
+    if not (target_month and _MONTH_RE.match(target_month)):
+        target_month = datetime.now(ZoneInfo(settings.TIMEZONE)).strftime("%Y-%m")
     profiles = db.scalars(
         select(WorkAssignmentProfile)
         .options(selectinload(WorkAssignmentProfile.school))
@@ -351,10 +371,10 @@ def list_contracts_for_tutor(
             workload_cases=_workload_cases_from_json(p),
             shift_note=p.shift_note,
             work_content=p.work_content,
-            tasks=_tasks_from_columns(p),
+            tasks=_tasks_from_columns(p, positional=True),
             sub_tasks=_tasks_from_columns(p, prefix="sub_", max_count=MAX_SUB_TASKS),
             period_slots=_period_slots_from_json(p),
-            column_definition=build_column_definition(p),
+            column_definition=build_column_definition(p, target_month),
         )
         for p in profiles
     ]
@@ -410,8 +430,21 @@ def update_contract(
     if "sub_tasks" in data:
         _tasks_to_columns(profile, payload.sub_tasks, prefix="sub_", max_count=MAX_SUB_TASKS)
 
+    # 担当業務・期別設定を変更する更新は、最終状態で前期/後期の必須（名称・適用期間・重複なし）を検証する。
+    # 他フィールドのみの部分更新は旧形式の契約でも通す（新仕様は契約を編集した時点から適用）。
+    if "tasks" in data or "workload_cases" in data:
+        term_errors = term_payload_errors(
+            _tasks_from_columns(profile, positional=True),
+            _workload_cases_from_json(profile),
+        )
+        if term_errors:
+            raise HTTPException(status_code=422, detail="／".join(term_errors))
+
     # 部分更新（片方だけ送信）でもコマ設定×休憩非表示の組み合わせにならないよう最終状態で検証する
-    if profile.period_slots and profile.show_break_minutes is False:
+    has_slots = bool(profile.period_slots) or any(
+        case.get("slots") for case in (profile.workload_cases or []) if isinstance(case, dict)
+    )
+    if has_slots and profile.show_break_minutes is False:
         raise HTTPException(
             status_code=422,
             detail="休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）",

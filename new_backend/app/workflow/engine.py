@@ -59,26 +59,30 @@ def _case_minutes_limit(case: dict, month_start: date, month_end: date) -> tuple
     return int(case.get("task_index") or 1), limit
 
 
-def exceeds_monthly_limit(db: Session, report: WorkReport) -> bool:
-    """担当業務ごとの対象月の分数合計が、契約の月分固定（紐づくケース）を超えているか。
-
-    判定対象: 担当業務（task_minutes_N）のみ。週コマ・副業務・ケース未登録の業務は対象外。
-    ケースは適用期間が対象月と重なるものを使用する（期間未設定は常に適用）。
-    1件でも超過していれば True（提出時に承認フローを超過フローへ切り替える）。
-    """
-    # _skips_school_approval と同様、テスト用スタブでも安全に動くよう防御的に参照する
+def _active_profile(db: Session, report: WorkReport) -> WorkAssignmentProfile | None:
+    """報告書の紐付けに対する有効な契約を返す（テスト用スタブでも安全に動くよう防御的に参照）。"""
     assignment_id = getattr(report, "assignment_id", None)
     if assignment_id is None or not hasattr(db, "scalar"):
-        return False
-    bounds = _month_bounds(getattr(report, "target_month", "") or "")
-    if bounds is None:
-        return False
-    profile = db.scalar(
+        return None
+    return db.scalar(
         select(WorkAssignmentProfile).where(
             WorkAssignmentProfile.assignment_id == assignment_id,
             WorkAssignmentProfile.is_active.is_(True),
         )
     )
+
+
+def exceeds_monthly_limit(db: Session, report: WorkReport, profile: WorkAssignmentProfile | None = None) -> bool:
+    """担当業務（前期/後期）ごとの対象月の分数合計が、契約の月分固定（期別ケース）を超えているか。
+
+    判定対象: 担当業務（task_minutes_N。N=1:前期／2:後期）のみ。副業務・ケース未登録の業務は対象外。
+    ケースは適用期間が対象月と重なるものを使用する（期間未設定は常に適用）。
+    1件でも超過していれば True（提出時に承認フローを超過フローへ切り替える）。
+    """
+    bounds = _month_bounds(getattr(report, "target_month", "") or "")
+    if bounds is None:
+        return False
+    profile = profile or _active_profile(db, report)
     if not profile or not profile.workload_cases:
         return False
     lines = (getattr(report, "form_data", None) or {}).get("lines") or []
@@ -101,6 +105,72 @@ def exceeds_monthly_limit(db: Session, report: WorkReport) -> bool:
             continue
         task_index, limit = applicable
         if task_total(task_index) > limit:
+            return True
+    return False
+
+
+def _case_weekly_limit(case: dict, month_start: date, month_end: date) -> tuple[int, date | None, date | None] | None:
+    """ケースが対象月に適用されるなら (週コマ上限, 適用開始, 適用終了) を返す。対象外は None。"""
+    if not isinstance(case, dict):
+        return None
+    limit = case.get("weekly_lessons")
+    if not isinstance(limit, int):
+        return None
+    try:
+        start = date.fromisoformat(case["start_date"]) if case.get("start_date") else None
+        end = date.fromisoformat(case["end_date"]) if case.get("end_date") else None
+    except (TypeError, ValueError):
+        return None
+    if start and start > month_end:
+        return None
+    if end and end < month_start:
+        return None
+    return limit, start, end
+
+
+def _line_slot_count(line: dict) -> int:
+    """行の担当時限の選択コマ数（"1・3・6" → 3。未選択・数値以外は0）。"""
+    value = str(line.get("subject_period") or "")
+    return len([part for part in value.split("・") if part.strip().isdigit()])
+
+
+def exceeds_weekly_lessons(db: Session, report: WorkReport, profile: WorkAssignmentProfile | None = None) -> bool:
+    """担当時限の週あたりコマ数が、契約の週コマ（期別ケース）を超えているか。
+
+    週は月曜〜日曜の暦週。ケースの適用期間内の日付の行の担当時限コマ数を週ごとに合計し、
+    1週でも上限を超えていれば True（月分超過と同じく事務の事前確認フローへ切り替える）。
+    有給休暇・欠勤の行は担当時限を持たないため対象外。
+    """
+    bounds = _month_bounds(getattr(report, "target_month", "") or "")
+    if bounds is None:
+        return False
+    profile = profile or _active_profile(db, report)
+    if not profile or not profile.workload_cases:
+        return False
+    lines = (getattr(report, "form_data", None) or {}).get("lines") or []
+
+    for case in profile.workload_cases:
+        applicable = _case_weekly_limit(case, *bounds)
+        if applicable is None:
+            continue
+        limit, start, end = applicable
+        weekly_counts: dict[tuple[int, int], int] = {}
+        for line in lines:
+            if not isinstance(line, dict) or line.get("kind") in _LEAVE_KINDS:
+                continue
+            count = _line_slot_count(line)
+            if count == 0:
+                continue
+            try:
+                line_date = date.fromisoformat(str(line.get("date") or ""))
+            except ValueError:
+                continue
+            if (start and line_date < start) or (end and line_date > end):
+                continue
+            iso_year, iso_week, _ = line_date.isocalendar()
+            key = (iso_year, iso_week)
+            weekly_counts[key] = weekly_counts.get(key, 0) + count
+        if any(total > limit for total in weekly_counts.values()):
             return True
     return False
 
@@ -138,14 +208,18 @@ def has_minute_level_input(report: WorkReport) -> bool:
 
 # 事前確認の発動理由（提出イベントのコメントに自動記録し、運営のタイムラインに表示する）
 PRECHECK_REASON_OVER_LIMIT = "担当業務の月分が契約の固定分を超過"
+PRECHECK_REASON_OVER_WEEKLY = "担当時限の週コマ数が契約の週コマを超過"
 PRECHECK_REASON_MINUTE_INPUT = "担当業務・副担当業務に1〜9分単位の手入力あり"
 
 
 def precheck_reasons(db: Session, report: WorkReport) -> list[str]:
     """事務の事前確認（awaiting_office_precheck）が必要な理由の一覧。空なら通常フロー。"""
     reasons = []
-    if exceeds_monthly_limit(db, report):
+    profile = _active_profile(db, report)
+    if exceeds_monthly_limit(db, report, profile):
         reasons.append(PRECHECK_REASON_OVER_LIMIT)
+    if exceeds_weekly_lessons(db, report, profile):
+        reasons.append(PRECHECK_REASON_OVER_WEEKLY)
     if has_minute_level_input(report):
         reasons.append(PRECHECK_REASON_MINUTE_INPUT)
     return reasons
@@ -208,13 +282,13 @@ def apply_transition(
     next_approver_role = transition.next_approver_role
 
     # 学校スキップ設定が有効な紐付けは、講師提出時に学校確認を飛ばして事務確認へ進める。
-    # 事前確認対象（月分超過・1〜9分手入力）の報告でも学校スキップ校は事務確認1回（通常スキップフローと同形）とする。
+    # 事前確認対象（月分超過・週コマ超過・1〜9分手入力）の報告でも学校スキップ校は事務確認1回（通常スキップフローと同形）とする。
     if action == WorkAction.SUBMIT and to_status == WorkStatus.AWAITING_SCHOOL:
         if _skips_school_approval(db, report):
             to_status = WorkStatus.AWAITING_OFFICE
             next_approver_role = "office"
         else:
-            # 月分超過、または担当業務・副担当業務への1〜9分単位の手入力がある報告は、
+            # 月分超過・週コマ超過、または担当業務・副担当業務への1〜9分単位の手入力がある報告は、
             # 学校確認の前に事務の事前確認を挟む（事前確認フロー: 講師→事務→学校→事務→営業）。
             # 発動理由は提出イベントのコメントへ自動記録し、運営の進捗タイムラインで確認できるようにする。
             reasons = precheck_reasons(db, report)

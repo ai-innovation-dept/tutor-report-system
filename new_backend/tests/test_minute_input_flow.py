@@ -70,9 +70,16 @@ def _create_contract(client, setup):
         "school_id": str(setup["school"].id),
         "contract_start": "2026-04-01",
         "contract_end": "2027-03-31",
-        "tasks": [{"task_name": "数学科指導", "task_id": "T1", "contract_id": "C1"}],
+        "tasks": [
+            {"task_name": "数学科指導", "task_id": "T1", "contract_id": "C1"},
+            {"task_name": "数学科指導（後期）", "task_id": "T2", "contract_id": "C2"},
+        ],
         "sub_tasks": [{"task_name": "採点補助"}],
-        "workload_cases": [],
+        # 月時間・週コマは未設定（このテストの事前確認トリガーは1〜9分手入力のみ）
+        "workload_cases": [
+            {"task_index": 1, "start_date": "2026-04-01", "end_date": "2026-08-31"},
+            {"task_index": 2, "start_date": "2026-09-01", "end_date": "2027-03-31"},
+        ],
     }
     res = client.post("/api/w/contracts", json=payload, headers=_auth(client, "master@mi.example.com"))
     assert res.status_code == 201, res.text

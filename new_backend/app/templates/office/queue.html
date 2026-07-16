@@ -164,7 +164,8 @@ const OFFICE_EDIT_DEFAULT_COLUMNS = [
 ];
 let officeEditReportId = '';
 let officeEditColumnsCache = [];  // 開いている報告書の列定義（スナップショット優先・kind差し込み前）
-let officeEditSlots = null;       // 開いている報告書の契約のコマ設定（period_slots。無ければnull＝8:40固定ルール）
+let officeEditContract = null;    // 開いている報告書の契約（前期/後期の期別コマ設定の解決用。無ければnull）
+let officeEditMonth = '';         // 開いている報告書の対象月（行の日付が無いときの期判定に使用）
 let allContracts = null;          // 契約一覧（コマ設定・休憩列の表示フラグの参照用。編集モーダル初回表示時に取得）
 // 職務分掌：兼務スタッフが事務/営業承認を担当済みの講師ID（UI制御用）
 let separationLocks = {office_tutor_ids: [], sales_tutor_ids: []};
@@ -751,14 +752,14 @@ function officeEditCellHtml(cell, index, line) {
     return `<div data-time-range>
       <input type="hidden" data-field="start" value="${escapeHtml(startVal)}">
       <input type="hidden" data-field="end" value="${escapeHtml(endVal)}">
-      <div data-time-display title="${escapeHtml(Calc.timeRangeHintText(officeEditSlots))}" class="flex h-7 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-1 text-xs ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
+      <div data-time-display title="${escapeHtml(Calc.timeRangeHintText(oeSlotsForDate(line.date)))}" class="flex h-7 w-full items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-1 text-xs ${range ? 'font-medium text-slate-800' : 'text-slate-400'}">${range ? escapeHtml(range) : '自動計算'}</div>
     </div>`;
   }
   if (cell.kind === 'period') {
     const summary = Calc.parseSubjectPeriods(line.subject_period).join('・');
     return `<div data-period-cell>
       <input type="hidden" data-field="subject_period" value="${escapeHtml(line.subject_period ?? '')}">
-      <button type="button" data-period-btn title="${escapeHtml(Calc.subjectPeriodHintText(officeEditSlots))}" class="h-7 w-full overflow-hidden rounded border border-slate-300 px-1 text-left text-xs focus:border-emerald-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${summary ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${summary ? escapeHtml(summary) : '選択'}</span></button>
+      <button type="button" data-period-btn title="${escapeHtml(Calc.subjectPeriodHintText(oeSlotsForDate(line.date)))}" class="h-7 w-full overflow-hidden rounded border border-slate-300 px-1 text-left text-xs focus:border-emerald-500 focus:outline-none disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400 ${summary ? 'text-slate-800' : 'text-slate-400'}"><span class="block truncate">${summary ? escapeHtml(summary) : '選択'}</span></button>
     </div>`;
   }
   if (cell.kind === 'count_minutes') {
@@ -776,6 +777,23 @@ function officeEditCellHtml(cell, index, line) {
   return `<input type="${type}" ${isNumber ? 'min="0" step="1"' : ''} data-field="${escapeHtml(col.key)}" value="${escapeHtml(line[col.key] ?? '')}" class="${OE_INPUT_CLASS}">`;
 }
 // ===== 行の状態・自動計算（講師フォームの applyRowKind / recomputeRowTimes / applyPeriodAutoFill と同一ルール） =====
+// 契約の前期/後期の期別コマ設定は、行の日付（無ければ報告書の対象月）からどちらの期かを判定して解決する。
+// 解決ルールは共通コア（work_report_calc.js の termSlotsForContext）＝講師フォームと同一。
+function oeSlotsForDate(dateStr) {
+  return Calc.termSlotsForContext(officeEditContract, dateStr || '', officeEditMonth);
+}
+function oeRowSlots(row) {
+  return oeSlotsForDate(row?.querySelector('[data-field="date"]')?.value || '');
+}
+// 契約にコマ設定（期別・旧形式いずれか）があるか（保存時検証の対象判定。講師フォームの contractHasAnySlots と同一）
+function oeContractHasAnySlots() {
+  if (!officeEditContract) return false;
+  return Calc.contractTermCases(officeEditContract).some(item => Array.isArray(item.slots) && item.slots.length)
+    || (Array.isArray(officeEditContract.period_slots) && officeEditContract.period_slots.length > 0);
+}
+function oeSlotsSignature(slots) {
+  return JSON.stringify(slots || null);
+}
 function oeRowLineValues(row) {
   const line = {};
   row.querySelectorAll('[data-field]').forEach(el => { line[el.dataset.field] = el.value; });
@@ -819,8 +837,9 @@ function oeApplyRowKind(row) {
 }
 function oeApplySlotBreakRules(row, recompute) {
   const breakInput = row.querySelector('[data-field="break_minutes"]');
-  if (!officeEditSlots || !breakInput) return 0;
-  const decision = Calc.slotBreakDecision(officeEditSlots, oeRowLineValues(row), recompute, officeEditColumnsCache);
+  const slots = oeRowSlots(row);
+  if (!slots || !breakInput) return 0;
+  const decision = Calc.slotBreakDecision(slots, oeRowLineValues(row), recompute, officeEditColumnsCache);
   if (decision.value != null) breakInput.value = String(decision.value);
   return decision.required;
 }
@@ -828,8 +847,9 @@ function oeRecomputeRowTimes(row, notify = false) {
   const cell = row.querySelector('[data-time-range]');
   if (!cell) return;
   const kind = row.querySelector('[data-field="kind"]')?.value || '';
+  const slots = oeRowSlots(row);
   const total = Calc.isLeaveKind(kind) ? 0 : Calc.lineMinutesTotal(oeRowLineValues(row), Calc.timeMinuteKeys(officeEditColumnsCache));
-  const startOverride = Calc.rowStartMinutesOverride(officeEditSlots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
+  const startOverride = Calc.rowStartMinutesOverride(slots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
   const {start, end, overflow} = Calc.computeAutoTimes(total, startOverride);
   cell.querySelector('[data-field="start"]').value = start;
   cell.querySelector('[data-field="end"]').value = end;
@@ -845,7 +865,7 @@ function oeRecomputeRowTimes(row, notify = false) {
     display.classList.toggle('border-slate-200', !overflow);
     display.classList.toggle('bg-slate-50', !overflow);
   }
-  if (overflow && notify) oeShowPopup(display, officeEditSlots
+  if (overflow && notify) oeShowPopup(display, slots
     ? '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らして調整してください。'
     : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
 }
@@ -860,11 +880,14 @@ function oeRefreshPeriodCell(cell) {
 function oeApplyPeriodAutoFill(row) {
   const hidden = row.querySelector('[data-field="subject_period"]');
   if (!hidden) return;
-  const taskKey = Calc.periodAutoFillKey(officeEditColumnsCache);
+  // 自動入力先の担当業務列は行の日付の期（前期/後期）で解決する（講師フォームの periodAutoFillKeyForRow と同一）
+  const activeCase = Calc.activeTermCase(officeEditContract, row.querySelector('[data-field="date"]')?.value || '', officeEditMonth);
+  const taskKey = Calc.periodAutoFillKeyForCase(officeEditColumnsCache, activeCase);
   const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
   const breakInput = row.querySelector('[data-field="break_minutes"]');
-  if (officeEditSlots) {
-    const metrics = Calc.slotSelectionMetrics(officeEditSlots, hidden.value);
+  const slots = oeRowSlots(row);
+  if (slots) {
+    const metrics = Calc.slotSelectionMetrics(slots, hidden.value);
     if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
     if (!metrics.selected && breakInput) breakInput.value = '';
     const required = oeApplySlotBreakRules(row, true);
@@ -918,7 +941,8 @@ function openOfficePeriodPopover(btn) {
   const row = btn.closest('tr');
   const hidden = row.querySelector('[data-field="subject_period"]');
   const selected = new Set(Calc.parseSubjectPeriods(hidden.value));
-  const slots = officeEditSlots;
+  // 期別コマ設定は行の日付からどちらの期かを判定する（講師フォームの openPeriodPopover と同一）
+  const slots = oeRowSlots(row);
   const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const toggleClass = on => on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-700';
   const buttonClass = on => slots
@@ -1072,7 +1096,22 @@ function bindOfficeEditEvents() {
       });
     }
     if (input.dataset.field === 'date') {
-      input.addEventListener('change', () => oeValidateLineDateUnique(input));
+      input.addEventListener('change', () => {
+        oeValidateLineDateUnique(input);
+        // 期の切替（適用期間）を跨ぐ日付変更はコマ設定が変わるため、担当時限からの
+        // 自動入力（担当業務（分）・休憩）と業務開始〜終了時間を新しい期で計算し直す（講師フォームと同一）
+        const row = input.closest('tr');
+        const sig = oeSlotsSignature(oeRowSlots(row));
+        if (row.dataset.slotSig !== sig) {
+          row.dataset.slotSig = sig;
+          if (Calc.parseSubjectPeriods(row.querySelector('[data-field="subject_period"]')?.value || '').length) {
+            oeApplyPeriodAutoFill(row);
+          } else {
+            oeRecomputeRowTimes(row);
+          }
+          oeUpdateTotals();
+        }
+      });
       // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
       input.addEventListener('click', () => {
         if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
@@ -1102,7 +1141,9 @@ async function openOfficeEditModal(reportId) {
   if (!report) return;
   await ensureContractsLoaded();
   const contract = contractForReport(report);
-  officeEditSlots = (Array.isArray(contract?.period_slots) && contract.period_slots.length) ? contract.period_slots : null;
+  // 期別コマ設定（前期/後期）は行の日付で解決するため、契約と対象月を保持する
+  officeEditContract = contract || null;
+  officeEditMonth = report.target_month || '';
   officeEditColumnsCache = officeEditColumns(report, contract);
   officeEditReportId = reportId;
   const cells = officeEditCells(officeEditColumnsCache);
@@ -1125,9 +1166,10 @@ async function openOfficeEditModal(reportId) {
     return `<td style="width:${widths[ci]}px"${sticky} class="${pos} border-b border-r border-slate-200 px-1 py-1">${officeEditCellHtml(cell, i, line)}</td>`;
   }).join('')}</tr>`).join('');
   bindOfficeEditEvents();
-  // 種別による活殺・自動計算値への正規化を初期反映する（講師フォームの編集可能時と同じ挙動）
+  // 種別による活殺・自動計算値への正規化を初期反映する（講師フォームの編集可能時と同じ挙動）。
+  // 各行の適用コマ設定の署名も初期化する（期跨ぎの日付変更の検知用）
   const rows = [...document.getElementById('officeEditBody').querySelectorAll('tr[data-index]')];
-  rows.forEach(row => { oeApplyRowKind(row); oeRecomputeRowTimes(row); });
+  rows.forEach(row => { row.dataset.slotSig = oeSlotsSignature(oeRowSlots(row)); oeApplyRowKind(row); oeRecomputeRowTimes(row); });
   oeUpdateTotals();
   document.getElementById('officeEditComment').value = '';
   document.getElementById('officeEditError').classList.add('hidden');
@@ -1138,6 +1180,8 @@ async function openOfficeEditModal(reportId) {
 }
 function closeOfficeEditModal() {
   officeEditReportId = '';
+  officeEditContract = null;
+  officeEditMonth = '';
   closeOfficePeriodPopovers();
   const modal = document.getElementById('officeEditModal');
   modal.classList.add('hidden');
@@ -1170,13 +1214,20 @@ function validateOfficeEditLines(lines) {
     return !Number.isInteger(n) || n < 1 || n > 10;
   }));
   if (invalidPeriod) return '担当時限は1〜10で選択してください';
-  // コマ設定契約: 時限がコマ設定の範囲内か・労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか
-  if (officeEditSlots) {
-    const outIndex = lines.findIndex(line => Calc.parseSubjectPeriods(line.subject_period).some(p => Number(p) > officeEditSlots.length));
-    if (outIndex !== -1) return `${outIndex + 1}回目：担当時限にコマ設定（①〜${Calc.CIRCLED_NUMBERS[officeEditSlots.length - 1]}）にない時限が含まれています。選び直してください。`;
+  // コマ設定契約: 時限がその行の適用期（日付から判定）のコマ設定の範囲内か・
+  // 労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか（講師フォームと同一）
+  if (oeContractHasAnySlots()) {
+    const outIndex = lines.findIndex(line => {
+      const slots = oeSlotsForDate(line.date);
+      return slots && Calc.parseSubjectPeriods(line.subject_period).some(p => Number(p) > slots.length);
+    });
+    if (outIndex !== -1) {
+      const slots = oeSlotsForDate(lines[outIndex].date);
+      return `${outIndex + 1}回目：担当時限にコマ設定（①〜${Calc.CIRCLED_NUMBERS[slots.length - 1]}）にない時限が含まれています。選び直してください。`;
+    }
     const workKeys = [...Calc.mainMinuteKeys(officeEditColumnsCache), ...Calc.secondaryMinuteKeys(officeEditColumnsCache)];
     const shortIndex = lines.findIndex(line => {
-      if (Calc.isLeaveKind(line.kind)) return false;
+      if (Calc.isLeaveKind(line.kind) || !oeSlotsForDate(line.date)) return false;
       const work = workKeys.reduce((sum, key) => sum + Calc.numberValue(line[key]), 0);
       return Calc.numberValue(line.break_minutes) < Calc.requiredBreakMinutes(work);
     });

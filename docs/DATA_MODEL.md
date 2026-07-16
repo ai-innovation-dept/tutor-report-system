@@ -270,7 +270,7 @@ erDiagram
 
 1契約 = (講師, 学校) ごとに1件で、1つの `assignment` に 1:1 対応する。経理（admin_master）・管理責任者（admin_chief）・営業（sales）・事務（office）の「契約管理」画面で登録し、講師の報告書フォーム（動的列定義）の元データとなる。
 
-委託業務は **メイン業務（①〜③・①必須）** と **サブ業務（①〜⑤・任意）** の2区分に分かれ、報告書の列は「メイン→サブ」の順に生成される（`task_minutes_N` / `sub_minutes_N`）。
+委託業務は **担当業務（前期・後期の2本必須。2026-07-16改修）** と **サブ業務（①〜⑤・任意）** の2区分に分かれ、報告書の列は「担当（対象月の期のみ）→サブ」の順に生成される（`task_minutes_N`（N=1:前期／2:後期） / `sub_minutes_N`）。
 
 | カラム | 型 | 制約 | 説明 |
 |--------|------|------|------|
@@ -287,20 +287,21 @@ erDiagram
 | classroom_name | VARCHAR(100) | NULL | 教室名。報告書の「事業所の名称」の隣に表示（契約由来・講師読取専用） |
 | contract_start | DATE | NULL | 契約開始日 |
 | contract_end | DATE | NULL | 契約終了日 |
-| monthly_minutes | INTEGER | NULL | 月固定分数（CSV取込の入力互換用に残存。表示は `workload_cases` が正） |
+| monthly_minutes | INTEGER | NULL | 月固定分数（旧入力互換用に残存。表示・判定は `workload_cases` が正） |
 | weekly_lessons | INTEGER | NULL | 週コマ数（同上・互換用） |
-| workload_cases | JSONB | default=[] | 月時間（分）・週コマの**期間付き複数ケース**。各要素 `{monthly_minutes, weekly_lessons, start_date, end_date}`。表示はこちらが正 |
+| workload_cases | JSONB | default=[] | 前期・後期の**期別設定**。各要素 `{task_index(1=前期/2=後期), monthly_minutes, weekly_lessons, start_date, end_date, slots:[{start,end}...]}`。適用期間は必須（前期・後期の重複不可）・`slots` は期別コマ設定（担当時限の時間割・最大10）。表示・超過判定・講師フォームの列/時間割の適用はこちらが正 |
+| period_slots | JSONB | default=[] | 旧形式: 契約単位のコマ設定（各要素 `{start,end}`）。新規保存では期別 `workload_cases[].slots` を使用（読込互換のため残存） |
 | shift_note | TEXT | NULL | シフト・備考 |
 | work_content | TEXT | NULL | 従事業務内容 |
-| task_name_1 / task_name_2 / task_name_3 | VARCHAR(100) | NULL | **メイン**委託業務①〜③の業務名（①必須） |
+| task_name_1 / task_name_2 / task_name_3 | VARCHAR(100) | NULL | **担当**業務名。1=前期／2=後期（いずれも必須）。`task_name_3` は旧仕様①〜③の名残（新規保存では未使用） |
 | sub_task_name_1 .. sub_task_name_5 | VARCHAR(100) | NULL | **サブ**委託業務①〜⑤の業務名（任意） |
 | scoring_enabled | BOOLEAN | NOT NULL, default=False | 採点欄を有効化 |
 | scoring_label | VARCHAR(50) | NULL | 採点欄の項目名（任意入力。既定「採点」） |
 | scoring_unit | VARCHAR(20) | NULL | 採点欄の単位（任意入力。既定「回」） |
 | scoring_task_id | VARCHAR(50) | NULL | 採点の委託業務ID |
 | scoring_contract_id | VARCHAR(50) | NULL | 採点の個別契約ID |
-| task_id_1 / task_id_2 / task_id_3 | VARCHAR(50) | NULL | メイン委託業務①〜③の委託業務ID |
-| contract_id_1 / contract_id_2 / contract_id_3 | VARCHAR(50) | NULL | メイン委託業務①〜③の個別契約ID |
+| task_id_1 / task_id_2 / task_id_3 | VARCHAR(50) | NULL | 担当業務（前期/後期）の委託業務ID（`_3` は旧仕様の名残） |
+| contract_id_1 / contract_id_2 / contract_id_3 | VARCHAR(50) | NULL | 担当業務（前期/後期）の個別契約ID（`_3` は旧仕様の名残） |
 | sub_task_id_1 .. sub_task_id_5 | VARCHAR(50) | NULL | サブ委託業務①〜⑤の委託業務ID |
 | sub_contract_id_1 .. sub_contract_id_5 | VARCHAR(50) | NULL | サブ委託業務①〜⑤の個別契約ID |
 | show_dispatch_address | BOOLEAN | NOT NULL, default=True | 報告書フォームで「派遣先所在地」欄を表示（契約からライブ反映） |
@@ -314,7 +315,7 @@ erDiagram
 
 **制約**: `UNIQUE(tutor_id, school_id)`（講師×学校で1契約。制約名 `uq_work_profile_tutor_school`）。
 
-> **委託業務と採点の報告書反映**: メイン①〜③・サブ①〜⑤の委託業務は常に「分のみ」（「業務名（分）」列）で、報告書ではメイン→サブの順に生成される。採点は `scoring_enabled=True` のときのみ報告書末尾に「{scoring_label}（{scoring_unit}）」列（既定「採点（回）」、1セル併記＝回数＋分数固定）を生成する。`show_*` フラグは契約からライブ反映され、報告書フォームの各欄／列の表示・非表示を制御する。動的列定義は `services/contract_form_service.build_column_definition()` が生成する。
+> **委託業務と採点の報告書反映**: 担当（前期/後期）・サブ①〜⑤の委託業務は常に「分のみ」（「業務名（分）」列）で、報告書では担当→サブの順に生成される。担当業務列は**対象月の適用期間に該当する期のみ**（期の切替が月の途中にある月は両期の2列、どの期にも該当しない月は全担当業務へフォールバック）。採点は `scoring_enabled=True` のときのみ報告書末尾に「{scoring_label}（{scoring_unit}）」列（既定「採点（回）」、1セル併記＝回数＋分数固定）を生成する。`show_*` フラグは契約からライブ反映され、報告書フォームの各欄／列の表示・非表示を制御する。動的列定義は `services/contract_form_service.build_column_definition(profile, target_month)` が生成する。
 
 ### work_reports（業務連絡表）
 

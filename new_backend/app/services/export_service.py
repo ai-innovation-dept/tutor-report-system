@@ -355,9 +355,14 @@ def _date_ja(value) -> str:
 def _task_reference_text(report: WorkReport) -> str:
     """委託業務（契約より）の参照表示。講師フォーム(renderTaskReference)と同じ文字列を組み立てる。
 
-    列定義スナップショットから 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)
-    を抽出する。契約由来の列が無い（デフォルト列の旧データ）場合は空文字。
+    保存済みスナップショット（meta.task_reference。前期・後期の名称・委託業務ID・
+    個別契約IDを含む）を優先し、無い旧報告書は列定義スナップショットから
+    担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)を抽出する（従来表記）。
+    契約由来の列が無い（デフォルト列の旧データ）場合は空文字。
     """
+    saved = ((report.form_data or {}).get("meta") or {}).get("task_reference")
+    if saved:
+        return str(saved)
     lines: list[str] = []
     for column in _snapshot_columns(report):
         if not isinstance(column, dict):

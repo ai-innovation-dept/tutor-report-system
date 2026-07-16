@@ -5,12 +5,15 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, field_validator, model_validator
 
-# 委託業務は担当業務（①〜③・①必須）と副業務（①〜⑤・任意）の2区分。
-# データ上の区分名は main / sub のまま（表示名のみ担当業務／副業務）。
-MAX_MAIN_TASKS = 3
+# 委託業務は担当業務（前期・後期の2本・いずれも必須）と副業務（①〜⑤・任意）の2区分。
+# 担当業務はデータ上 task_index 1=前期 / 2=後期 として task_name_1/2 等の列に格納する
+# （旧仕様①〜③の名残で task_name_3 列は残るが、新規保存では使用しない）。
+MAX_MAIN_TASKS = 2
 MAX_SUB_TASKS = 5
 # コマ設定（担当時限の時間割）は最大10コマ（講師フォームの担当時限①〜⑩に対応）
 MAX_PERIOD_SLOTS = 10
+# 前期/後期の表示ラベル（task_index → ラベル）。要望連絡事項・エラーメッセージで共用する。
+TERM_LABELS = {1: "前期", 2: "後期"}
 
 _SLOT_TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
@@ -52,24 +55,43 @@ class ContractPeriodSlot(BaseModel):
         return self
 
 
-class ContractWorkloadCase(BaseModel):
-    """月時間（分）・週コマの期間付きケース。
+def _validate_slot_list(value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
+    """コマ設定リストの共通検証（最大数・前のコマとの重なり）。契約単位・期単位で共用。"""
+    if len(value) > MAX_PERIOD_SLOTS:
+        raise ValueError(f"コマ設定は最大{MAX_PERIOD_SLOTS}コマです")
+    for index in range(1, len(value)):
+        if value[index].start < value[index - 1].end:
+            raise ValueError(f"コマ{index + 1}が前のコマと時間が重なっています")
+    return value
 
-    task_index で担当業務①〜③に紐づく（超過判定・要望連絡事項の業務別表示に使用）。
-    旧データ互換のため task_index 無し（None）も許容する。
+
+class ContractWorkloadCase(BaseModel):
+    """担当業務（前期/後期）の期別設定＝月時間（分）・週コマ・適用期間・コマ設定。
+
+    task_index で担当業務（1=前期 / 2=後期）に紐づく。適用期間は超過判定・
+    講師フォームの入力フォーマット（期のコマ設定）・要望連絡事項の表示に使用する。
+    旧データ互換のため task_index 無し（None）・期間無しも読み込みは許容する
+    （新規保存時の必須検証は term_payload_errors で行う）。
     """
     monthly_minutes: int | None = None
     weekly_lessons: int | None = None
     start_date: date | None = None
     end_date: date | None = None
-    task_index: int | None = None  # 担当業務①〜③（1..3）
+    task_index: int | None = None  # 1=前期 / 2=後期
+    # 期別のコマ設定（担当時限の時間割）。空リストはコマ設定なし（従来の8:40固定ルール）。
+    slots: list[ContractPeriodSlot] = []
 
     @field_validator("task_index")
     @classmethod
     def validate_task_index(cls, v: int | None) -> int | None:
         if v is not None and not (1 <= v <= MAX_MAIN_TASKS):
-            raise ValueError(f"task_index は1〜{MAX_MAIN_TASKS}で指定してください")
+            raise ValueError(f"task_index は1〜{MAX_MAIN_TASKS}（1=前期／2=後期）で指定してください")
         return v
+
+    @field_validator("slots")
+    @classmethod
+    def validate_slots(cls, value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
+        return _validate_slot_list(value)
 
     def is_empty(self) -> bool:
         return (
@@ -77,7 +99,45 @@ class ContractWorkloadCase(BaseModel):
             and self.weekly_lessons is None
             and self.start_date is None
             and self.end_date is None
+            and not self.slots
         )
+
+
+def term_payload_errors(tasks: list[ContractTask], workload_cases: list[ContractWorkloadCase]) -> list[str]:
+    """担当業務（前期・後期）の必須検証（画面保存・CSV取込・APIで共用）。
+
+    - 前期・後期とも委託業務名（またはID）と適用期間（開始・終了）が必須
+    - 各期の期別設定（ケース）は1件まで
+    - 前期・後期の適用期間は重複不可
+    戻り値はエラーメッセージのリスト（空＝妥当）。
+    """
+    errors: list[str] = []
+    cases_by_index: dict[int, list[ContractWorkloadCase]] = {}
+    for case in workload_cases:
+        cases_by_index.setdefault(case.task_index or 1, []).append(case)
+
+    for index in range(1, MAX_MAIN_TASKS + 1):
+        label = TERM_LABELS[index]
+        task = tasks[index - 1] if len(tasks) >= index else None
+        # 報告書の列は委託業務名から生成されるため、ID類だけでなく名称そのものを必須とする
+        if task is None or not (task.task_name or "").strip():
+            errors.append(f"担当業務（{label}）の委託業務名は必須です")
+        cases = cases_by_index.get(index, [])
+        if len(cases) > 1:
+            errors.append(f"担当業務（{label}）の月時間・週コマ・適用期間は1件のみ設定できます")
+        case = cases[0] if cases else None
+        if case is None or not (case.start_date and case.end_date):
+            errors.append(f"担当業務（{label}）の適用期間（開始日・終了日）は必須です")
+
+    first = next(iter(cases_by_index.get(1, [])), None)
+    second = next(iter(cases_by_index.get(2, [])), None)
+    if (
+        first is not None and second is not None
+        and first.start_date and first.end_date and second.start_date and second.end_date
+        and first.start_date <= second.end_date and second.start_date <= first.end_date
+    ):
+        errors.append("担当業務（前期）と（後期）の適用期間が重複しています")
+    return errors
 
 
 class ContractBase(BaseModel):
@@ -108,35 +168,35 @@ class ContractBase(BaseModel):
     scoring_unit: str | None = None
     scoring_task_id: str | None = None
     scoring_contract_id: str | None = None
-    tasks: list[ContractTask] = []        # メイン業務（①必須・最大3件）
+    # 担当業務（位置固定: [0]=前期 / [1]=後期）。空判定・必須検証は term_payload_errors で行う。
+    tasks: list[ContractTask] = []
     sub_tasks: list[ContractTask] = []    # サブ業務（任意・最大5件）
-    # コマ設定（担当時限の時間割・最大10）。①から順・時間の重なり不可。
+    # 旧形式: 契約単位のコマ設定（新規保存では期別 workload_cases.slots を使用。読込互換のため残す）。
     period_slots: list[ContractPeriodSlot] = []
 
     @field_validator("period_slots")
     @classmethod
     def validate_period_slots(cls, value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
-        if len(value) > MAX_PERIOD_SLOTS:
-            raise ValueError(f"コマ設定は最大{MAX_PERIOD_SLOTS}コマです")
-        for index in range(1, len(value)):
-            if value[index].start < value[index - 1].end:
-                raise ValueError(f"コマ{index + 1}が前のコマと時間が重なっています")
-        return value
+        return _validate_slot_list(value)
 
     @model_validator(mode="after")
     def validate_period_slots_with_flags(self) -> "ContractBase":
         # 休憩時間（分）列が非表示だと「隙間→休憩」の自動計算が成立しないため併用不可
-        if self.period_slots and self.show_break_minutes is False:
+        has_slots = bool(self.period_slots) or any(case.slots for case in self.workload_cases)
+        if has_slots and self.show_break_minutes is False:
             raise ValueError("休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）")
         return self
 
     @field_validator("tasks")
     @classmethod
     def validate_tasks(cls, value: list[ContractTask]) -> list[ContractTask]:
-        non_empty = [task for task in value if not task.is_empty()]
+        # 前期/後期は位置で判定するため空行を詰めない（[0]=前期・[1]=後期）。末尾の空行のみ削除。
         if len(value) > MAX_MAIN_TASKS:
-            raise ValueError(f"担当業務は最大{MAX_MAIN_TASKS}件です")
-        return non_empty
+            raise ValueError(f"担当業務は前期・後期の{MAX_MAIN_TASKS}件です")
+        trimmed = list(value)
+        while trimmed and trimmed[-1].is_empty():
+            trimmed.pop()
+        return trimmed
 
     @field_validator("sub_tasks")
     @classmethod
@@ -159,7 +219,8 @@ class ContractBase(BaseModel):
 class ContractCreate(ContractBase):
     tutor_id: uuid.UUID
     school_id: uuid.UUID
-    # 「委託業務①必須」はエンドポイント側で検証する（空行除去後の件数で判定するため）
+    # 「前期・後期の必須」はエンドポイント側で term_payload_errors により検証する
+    # （部分更新(PATCH)と検証条件を揃えるため、モデル検証には含めない）
 
 
 class ContractUpdate(ContractBase):

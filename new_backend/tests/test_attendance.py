@@ -259,6 +259,22 @@ def test_pdf_footer_includes_all_form_items():
     assert "期間（from〜to）：2026年06月01日 〜 2026年08月31日" in commuter
 
 
+def test_pdf_footer_prefers_task_reference_snapshot():
+    """meta.task_reference（前期・後期のスナップショット）があれば列定義由来より優先する。"""
+    from app.services.export_service import _report_footer_values
+
+    report = _dynamic_report()
+    snapshot = (
+        "【前期】数学指導（分） / 委託業務ID:T1 / 個別契約ID:C1\n"
+        "【後期】数学指導（後期）（分） / 委託業務ID:T2 / 個別契約ID:C2\n"
+        "【副】英語補習（分）"
+    )
+    report.form_data["meta"]["task_reference"] = snapshot
+
+    fields = dict(_report_footer_values(report))
+    assert fields["委託業務（契約より）"] == snapshot
+
+
 def test_pdf_footer_empty_commuter_pass_and_defaults():
     """定期代が全項目未記入なら「記入なし」、未入力メタは「-」で出力する。"""
     from app.models.work import WorkReport

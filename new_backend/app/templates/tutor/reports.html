@@ -265,6 +265,7 @@ const {
   ATTENDANCE_KINDS, MAIN_DUTY_FIELD_RE, KIND_ROW_BG, CIRCLED_NUMBERS,
   isLeaveKind, isNoMainDutyKind, numberValue, timeToMinutes, minutesToTime,
   weekdayParen, parseSubjectPeriods, lineMinutesTotal,
+  termLabel, contractTermCases, activeTermCase, termSlotsForContext, periodAutoFillKeyForCase,
   computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
   slotRangeLabel, slotScheduleText, slotSelectionMetrics,
   requiredBreakMinutes, breakBumpMessage, findDuplicateLineDate
@@ -320,6 +321,8 @@ const DEFAULT_META = {
   our_staff: '',
   tutor_no: '',
   requests: '',
+  // 委託業務（契約より）の表示テキスト（保存時に taskReferenceText() でスナップショット）
+  task_reference: '',
   commuter_pass_months: '',
   commuter_pass_amount: '',
   commuter_pass_route: '',
@@ -454,18 +457,21 @@ function formatDateJa(value) {
   const [y, m, d] = String(value).split('-');
   return `${y}年${m}月${d}日`;
 }
-// 要望連絡事項に表示する契約情報。担当業務ごとの月時間（分）・週コマ・適用期間と契約期間を
-// 「業務名：（月　1,200　分固定　：　週6コマ）[2026年04月01日　～　2027年03月31日]」形式で整形する。
+// 要望連絡事項に表示する契約情報。前期・後期の期別設定（月時間（分）・週コマ・適用期間）と契約期間を
+// 「【前期】業務名：（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」形式で整形する。
+// 旧形式（適用期間なしのケース）は従来どおりラベルなしで表示する。
 function workloadRequestsText(contract) {
   const lines = (contract.workload_cases || []).map(item => {
     const parts = [];
     if (item.monthly_minutes != null) parts.push(`月　${Number(item.monthly_minutes).toLocaleString('ja-JP')}　分固定`);
     if (item.weekly_lessons != null) parts.push(`週${item.weekly_lessons}コマ`);
-    if (!parts.length) return '';
     const task = (contract.tasks || [])[(Number(item.task_index) || 1) - 1];
     const name = task?.task_name ? `${task.task_name}：` : '';
-    let text = `${name}（${parts.join('　：　')}）`;
-    if (item.start_date || item.end_date) {
+    const hasPeriod = Boolean(item.start_date || item.end_date);
+    if (!parts.length && !name && !hasPeriod) return '';
+    const label = hasPeriod ? termLabel(item.task_index) : '';
+    let text = `${label}${name}${parts.length ? `（${parts.join('　：　')}）` : ''}`;
+    if (hasPeriod) {
       text += `[${formatDateJa(item.start_date)}　～　${formatDateJa(item.end_date)}]`;
     }
     return text;
@@ -475,15 +481,39 @@ function workloadRequestsText(contract) {
   }
   return lines.join('\n');
 }
+// 委託業務（契約より）の表示テキスト。前期・後期の担当業務（名称・委託業務ID・個別契約ID）と
+// 副業務・採点（列定義由来）を表示する。保存時に meta.task_reference へスナップショットし、
+// 参照画面・PDFも同じ文字列を表示する（旧報告書は列定義スナップショットから従来どおり導出）。
+function contractTaskReferenceText(contract) {
+  const lines = [];
+  (contract.tasks || []).forEach((task, i) => {
+    if (!task || !(task.task_name || task.task_id || task.contract_id)) return;
+    let text = `${termLabel(i + 1) || '【担当】'}${task.task_name ? `${task.task_name}（分）` : ''}`;
+    if (task.task_id) text += ` / 委託業務ID:${task.task_id}`;
+    if (task.contract_id) text += ` / 個別契約ID:${task.contract_id}`;
+    lines.push(text);
+  });
+  (contract.column_definition || []).forEach(column => {
+    const key = String(column.key || '');
+    if (!(column.type === 'count_minutes' || key.startsWith('sub_minutes_'))) return;
+    let text = `${key.startsWith('sub_minutes_') ? '【副】' : ''}${column.label || ''}`;
+    if (column.task_id) text += ` / 委託業務ID:${column.task_id}`;
+    if (column.contract_id) text += ` / 個別契約ID:${column.contract_id}`;
+    lines.push(text);
+  });
+  return lines.join('\n');
+}
 function contractMetaValues() {
   // 契約管理の値を報告書メタの初期値へ反映（新規作成時のみ defaultMeta 経由で適用）
   const contract = contractForSchool(selectedSchoolId);
   if (!contract) return {};
-  // スケジュール欄: コマ設定があれば「① 8:30〜9:20、…」を自動生成し、自由記述（shift_note）があれば併記する
-  const slots = (Array.isArray(contract.period_slots) && contract.period_slots.length) ? contract.period_slots : null;
-  const schedule = slots
-    ? [slotScheduleText(slots), contract.shift_note || ''].filter(Boolean).join('\n')
-    : (contract.shift_note || '');
+  // スケジュール欄: 期別コマ設定「【前期】① 8:30〜9:20、…」（設定のある期のみ）を自動生成し、
+  // 旧形式（契約単位のコマ設定）は従来のラベルなし1行、自由記述（shift_note）があれば併記する
+  const termSlotCases = contractTermCases(contract).filter(item => Array.isArray(item.slots) && item.slots.length);
+  const slotLines = termSlotCases.length
+    ? termSlotCases.map(item => `${termLabel(item.task_index)}${slotScheduleText(item.slots)}`)
+    : ((Array.isArray(contract.period_slots) && contract.period_slots.length) ? [slotScheduleText(contract.period_slots)] : []);
+  const schedule = [...slotLines, contract.shift_note || ''].filter(Boolean).join('\n');
   return {
     customer_id: contract.customer_id || '',
     our_staff: contract.our_staff || '',
@@ -788,13 +818,30 @@ function buildLineRows(lines) {
       });
     }
     if (input.dataset.field === 'date') {
-      input.addEventListener('change', () => validateLineDateUnique(input));
+      input.addEventListener('change', () => {
+        validateLineDateUnique(input);
+        // 期の切替（適用期間）を跨ぐ日付変更はコマ設定が変わるため、担当時限からの
+        // 自動入力（担当業務（分）・休憩）と業務開始〜終了時間を新しい期で計算し直す
+        const row = input.closest('tr');
+        const sig = slotsSignature(rowSlots(row));
+        if (row.dataset.slotSig !== sig) {
+          row.dataset.slotSig = sig;
+          if (parseSubjectPeriods(row.querySelector('[data-field="subject_period"]')?.value || '').length) {
+            applyPeriodAutoFill(row);
+          } else {
+            recomputeRowTimes(row);
+          }
+          updateLineSummary();
+        }
+      });
       // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
       input.addEventListener('click', () => {
         if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
       });
     }
   });
+  // 各行の適用コマ設定の署名を初期化する（期跨ぎの日付変更の検知用）
+  lineRows.querySelectorAll('tr').forEach(row => { row.dataset.slotSig = slotsSignature(rowSlots(row)); });
   lineRows.querySelectorAll('[data-period-btn]').forEach(btn => {
     btn.addEventListener('click', () => openPeriodPopover(btn));
   });
@@ -979,6 +1026,15 @@ async function copyLastMonthLines() {
   while (lines.length < max) lines.push(emptyLine(form));
   buildLineRows(lines.slice(0, max));
   recomputeAllRowTimes();
+  // 期を跨ぐコピー（前期の月→後期の月など）では担当業務の列キーが変わり分の値が引き継がれないため、
+  // 担当時限が選択済みで担当業務（分）が空の行は自動計算で補完する（同じ期のコピーは値を保持）
+  lineRows.querySelectorAll('tr').forEach(row => {
+    const period = row.querySelector('[data-field="subject_period"]')?.value || '';
+    if (!parseSubjectPeriods(period).length) return;
+    const taskKey = periodAutoFillKeyForRow(row);
+    const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
+    if (taskInput && !taskInput.disabled && taskInput.value === '') applyPeriodAutoFill(row);
+  });
   clearFormMessage();
   showToast(`先月（${monthLabel(sourceMonth)}）の記入分をコピーしました。内容を確認して「${saveButton.textContent}」で保存してください。`, 'success');
   if (unmapped) {
@@ -996,7 +1052,6 @@ function showTimePopup(cell, message) {
 // 業務開始〜終了時間・担当時限・休憩の自動計算コアは共通コア（work_report_calc.js）へ集約。
 // 列定義（選択中の報告書のスナップショット）を既定引数で与えて委譲する。
 function timeMinuteKeys(columns = activeColumnDefinition()) { return WorkReportCalc.timeMinuteKeys(columns); }
-function periodAutoFillKey(columns = activeColumnDefinition()) { return WorkReportCalc.periodAutoFillKey(columns); }
 function mainMinuteKeys(columns = activeColumnDefinition()) { return WorkReportCalc.mainMinuteKeys(columns); }
 function secondaryMinuteKeys(columns = activeColumnDefinition()) { return WorkReportCalc.secondaryMinuteKeys(columns); }
 function slotBreakDecision(slots, line, recompute, columns = activeColumnDefinition()) {
@@ -1009,11 +1064,39 @@ function rowMinutesTotal(row, keys = timeMinuteKeys()) {
   }, 0);
 }
 // ===== コマ設定（契約の時間割）による自動計算 =====
-// 契約管理でコマ①〜⑩の時間帯（period_slots）が設定されている場合、担当時限の選択コマから
-// 業務開始時刻・担当業務（分）・休憩時間（分）を導出する。未設定の契約は従来ロジックのまま。
+// 契約管理で前期/後期の期別コマ設定（workload_cases[].slots）が設定されている場合、
+// 行の日付がどちらの適用期間内かを判定し、その期の時間割から業務開始時刻・担当業務（分）・
+// 休憩時間（分）を導出する。旧形式（契約単位の period_slots）・未設定の契約は従来ロジックのまま。
+// 解決ルールは共通コア（work_report_calc.js の termSlotsForContext）に集約している。
+function slotsForDate(dateStr) {
+  return termSlotsForContext(contractForSchool(selectedSchoolId), dateStr || '', selectedMonth);
+}
+function activeCaseForDate(dateStr) {
+  return activeTermCase(contractForSchool(selectedSchoolId), dateStr || '', selectedMonth);
+}
+function rowDateValue(row) {
+  return row?.querySelector('[data-field="date"]')?.value || '';
+}
+function rowSlots(row) {
+  return slotsForDate(rowDateValue(row));
+}
+// 行の日付から自動入力先の担当業務列を解決する（期の切替が月の途中にある月は両期の列が並ぶため）
+function periodAutoFillKeyForRow(row) {
+  return periodAutoFillKeyForCase(activeColumnDefinition(), activeCaseForDate(rowDateValue(row)));
+}
+// 月レベル（見出しのヒント等・行の日付が無い文脈）の代表コマ設定
 function contractPeriodSlots() {
-  const slots = contractForSchool(selectedSchoolId)?.period_slots;
-  return (Array.isArray(slots) && slots.length) ? slots : null;
+  return slotsForDate('');
+}
+// 契約にコマ設定（期別・旧形式いずれか）があるか（保存時の労基チェックの対象判定）
+function contractHasAnySlots() {
+  const contract = contractForSchool(selectedSchoolId);
+  if (!contract) return false;
+  return contractTermCases(contract).some(item => Array.isArray(item.slots) && item.slots.length)
+    || (Array.isArray(contract.period_slots) && contract.period_slots.length > 0);
+}
+function slotsSignature(slots) {
+  return JSON.stringify(slots || null);
 }
 function rowLineValues(row) {
   const line = {};
@@ -1022,7 +1105,7 @@ function rowLineValues(row) {
 }
 // 明細行へ休憩の自動計算・労基下限を適用する。戻り値＝下限へ引き上げた分数（0=なし・通知用）
 function applySlotBreakRules(row, recompute) {
-  const slots = contractPeriodSlots();
+  const slots = rowSlots(row);
   const breakInput = row.querySelector('[data-field="break_minutes"]');
   if (!slots || !breakInput) return 0;
   const decision = slotBreakDecision(slots, rowLineValues(row), recompute);
@@ -1034,9 +1117,13 @@ function sheetLineValues() {
   document.getElementById('lineSheetBody').querySelectorAll('[data-sheet-field]').forEach(el => { line[el.dataset.sheetField] = el.value; });
   return line;
 }
+// 詳細シートの日付から適用中のコマ設定を解決する（明細行の rowSlots と同一ルール）
+function sheetSlots() {
+  return slotsForDate(sheetField('date')?.value || '');
+}
 // 詳細シート（スマホ）へ休憩の自動計算・労基下限を適用する（明細行の applySlotBreakRules と同一ルール）
 function applySheetSlotBreakRules(recompute) {
-  const slots = contractPeriodSlots();
+  const slots = sheetSlots();
   const breakInput = sheetField('break_minutes');
   if (!slots || !breakInput) return 0;
   const decision = slotBreakDecision(slots, sheetLineValues(), recompute);
@@ -1047,7 +1134,7 @@ function recomputeRowTimes(row, notify = false) {
   const cell = row.querySelector('[data-time-range]');
   if (!cell) return;
   const kind = row.querySelector('[data-field="kind"]')?.value || '';
-  const slots = contractPeriodSlots();
+  const slots = rowSlots(row);
   const total = isLeaveKind(kind) ? 0 : rowMinutesTotal(row);
   const startOverride = rowStartMinutesOverride(slots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
   const {start, end, overflow} = computeAutoTimes(total, startOverride);
@@ -1081,10 +1168,10 @@ function recomputeAllRowTimes() {
 function applyPeriodAutoFill(row) {
   const hidden = row.querySelector('[data-field="subject_period"]');
   if (!hidden) return;
-  const taskKey = periodAutoFillKey();
+  const taskKey = periodAutoFillKeyForRow(row);
   const taskInput = taskKey ? row.querySelector(`[data-field="${taskKey}"]`) : null;
   const breakInput = row.querySelector('[data-field="break_minutes"]');
-  const slots = contractPeriodSlots();
+  const slots = rowSlots(row);
   if (slots) {
     const metrics = slotSelectionMetrics(slots, hidden.value);
     if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
@@ -1118,8 +1205,9 @@ function openPeriodPopover(btn) {
   const hidden = cell.querySelector('[data-field="subject_period"]');
   const selected = new Set(parseSubjectPeriods(hidden.value));
   const toggleClass = on => on ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 bg-white text-slate-700';
-  // コマ設定契約は設定済みコマのみを時間帯つきで表示する（未設定契約は従来の1〜10の番号のみ）
-  const slots = contractPeriodSlots();
+  // コマ設定契約は設定済みコマのみを時間帯つきで表示する（未設定契約は従来の1〜10の番号のみ）。
+  // 期別コマ設定は行の日付からどちらの期かを判定する。
+  const slots = rowSlots(btn.closest('tr'));
   const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
   const buttonClass = on => slots
     ? `flex h-9 items-center justify-center gap-1 rounded border px-1 text-sm ${toggleClass(on)}`
@@ -1213,6 +1301,7 @@ function closeNoteModal() {
 const KIND_LABELS = Object.fromEntries(ATTENDANCE_KINDS.map(item => [item.value, item.label]));
 const KIND_TEXT_COLOR = {paid_leave: 'text-amber-700', absent: 'text-rose-700', personal_reason: 'text-violet-700', school_event: 'text-sky-700'};
 let activeSheetIndex = null;
+let sheetSlotSig = null;  // シートの日付に対する適用コマ設定の署名（期跨ぎの日付変更検知用）
 // リストの日付表示「06/03(水)」
 function mobileDateLabel(value) {
   if (!value) return '';
@@ -1280,6 +1369,25 @@ function sheetGroupBox(title, innerHtml) {
     <div class="space-y-3">${innerHtml}</div>
   </div>`;
 }
+// 担当時限トグルのボタン群（シート用）。日付変更で期のコマ設定が変わったときも同じHTMLで組み直す。
+function sheetPeriodButtonsHtml(slots, selectedSet, periodDisabled) {
+  const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+  return numbers.map(n => {
+    const on = selectedSet.has(String(n));
+    return `<button type="button" data-sheet-period="${n}" ${periodDisabled ? 'disabled' : ''} class="flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? 'border-emerald-600 bg-emerald-600 font-medium text-white' : 'border-slate-300 bg-white text-slate-700'}">
+      <span class="text-base leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-xs">${escapeHtml(slots ? slotRangeLabel(slots[n - 1]) : periodTimeRange(n))}</span>
+    </button>`;
+  }).join('');
+}
+// シートの日付変更で期のコマ設定が変わったとき、担当時限ボタンを新しい時間割で組み直す。
+// 選択済みの時限は保持し、活殺（種別による無効化）は applySheetKind で再適用する。
+function rebuildSheetPeriodButtons() {
+  const container = document.getElementById('lineSheetBody').querySelector('[data-sheet-periods]');
+  const hidden = sheetField('subject_period');
+  if (!container || !hidden) return;
+  container.innerHTML = sheetPeriodButtonsHtml(sheetSlots(), new Set(parseSubjectPeriods(hidden.value)), false);
+  applySheetKind();
+}
 // シートを開く。値・活殺（種別ロック／読取専用）はフォームの該当行から読み取って初期化する。
 function openLineSheet(index) {
   const row = lineRows.querySelector(`tr[data-index="${index}"]`);
@@ -1312,24 +1420,18 @@ function openLineSheet(index) {
     </div>`);
   }
   // 担当時限（時間帯つきトグル）。コマ設定契約は設定済みコマの時間帯、未設定契約は従来の導出時間帯を表示する。
+  // 期別コマ設定はシートの日付からどちらの期かを判定する（日付変更時はボタンを組み直す）。
   const hasPeriod = columns.some(column => column.key === 'subject_period');
   if (hasPeriod) {
     const selected = new Set(parseSubjectPeriods(line.subject_period));
     const periodDisabled = Boolean(row.querySelector('[data-period-btn]')?.disabled);
-    const slots = contractPeriodSlots();
-    const numbers = slots ? slots.map((_, i) => i + 1) : [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-    const buttons = numbers.map(n => {
-      const on = selected.has(String(n));
-      return `<button type="button" data-sheet-period="${n}" ${periodDisabled ? 'disabled' : ''} class="flex items-center justify-center gap-1.5 rounded-lg border px-2 py-2.5 text-sm transition disabled:cursor-not-allowed disabled:opacity-40 ${on ? 'border-emerald-600 bg-emerald-600 font-medium text-white' : 'border-slate-300 bg-white text-slate-700'}">
-        <span class="text-base leading-none">${CIRCLED_NUMBERS[n - 1]}</span><span class="text-xs">${escapeHtml(slots ? slotRangeLabel(slots[n - 1]) : periodTimeRange(n))}</span>
-      </button>`;
-    }).join('');
+    const slots = slotsForDate(line.date || '');
     const hint = slots
       ? '選択すると業務開始時刻・担当業務（分）・休憩時間（分）が自動入力されます（分は1分単位で修正できます）。'
       : '選択すると担当業務（分）・休憩時間（分）が自動入力されます（1分単位で修正できます）。';
     parts.push(`<div>${sheetFieldLabel('担当時限')}
       <input type="hidden" data-sheet-field="subject_period" value="${escapeHtml(line.subject_period || '')}" ${disabledMap.subject_period ? 'disabled' : ''}>
-      <div class="grid grid-cols-2 gap-1.5" data-sheet-periods>${buttons}</div>
+      <div class="grid grid-cols-2 gap-1.5" data-sheet-periods>${sheetPeriodButtonsHtml(slots, selected, periodDisabled)}</div>
       <p class="mt-1 text-[11px] leading-relaxed text-slate-400">${escapeHtml(hint)}</p>
     </div>`);
   }
@@ -1363,6 +1465,7 @@ function openLineSheet(index) {
     </div>`);
   }
   document.getElementById('lineSheetTitle').textContent = `${index + 1}回目の明細`;
+  sheetSlotSig = slotsSignature(slotsForDate(line.date || ''));
   const body = document.getElementById('lineSheetBody');
   body.innerHTML = parts.filter(Boolean).join('');
   body.scrollTop = 0;
@@ -1451,7 +1554,7 @@ function recomputeSheetTime() {
     const input = sheetField(key);
     return sum + (input ? numberValue(input.value) : 0);
   }, 0);
-  const startOverride = rowStartMinutesOverride(contractPeriodSlots(), sheetField('subject_period')?.value || '', kind);
+  const startOverride = rowStartMinutesOverride(sheetSlots(), sheetField('subject_period')?.value || '', kind);
   const {start, end, overflow} = computeAutoTimes(total, startOverride);
   display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可（同日23:59まで）' : '自動計算');
   display.classList.toggle('font-medium', !!start);
@@ -1470,6 +1573,18 @@ function bindSheetEvents(body) {
       const span = body.querySelector('[data-sheet-weekday]');
       if (span) span.textContent = weekdayParen(dateInput.value);
       hideSheetError();
+      // 期の切替（適用期間）を跨ぐ日付変更はコマ設定が変わるため、担当時限ボタンを組み直し、
+      // 時限選択済みなら担当業務（分）・休憩・業務開始〜終了時間を新しい期の時間割で計算し直す
+      const sig = slotsSignature(sheetSlots());
+      if (sig !== sheetSlotSig) {
+        sheetSlotSig = sig;
+        rebuildSheetPeriodButtons();
+        if (parseSubjectPeriods(sheetField('subject_period')?.value || '').length) {
+          sheetApplyPeriodAutoFill();
+        } else {
+          recomputeSheetTime();
+        }
+      }
     });
     // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
     dateInput.addEventListener('click', () => {
@@ -1487,33 +1602,11 @@ function bindSheetEvents(body) {
       hideSheetError();
     });
   }
-  body.querySelectorAll('[data-sheet-period]').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const hidden = sheetField('subject_period');
-      if (!hidden) return;
-      const selected = new Set(parseSubjectPeriods(hidden.value));
-      const n = btn.dataset.sheetPeriod;
-      if (selected.has(n)) selected.delete(n); else selected.add(n);
-      hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
-      refreshSheetPeriodButtons();
-      // 担当業務（分）・休憩時間（分）の自動入力（明細行の applyPeriodAutoFill と同一ルール）
-      const slots = contractPeriodSlots();
-      const taskKey = periodAutoFillKey();
-      const taskInput = taskKey ? sheetField(taskKey) : null;
-      const breakInput = sheetField('break_minutes');
-      if (slots) {
-        const metrics = slotSelectionMetrics(slots, hidden.value);
-        if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
-        if (!metrics.selected && breakInput) breakInput.value = '';
-        const required = applySheetSlotBreakRules(true);
-        if (required) showSheetError(breakBumpMessage(required)); else hideSheetError();
-      } else {
-        const auto = periodAutoFillValues(selected.size);
-        if (taskInput) taskInput.value = auto.task;
-        if (breakInput) breakInput.value = auto.breakMinutes;
-      }
-      recomputeSheetTime();
-    });
+  // 担当時限ボタンは日付変更（期跨ぎ）で組み直すため、コンテナへの委譲で拾う
+  body.querySelector('[data-sheet-periods]')?.addEventListener('click', event => {
+    const btn = event.target.closest('[data-sheet-period]');
+    if (!btn || btn.disabled) return;
+    sheetTogglePeriod(btn.dataset.sheetPeriod);
   });
   const sheetMinuteKeys = new Set(timeMinuteKeys());
   const sheetSecondaryKeys = new Set(secondaryMinuteKeys());
@@ -1536,6 +1629,38 @@ function bindSheetEvents(body) {
       });
     }
   });
+}
+// 担当時限のトグル1回分（選択の反映＋自動入力）。ボタン組み直し後も同じ処理を共有する。
+function sheetTogglePeriod(n) {
+  const hidden = sheetField('subject_period');
+  if (!hidden) return;
+  const selected = new Set(parseSubjectPeriods(hidden.value));
+  if (selected.has(n)) selected.delete(n); else selected.add(n);
+  hidden.value = [...selected].map(Number).sort((a, b) => a - b).map(String).join('・');
+  refreshSheetPeriodButtons();
+  sheetApplyPeriodAutoFill();
+}
+// 担当業務（分）・休憩時間（分）の自動入力（明細行の applyPeriodAutoFill と同一ルール）。
+// 期別コマ設定はシートの日付からどちらの期かを判定する。
+function sheetApplyPeriodAutoFill() {
+  const hidden = sheetField('subject_period');
+  if (!hidden) return;
+  const slots = sheetSlots();
+  const taskKey = periodAutoFillKeyForCase(activeColumnDefinition(), activeCaseForDate(sheetField('date')?.value || ''));
+  const taskInput = taskKey ? sheetField(taskKey) : null;
+  const breakInput = sheetField('break_minutes');
+  if (slots) {
+    const metrics = slotSelectionMetrics(slots, hidden.value);
+    if (taskInput) taskInput.value = metrics.selected ? String(metrics.taskMinutes) : '';
+    if (!metrics.selected && breakInput) breakInput.value = '';
+    const required = applySheetSlotBreakRules(true);
+    if (required) showSheetError(breakBumpMessage(required)); else hideSheetError();
+  } else {
+    const auto = periodAutoFillValues(parseSubjectPeriods(hidden.value).length);
+    if (taskInput) taskInput.value = auto.task;
+    if (breakInput) breakInput.value = auto.breakMinutes;
+  }
+  recomputeSheetTime();
 }
 // シートの内容をフォームの該当行へ反映して閉じる（サーバ保存は画面下の「保存/更新」ボタンで行う）
 function saveLineSheet() {
@@ -1666,19 +1791,40 @@ function updateLineSummary() {
   // スマホの明細リストは行入力から描画するため、集計と同じタイミングで常に追従させる
   renderMobileList();
 }
+// 旧報告書（meta.task_reference を持たないスナップショット）向け: 列定義から
+// 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)の順に導出する（従来表記）。
+function legacyTaskReferenceText(columns) {
+  return (columns || []).filter(column =>
+    column.type === 'count_minutes'
+    || String(column.key || '').startsWith('task_minutes_')
+    || String(column.key || '').startsWith('sub_minutes_'))
+    .map(column => {
+      const kind = String(column.key || '').startsWith('sub_minutes_') ? '【副】' : (String(column.key || '').startsWith('task_minutes_') ? '【担当】' : '');
+      let text = `${kind}${column.label || ''}`;
+      if (column.task_id) text += ` / 委託業務ID:${column.task_id}`;
+      if (column.contract_id) text += ` / 個別契約ID:${column.contract_id}`;
+      return text;
+    }).join('\n');
+}
+// 委託業務（契約より）の表示・保存用テキスト。
+// 既存報告書: 保存済みスナップショット（meta.task_reference）優先 → 旧データは列定義から導出。
+// 新規作成: 契約から前期・後期＋副業務・採点を組み立てる（保存時に meta.task_reference へ記録）。
+function taskReferenceText() {
+  const report = selectedReport();
+  if (report) {
+    const saved = report.form_data?.meta?.task_reference;
+    if (saved) return saved;
+    return legacyTaskReferenceText(columnsFromSnapshot(report) || DEFAULT_FORM_DEFINITION.columns);
+  }
+  const contract = contractForSchool(selectedSchoolId);
+  return contract ? contractTaskReferenceText(contract) : legacyTaskReferenceText(activeColumnDefinition());
+}
 function renderTaskReference() {
   const el = document.getElementById('taskReference');
   if (!el) return;
-  // 担当業務(task_minutes_N)→副業務(sub_minutes_N)→採点(count_minutes)の順に参照表示する
-  const tasks = activeColumnDefinition().filter(column =>
-    column.type === 'count_minutes'
-    || String(column.key || '').startsWith('task_minutes_')
-    || String(column.key || '').startsWith('sub_minutes_'));
-  el.innerHTML = tasks.length
-    ? tasks.map(column => {
-        const kind = String(column.key || '').startsWith('sub_minutes_') ? '【副】' : (String(column.key || '').startsWith('task_minutes_') ? '【担当】' : '');
-        return `<div>${kind}${escapeHtml(column.label)}${column.task_id ? ` / 委託業務ID:${escapeHtml(column.task_id)}` : ''}${column.contract_id ? ` / 個別契約ID:${escapeHtml(column.contract_id)}` : ''}</div>`;
-      }).join('')
+  const text = taskReferenceText();
+  el.innerHTML = text
+    ? text.split('\n').map(line => `<div>${escapeHtml(line)}</div>`).join('')
     : '<span class="text-slate-400">契約の委託業務がありません（デフォルト列）</span>';
 }
 function setReportInputsDisabled(disabled) {
@@ -1800,9 +1946,10 @@ function editReport(id) {
   resetReportForm(true);
 }
 async function loadContracts() {
-  // 契約管理に登録された自分の契約（学校ごと）＋動的列定義を取得
+  // 契約管理に登録された自分の契約（学校ごと）＋動的列定義を取得。
+  // 列定義は当月に適用される期（前期/後期）で生成されるため、当月を明示して取得する（新規報告書は当月のみ）。
   try {
-    const list = await api('/api/w/contracts/for-tutor');
+    const list = await api(`/api/w/contracts/for-tutor?target_month=${encodeURIComponent(currentMonth)}`);
     contractsBySchool = {};
     (list || []).forEach(contract => { contractsBySchool[String(contract.school_id)] = contract; });
   } catch (_) {
@@ -1922,18 +2069,22 @@ async function saveReportForm() {
     showFormMessage('担当時限は1〜10で選択してください', true);
     return null;
   }
-  // コマ設定契約: 時限がコマ設定の範囲内か・労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか
-  const periodSlots = contractPeriodSlots();
-  if (periodSlots) {
+  // コマ設定契約: 時限がその行の適用期（日付から判定）のコマ設定の範囲内か・
+  // 労基下限（実働6時間超45分/8時間超60分）の休憩が確保されているか
+  if (contractHasAnySlots()) {
     const columns = activeColumnDefinition();
-    const outIndex = lines.findIndex(line => parseSubjectPeriods(line.subject_period).some(p => Number(p) > periodSlots.length));
+    const outIndex = lines.findIndex(line => {
+      const slots = slotsForDate(line.date);
+      return slots && parseSubjectPeriods(line.subject_period).some(p => Number(p) > slots.length);
+    });
     if (outIndex !== -1) {
-      showFormMessage(`${outIndex + 1}回目：担当時限にコマ設定（①〜${CIRCLED_NUMBERS[periodSlots.length - 1]}）にない時限が含まれています。選び直してください。`, true);
+      const slots = slotsForDate(lines[outIndex].date);
+      showFormMessage(`${outIndex + 1}回目：担当時限にコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）にない時限が含まれています。選び直してください。`, true);
       return null;
     }
     const workKeys = [...mainMinuteKeys(columns), ...secondaryMinuteKeys(columns)];
     const shortIndex = lines.findIndex(line => {
-      if (isLeaveKind(line.kind)) return false;
+      if (isLeaveKind(line.kind) || !slotsForDate(line.date)) return false;
       const work = workKeys.reduce((sum, key) => sum + numberValue(line[key]), 0);
       return numberValue(line.break_minutes) < requiredBreakMinutes(work);
     });
@@ -1971,6 +2122,8 @@ async function saveReportForm() {
   form_data.meta.dispatch_place_name = (opt && opt.value) ? opt.text : '';
   // 契約管理の列定義をスナップショット保存（保存済み報告書は契約更新の影響を受けない）
   form_data.meta.column_definition = activeColumnDefinition();
+  // 委託業務（契約より）の表示テキストもスナップショット保存（参照画面・PDFで同一表示。契約由来のためサーバ側でロック）
+  form_data.meta.task_reference = taskReferenceText();
   // 学校に対応する紐付けを取得/作成（無ければここで作る＝別の学校の報告書を新規作成できる）
   let assignmentId = selectedAssignmentId;
   try {
