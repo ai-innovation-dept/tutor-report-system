@@ -306,6 +306,26 @@ function renderBulkExportLinks() {
   setBulkExportEnabled(true);
   bulkExportPdf.href = `/api/w/reports/export?${params.toString()}`;
 }
+// 事務事前確認の発動理由の表示ラベル。提出イベントに自動記録された「【事前確認】…」
+// （engine.precheck_reasons の文言）から導出する（複数該当は併記）。
+const PRECHECK_REASON_LABELS = [
+  ['月分が契約の固定分を超過', '月分が契約の固定分を超えているため'],
+  ['週コマ数が契約の週コマを超過', '週分が契約のコマ分を超えているため'],
+  ['1〜9分単位の手入力あり', '担当業務・副担当業務に1〜9分単位の手入力があるため'],
+];
+function precheckReasonLabels(reports) {
+  // 各報告書の直近の提出イベントの記録を集める（差戻し→再提出で理由が変わっても最新を反映）
+  const notes = (reports || []).map(report => {
+    const submits = (report.events || []).filter(ev => ev.action === 'submit' && String(ev.comment || '').includes('【事前確認】'));
+    return submits.length ? String(submits[submits.length - 1].comment) : '';
+  }).filter(Boolean).join('\n');
+  const labels = PRECHECK_REASON_LABELS.filter(([key]) => notes.includes(key)).map(([, label]) => label);
+  if (labels.length) return labels;
+  // イベントに記録が無い旧データ向けのフォールバック（1〜9分手入力はクライアントで判定可。それ以外＝月分超過）
+  return [(reports || []).some(workReportHasMinuteLevelInput)
+    ? '担当業務・副担当業務に1〜9分単位の手入力があるため'
+    : '月分が契約の固定分を超えているため'];
+}
 function actionArea(group) {
   if (group.phase === 'completed') {
     return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.approved_at, '-')}）<br>追加修正が必要な場合は管理へ差戻しを依頼してください。</div>${exportButtons(group)}`;
@@ -359,11 +379,7 @@ function actionArea(group) {
     </div>`;
   }
   if (group.phase === 'office_precheck') {
-    // 発動理由に応じた案内（1〜9分手入力はクライアントで判定可。それ以外＝月分超過）
-    const reason = group.reports.some(workReportHasMinuteLevelInput)
-      ? '担当業務・副担当業務に1〜9分単位の手入力があるため'
-      : '月分が契約の固定分を超えているため';
-    return `<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>${reason}、事務担当の事前確認を待っています</button>`;
+    return `<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>${precheckReasonLabels(group.reports).join('、')}、事務担当の事前確認を待っています</button>`;
   }
   if (group.phase === 'awaiting_school') {
     return '<button class="mt-5 rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-500" disabled>学校の承認を待っています</button>';

@@ -56,10 +56,12 @@ class ContractPeriodSlot(BaseModel):
 
 
 def _validate_slot_list(value: list[ContractPeriodSlot]) -> list[ContractPeriodSlot]:
-    """コマ設定リストの共通検証（最大数・コマ同士の重なり）。契約単位・期単位で共用。
+    """コマ設定リストの共通検証（最大数・コマ同士の重なり）＋開始時刻順への正規化。契約単位・期単位で共用。
 
-    コマ番号は時間順でなくてもよい（例: ⑤に①より早い朝の時間帯を追加できる）。
-    どの2コマも時間帯が重ならないことのみ検証する。
+    入力のコマ番号は時間順でなくてもよい（例: ⑤に①より早い朝の時間帯を追加できる）。
+    どの2コマも時間帯が重ならないことを検証したうえで、保存・表示とも**開始時刻順**
+    （①が最も早い時間帯）に並べ替えて返す（読込時のモデル化でも同じ検証が走るため、
+    既存の未整列データも表示時に正規化される）。
     """
     if len(value) > MAX_PERIOD_SLOTS:
         raise ValueError(f"コマ設定は最大{MAX_PERIOD_SLOTS}コマです")
@@ -67,7 +69,7 @@ def _validate_slot_list(value: list[ContractPeriodSlot]) -> list[ContractPeriodS
         for j in range(i):
             if value[i].start < value[j].end and value[j].start < value[i].end:
                 raise ValueError(f"コマ{i + 1}がコマ{j + 1}と時間が重なっています")
-    return value
+    return sorted(value, key=lambda slot: slot.start)
 
 
 class ContractWorkloadCase(BaseModel):

@@ -145,7 +145,9 @@ def _workload_cases_from_json(profile: WorkAssignmentProfile) -> list[ContractWo
 
 
 def _period_slots_from_json(profile: WorkAssignmentProfile) -> list[ContractPeriodSlot]:
-    return [ContractPeriodSlot(**slot) for slot in (profile.period_slots or []) if isinstance(slot, dict)]
+    # 表示・自動計算とも開始時刻順（①=最も早い時間帯）で扱う（保存時の正規化と同じ並び）
+    slots = [ContractPeriodSlot(**slot) for slot in (profile.period_slots or []) if isinstance(slot, dict)]
+    return sorted(slots, key=lambda slot: slot.start)
 
 
 def _apply_payload(profile: WorkAssignmentProfile, payload: ContractCreate) -> None:

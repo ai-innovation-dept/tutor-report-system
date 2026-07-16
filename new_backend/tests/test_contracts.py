@@ -1043,16 +1043,18 @@ class TestPeriodSlots:
         )
         assert res.status_code == 422
 
-    def test_slots_number_order_independent(self, client, db, setup):
-        # ⑤に①〜④より早い朝の時間帯を設定できる（コマ番号は時間順でなくてもよい）
+    def test_slots_number_order_independent_and_sorted_on_save(self, client, db, setup):
+        # ⑤に①〜④より早い朝の時間帯を設定できる（入力順は時間順でなくてもよい）。
+        # 保存時に開始時刻順へ自動で並べ替えられ、①が最も早い時間帯になる。
         slots = self.SLOTS + [{"start": "07:30", "end": "08:20"}]
+        sorted_slots = [{"start": "07:30", "end": "08:20"}] + self.SLOTS
         res = client.post(
             "/api/w/contracts", json=_payload(setup, period_slots=slots),
             headers=_auth(client, "master@x.example.com"),
         )
         assert res.status_code == 201, res.text
-        assert res.json()["period_slots"] == slots
-        # 期別コマ設定（workload_cases[].slots）でも同様
+        assert res.json()["period_slots"] == sorted_slots
+        # 期別コマ設定（workload_cases[].slots）でも同様に並べ替えて保存される
         cases = _default_cases()
         cases[1]["slots"] = slots
         patched = client.patch(
@@ -1060,7 +1062,10 @@ class TestPeriodSlots:
             headers=_auth(client, "master@x.example.com"),
         )
         assert patched.status_code == 200, patched.text
-        assert patched.json()["workload_cases"][1]["slots"] == slots
+        assert patched.json()["workload_cases"][1]["slots"] == sorted_slots
+        # 講師向けAPI・DB保存値とも並べ替え済み
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["workload_cases"][1]["slots"] == sorted_slots
 
     def test_slots_nonadjacent_overlap_rejected(self, client, db, setup):
         # 直前のコマとは重ならなくても、離れた番号のコマと重なる時間帯は不可（⑤が①と重なる例）

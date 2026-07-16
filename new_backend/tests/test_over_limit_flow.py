@@ -14,8 +14,9 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.main import app
 from app.models.shared import User
-from app.models.work import WorkMailOutbox, WorkNotification, WorkReport
+from app.models.work import WorkMailOutbox, WorkNotification, WorkReport, WorkReportEvent
 from app.workflow.definitions import WorkStatus
+from app.workflow.engine import PRECHECK_REASON_OVER_WEEKLY
 from tests.conftest import TestSession
 
 
@@ -266,7 +267,7 @@ class TestWeeklyLessonsFlow:
         return res.json()["id"]
 
     def test_weekly_over_goes_to_office_precheck(self, client, db, setup):
-        """週6コマ契約で同一週（6/1月〜6/7日）に7コマ → 事前確認へ。"""
+        """週6コマ契約で同一週（6/1月〜6/7日）に7コマ → 事前確認へ。発動理由もイベントへ記録される。"""
         contract = _create_contract(client, setup)
         report_id = self._report_with_periods(client, contract, {
             "2026-06-01": "1・2・3",
@@ -276,6 +277,20 @@ class TestWeeklyLessonsFlow:
         res = _action(client, "tutor@ol.example.com", report_id, "submit", "tutor")
         assert res.status_code == 200, res.text
         assert res.json()["status"] == WorkStatus.AWAITING_OFFICE_PRECHECK
+        # 発動理由（週コマ超過）は提出イベントのコメントへ自動記録される
+        # （講師の承認管理画面はこの記録から「週分が契約のコマ分を超えているため…」を表示する）
+        events = list(db.scalars(select(WorkReportEvent).where(WorkReportEvent.report_id == uuid.UUID(report_id))))
+        assert any(
+            ev.action == "submit" and PRECHECK_REASON_OVER_WEEKLY in (ev.comment or "") for ev in events
+        )
+
+    def test_approval_page_shows_weekly_reason_label(self, client, db, setup):
+        """承認管理ページは週コマ超過用の事前確認理由ラベルを持つ（理由はイベント記録から表示）。"""
+        _auth(client, "tutor@ol.example.com")  # ログイン（cookieセット）
+        res = client.get("/tutor/approval")
+        assert res.status_code == 200
+        assert "週分が契約のコマ分を超えているため" in res.text
+        assert "月分が契約の固定分を超えているため" in res.text
 
     def test_weekly_at_limit_stays_normal(self, client, db, setup):
         """週あたりちょうど6コマなら通常フロー（超過ではない）。"""
