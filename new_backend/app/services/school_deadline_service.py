@@ -38,6 +38,16 @@ _WEEKDAYS_JA = "月火水木金土日"
 DEFAULT_NOTICE_DAYS_BEFORE = 3
 
 
+def deadline_within_month(target_month: str, value: date) -> bool:
+    """締め日が対象月内の日付かどうか（202607161332: N月分はN月の日付のみ設定可）。"""
+    return value.strftime("%Y-%m") == target_month
+
+
+def _month_label(target_month: str) -> str:
+    year, month = target_month.split("-")
+    return f"{year}年{int(month)}月"
+
+
 def _current_jst_date() -> date:
     return datetime.now(ZoneInfo(settings.TIMEZONE)).date()
 
@@ -86,7 +96,13 @@ def save_school_settings(
 
     渡された対象月のみ更新・削除する（他の年・月の設定には触れない）。
     締め日を変更した月は notice_sent_at を解除し、新しい締め日の窓で再送対象に戻す。
+    締め日は対象月内の日付のみ（202607161332）。範囲外は ValueError（API側で422に変換）。
     """
+    for month, value in deadlines.items():
+        if value is not None and not deadline_within_month(month, value):
+            raise ValueError(
+                f"{_month_label(month)}分の締め日は{_month_label(month)}内の日付で指定してください（指定値: {value}）"
+            )
     setting = get_school_setting(db, school.id)
     if setting is None:
         setting = WorkSchoolSetting(school_id=school.id)

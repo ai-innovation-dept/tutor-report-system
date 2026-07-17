@@ -14,7 +14,7 @@ from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.school_settings import SchoolSettingsIn, SchoolSettingsOut
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
-from app.services import school_deadline_service, user_import_service
+from app.services import school_deadline_import_service, school_deadline_service, user_import_service
 from app.services.user_service import create_initial_user, revive_user
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
@@ -326,15 +326,80 @@ def put_school_settings(
     締め日を変更した月は送信済みガードが解除され、新しい締め日の窓で確認メールの再送対象になる。
     """
     school = _get_school_or_error(db, user_id)
-    school_deadline_service.save_school_settings(
-        db,
-        school,
-        early_check_enabled=payload.early_check_enabled,
-        notice_days_before=payload.notice_days_before,
-        deadlines=payload.deadlines,
-    )
+    try:
+        school_deadline_service.save_school_settings(
+            db,
+            school,
+            early_check_enabled=payload.early_check_enabled,
+            notice_days_before=payload.notice_days_before,
+            deadlines=payload.deadlines,
+        )
+    except ValueError as exc:  # 締め日が対象月外（202607161332）
+        raise HTTPException(status_code=422, detail=str(exc))
     db.commit()
     return _school_settings_out(db, school, payload.year)
+
+
+def _school_users(db: Session) -> list[User]:
+    """新システムの学校ユーザー（未削除）を学校No昇順で返す（締め日CSVの母集団）。"""
+    users = [
+        u for u in db.scalars(select(User).where(User.deleted_at.is_(None))).all()
+        if "new" in (u.allowed_systems or []) and "school" in _user_roles(u)
+    ]
+    return sorted(users, key=lambda u: int(u.user_no) if u.user_no and str(u.user_no).isdigit() else 999999)
+
+
+@router.get("/school-deadlines/export")
+def export_school_deadlines(
+    year: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """学校の締め日設定（指定年）をCSV(UTF-8 BOM)でエクスポートする（202607161332）。
+
+    編集して /school-deadlines/import で再取込できる（学校Noで照合・各月列は「日」）。
+    """
+    if not (2000 <= year <= 2100):
+        raise HTTPException(status_code=422, detail="対象年は2000〜2100で指定してください")
+    content = school_deadline_import_service.build_export_csv(db, _school_users(db), year)
+    filename = f"学校締め日設定_{year}年.csv"
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename*=UTF-8''" + quote(filename)},
+    )
+
+
+@router.post("/school-deadlines/import")
+def import_school_deadlines(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """学校の締め日設定CSVを一括取り込みする（202607161332）。
+
+    行は学校No×対象年。各月列は「日」または対象月内の日付・空欄はその月の締め日を削除。
+    早期チェック・通知日数は空欄なら現状維持。1件でも検証エラーがあれば全件中止（何も保存しない）。
+    """
+    try:
+        rows = school_deadline_import_service.parse_rows(file.file.read())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    plans, errors = school_deadline_import_service.rows_to_plan(db, rows)
+    if errors:
+        raise HTTPException(status_code=400, detail={
+            "message": f"取り込みできませんでした（{len(errors)}件のエラー）。修正して再度お試しください。",
+            "errors": errors,
+        })
+    if not plans:
+        raise HTTPException(status_code=400, detail={
+            "message": "取り込み対象の行がありません。学校Noと対象年を入力した行を用意してください。",
+            "errors": [],
+        })
+    saved = school_deadline_import_service.apply_plans(db, plans)
+    db.commit()
+    return {"schools": len(plans), "deadlines": saved}
 
 
 @router.patch("/{user_id}", response_model=UserOut)

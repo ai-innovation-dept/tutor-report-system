@@ -88,6 +88,22 @@
       <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
     </div>
   </div>
+  <!-- 学校の締め日設定CSV（202607161332）: 学校No×対象年の行・各月列は「日」・空欄=削除 -->
+  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-medium text-slate-700">学校の締め日設定CSV</span>
+      <span class="text-xs text-slate-500">学校ごとの早期チェック・通知日数・各月の締め日を一括設定できます（詳しくは上の「?」）</span>
+    </div>
+    <div class="flex shrink-0 flex-wrap items-center gap-2">
+      <label class="flex items-center gap-1 text-sm text-slate-600">
+        <span>対象年</span>
+        <select id="deadlineCsvYear" class="rounded-lg border border-slate-300 px-2 py-2 text-sm focus:border-emerald-500 focus:outline-none"></select>
+      </label>
+      <button id="deadlineCsvExportBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</button>
+      <button id="deadlineCsvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
+      <input id="deadlineCsvFileInput" type="file" accept=".csv,text/csv" class="hidden">
+    </div>
+  </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -211,6 +227,18 @@
           <img src="/static/img/csv-help-error.png" alt="エラーのある行を示す「取り込みエラー」の表示例" class="block w-full" loading="lazy">
           <figcaption class="bg-slate-50 px-3 py-2 text-xs text-slate-500">▲ エラーがあるときはこの画面で内容を確認できます（このとき登録は行われていません）。</figcaption>
         </figure>
+      </section>
+
+      <section>
+        <h3 class="mb-3 font-semibold text-slate-800">学校の締め日設定CSV</h3>
+        <p class="leading-relaxed">操作バー2段目の「学校の締め日設定CSV」から、学校ごとの<strong class="font-semibold text-slate-900">早期チェック・通知日数・各月の締め日</strong>を一括設定できます。使い方はユーザーCSVと同じ「書き出す→編集する→取り込む」の3ステップです。</p>
+        <ul class="mt-2 space-y-1.5 text-xs leading-relaxed text-slate-600">
+          <li>・行は<strong class="text-slate-800">学校No×対象年</strong>（同じ学校の複数年は行を分けます）。学校Noが先頭 <code class="rounded bg-slate-100 px-1 font-mono">#</code> の行はコメントとして読み飛ばされます。</li>
+          <li>・1月〜12月の列には、その月の締め日を<strong class="text-slate-800">「日」（例: 25）</strong>で入力します（<code class="rounded bg-slate-100 px-1 font-mono">2026-01-25</code> のような対象月内の日付も可。<strong class="text-slate-800">対象月の外の日付はエラー</strong>になります）。</li>
+          <li>・<strong class="text-slate-800">空欄の月は締め日を削除</strong>します（書き出した内容を編集して取り込むと、ファイルの内容がそのまま反映されます）。</li>
+          <li>・早期チェック（ON/OFF）・通知日数(日前)は学校単位の設定です。空欄なら現状維持、同じ学校の行どうしで違う値を書くとエラーになります。</li>
+          <li>・締め日を変更した月は、締め日前の確認メールが再送対象に戻ります。1件でもエラーがあると全件取り込みません。</li>
+        </ul>
       </section>
 
       <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。アカウントだけを先に作成しておくこともできます（講師と学校の紐づけ＝契約は「契約管理」で行います）。</p>
@@ -635,11 +663,15 @@ function schoolDeadlineCell(month, monthNum) {
   const sentBadge = saved?.notice_sent_at && !edited
     ? '<span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="この月の確認メールは送信済みです（締め日を変更すると再送対象に戻ります）">送信済</span>'
     : (edited ? '<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">未保存</span>' : '');
+  // 締め日は対象月内の日付のみ選択可（202607161332）。min/max でカレンダーをその月に制限する
+  const [yy, mm] = month.split('-').map(Number);
+  const lastDay = new Date(yy, mm, 0).getDate();
   return `<div class="rounded-lg border ${edited ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'} p-2">
     <div class="flex min-h-[18px] items-center justify-between gap-1">
       <span class="text-xs font-medium text-slate-600">${monthNum}月分</span>${sentBadge}
     </div>
     <input type="date" data-deadline-month="${month}" value="${schoolDeadlineValue(month)}"
+      min="${month}-01" max="${month}-${String(lastDay).padStart(2, '0')}"
       onchange="onSchoolDeadlineChange('${month}', this.value)"
       class="mt-1 w-full rounded border border-slate-300 px-1.5 py-1 text-xs focus:border-emerald-500 focus:outline-none">
   </div>`;
@@ -676,7 +708,7 @@ function renderSchoolDeadlineSettings() {
       </div>
     </div>
     <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">${cells.join('')}</div>
-    <p class="mt-2 text-xs leading-relaxed text-slate-500">各月分の締め日を設定します（翌月の日付も設定可）。空欄の月は送信対象外です。締め日を変更すると、その月の確認メールは再送対象に戻ります。</p>
+    <p class="mt-2 text-xs leading-relaxed text-slate-500">各月分の締め日は<span class="font-medium text-slate-700">その月の日付</span>から選択します（例: 1月分は1月のカレンダーのみ）。空欄の月は送信対象外です。締め日を変更すると、その月の確認メールは再送対象に戻ります。</p>
     <div class="mt-3 flex items-center gap-3">
       <button type="button" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700" onclick="saveSchoolDeadlineSettings()">設定を保存</button>
       ${editedCount ? `<span class="text-xs text-amber-700">未保存の締め日変更が${editedCount}件あります</span>` : ''}
@@ -684,6 +716,13 @@ function renderSchoolDeadlineSettings() {
 }
 
 function onSchoolDeadlineChange(month, value) {
+  // 対象月外の日付は受け付けない（キーボード入力対策。カレンダーは min/max で制限済み・202607161332）
+  if (value && value.slice(0, 7) !== month) {
+    const [, mm] = month.split('-');
+    showToast(`${Number(mm)}月分の締め日は${Number(mm)}月内の日付で指定してください`, 'error');
+    renderSchoolDeadlineSettings();  // 入力を破棄して元の値へ戻す
+    return;
+  }
   const saved = schoolSettingsState?.deadlines?.[month]?.deadline_date || '';
   if ((value || '') === saved) {
     delete schoolDeadlineEdits[month];  // 保存済みの値に戻した＝編集取り消し
@@ -852,6 +891,56 @@ csvFileInput.addEventListener('change', async () => {
   const file = csvFileInput.files?.[0];
   csvFileInput.value = '';  // 同じファイルを連続選択しても change が発火するように
   if (file) await importCsv(file);
+});
+
+// ---- 学校の締め日設定CSV（202607161332）: エクスポート（対象年）／インポート（学校No×対象年の行） ----
+(function initDeadlineCsvYear() {
+  const select = document.getElementById('deadlineCsvYear');
+  const current = new Date().getFullYear();
+  const options = [];
+  for (let year = current - 1; year <= current + 2; year++) {
+    options.push(`<option value="${year}" ${year === current ? 'selected' : ''}>${year}年</option>`);
+  }
+  select.innerHTML = options.join('');
+})();
+document.getElementById('deadlineCsvExportBtn').addEventListener('click', () => {
+  const year = document.getElementById('deadlineCsvYear').value;
+  window.location.href = `/api/w/users/school-deadlines/export?year=${encodeURIComponent(year)}`;
+});
+async function importDeadlineCsv(file) {
+  const form = new FormData();
+  form.append('file', file);
+  let res;
+  try {
+    res = await fetch('/api/w/users/school-deadlines/import', {method: 'POST', credentials: 'same-origin', body: form});
+  } catch (_) {
+    showImportResult('取り込みに失敗しました', '<p class="text-rose-700">通信エラーが発生しました。</p>');
+    return;
+  }
+  let body = {};
+  try { body = await res.json(); } catch (_) {}
+  if (res.ok) {
+    showToast(`${body.schools}校の締め日設定を取り込みました（締め日${body.deadlines}件）`, 'success');
+    // 開いているドロワーが学校なら、取り込み結果を設定表示に反映する
+    if (selectedUser && isSchool(selectedUser)) {
+      schoolDeadlineEdits = {};
+      loadSchoolDeadlineSettings(selectedUser.id);
+    }
+    return;
+  }
+  const detail = body.detail;
+  if (detail && typeof detail === 'object' && Array.isArray(detail.errors)) {
+    const head = `<p class="mb-2 font-medium text-rose-700">${escapeHtml(detail.message || '取り込みできませんでした。')}</p>`;
+    showImportResult('締め日設定CSVの取り込みエラー', head + (detail.errors.length ? importErrorList(detail.errors) : ''));
+  } else {
+    showImportResult('締め日設定CSVの取り込みエラー', `<p class="text-rose-700">${escapeHtml(typeof detail === 'string' ? detail : '取り込みできませんでした。')}</p>`);
+  }
+}
+document.getElementById('deadlineCsvImportBtn').addEventListener('click', () => deadlineCsvFileInput.click());
+deadlineCsvFileInput.addEventListener('change', async () => {
+  const file = deadlineCsvFileInput.files?.[0];
+  deadlineCsvFileInput.value = '';
+  if (file) await importDeadlineCsv(file);
 });
 
 // === CSV一括取込のヘルプ（「?」アイコンで開く使い方ポップアップ） ===

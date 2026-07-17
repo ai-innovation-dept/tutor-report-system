@@ -1,10 +1,14 @@
-"""学校の締め日通知設定＋締め日前【至急確認】メール（改修依頼 202607161140）のテスト。
+"""学校の締め日通知設定＋締め日前【至急確認】メール（改修依頼 202607161140・修正 202607161332）のテスト。
 
 - 設定API: ユーザ管理の学校詳細から 早期チェックON/OFF・通知日数・月ごとの締め日（年間）を保存。
+  締め日は対象月内の日付のみ（202607161332）。
+- CSV: 学校No×対象年の行で締め日設定を一括エクスポート/インポート（202607161332）。
 - 日次ジョブ: 早期チェックONの学校のみ「締め日−N日〜締め日当日」の窓で1回だけ営業全員へ送信。
   全員承認済みの学校・締め日を過ぎた月は送らない。締め日変更で再送対象に戻る。
 実メールは送らない（conftest で MAIL_BACKEND=console。投函先の WorkMailOutbox を検証する）。
 """
+import csv as csv_module
+import io
 import uuid
 from datetime import date, datetime, timezone
 
@@ -24,6 +28,7 @@ from app.models.work import (
     WorkSchoolDeadline,
     WorkSchoolSetting,
 )
+from app.services import school_deadline_import_service as csv_service
 from app.services.school_deadline_service import enqueue_school_deadline_notices
 from app.workflow.definitions import WorkStatus
 from tests.conftest import TestSession
@@ -142,7 +147,7 @@ class TestSchoolSettingsApi:
             "early_check_enabled": True,
             "notice_days_before": 5,
             "year": 2026,
-            "deadlines": {"2026-06": "2026-06-25", "2026-07": "2026-08-05"},
+            "deadlines": {"2026-06": "2026-06-25", "2026-07": "2026-07-28"},
         }
         res = client.put(f"/api/w/users/{school.id}/school-settings", json=payload, headers=headers)
         assert res.status_code == 200, res.text
@@ -151,7 +156,7 @@ class TestSchoolSettingsApi:
         assert body["notice_days_before"] == 5
         assert {d["target_month"]: d["deadline_date"] for d in body["deadlines"]} == {
             "2026-06": "2026-06-25",
-            "2026-07": "2026-08-05",
+            "2026-07": "2026-07-28",
         }
 
         # None（空欄）で削除・他の月は保持
@@ -218,6 +223,23 @@ class TestSchoolSettingsApi:
         headers = _login_headers(client, "t6@d.example.com")
         res = client.get(f"/api/w/users/{school.id}/school-settings?year=2026", headers=headers)
         assert res.status_code == 403
+
+    def test_put_rejects_out_of_month_deadline(self, db, client):
+        """締め日は対象月内の日付のみ（202607161332）。1月分に2月の日付などは422。"""
+        _user(db, "office8@d.example.com", "office")
+        school = _user(db, "s8@d.example.com", "school")
+        db.commit()
+        headers = _login_headers(client, "office8@d.example.com")
+
+        res = client.put(
+            f"/api/w/users/{school.id}/school-settings",
+            json={"early_check_enabled": True, "notice_days_before": 3, "year": 2026,
+                  "deadlines": {"2026-06": "2026-07-01"}},
+            headers=headers,
+        )
+        assert res.status_code == 422, res.text
+        assert "2026年6月内の日付" in res.json()["detail"]
+        assert db.scalar(select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == school.id)) is None
 
     def test_validates_month_and_days(self, db, client):
         _user(db, "office7@d.example.com", "office")
@@ -356,3 +378,187 @@ class TestDeadlineNoticeJob:
         body = _outbox(db)[0].body
         assert "承認済み 0/1名" in body
         assert "当月授業なし申請 1名は対象外" in body
+
+
+class TestDeadlineCsv:
+    """締め日設定CSVの一括エクスポート/インポート（202607161332）。"""
+
+    def _row(self, no, year="2026", early="", days="", **months):
+        row = {csv_service.NO: no, csv_service.NAME_REF: "", csv_service.YEAR: year,
+               csv_service.EARLY: early, csv_service.DAYS: days}
+        for column in csv_service.MONTH_COLUMNS:
+            row[column] = ""
+        row.update(months)
+        return row
+
+    def _csv_bytes(self, rows):
+        buf = io.StringIO()
+        writer = csv_module.DictWriter(buf, fieldnames=csv_service.headers())
+        writer.writeheader()
+        for row in rows:
+            writer.writerow(row)
+        return buf.getvalue().encode("utf-8-sig")
+
+    def _import(self, client, headers, rows):
+        return client.post(
+            "/api/w/users/school-deadlines/import",
+            files={"file": ("締め日設定.csv", self._csv_bytes(rows), "text/csv")},
+            headers=headers,
+        )
+
+    def test_export_contains_settings(self, db, client):
+        _user(db, "office10@d.example.com", "office")
+        school = _user(db, "s20@d.example.com", "school", name="CSV学校", user_no="40001")
+        _setting(db, school, enabled=True, days=5)
+        _deadline(db, school)  # 2026-06-25
+        db.commit()
+        headers = _login_headers(client, "office10@d.example.com")
+
+        res = client.get("/api/w/users/school-deadlines/export?year=2026", headers=headers)
+        assert res.status_code == 200, res.text
+        rows = list(csv_module.DictReader(io.StringIO(res.content.decode("utf-8-sig"))))
+        target = next(r for r in rows if r[csv_service.NO] == "40001")
+        assert target[csv_service.NAME_REF] == "CSV学校"
+        assert target[csv_service.YEAR] == "2026"
+        assert target[csv_service.EARLY] == "ON"
+        assert target[csv_service.DAYS] == "5"
+        assert target["6月"] == "25"
+        assert target["7月"] == ""
+
+    def test_import_creates_settings_and_deadlines(self, db, client):
+        _user(db, "office11@d.example.com", "office")
+        school = _user(db, "s21@d.example.com", "school", user_no="40002")
+        db.commit()
+        headers = _login_headers(client, "office11@d.example.com")
+
+        res = self._import(client, headers, [
+            self._row("40002", early="ON", days="4", **{"6月": "25", "7月": "2026-07-28"}),
+        ])
+        assert res.status_code == 200, res.text
+        assert res.json() == {"schools": 1, "deadlines": 2}
+
+        setting = db.scalar(select(WorkSchoolSetting).where(WorkSchoolSetting.school_id == school.id))
+        assert setting.early_check_enabled is True
+        assert setting.notice_days_before == 4
+        deadlines = {
+            row.target_month: str(row.deadline_date)
+            for row in db.scalars(select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == school.id))
+        }
+        assert deadlines == {"2026-06": "2026-06-25", "2026-07": "2026-07-28"}
+
+    def test_import_blank_flag_keeps_current_and_blank_month_clears(self, db, client):
+        _user(db, "office12@d.example.com", "office")
+        school = _user(db, "s22@d.example.com", "school", user_no="40003")
+        _setting(db, school, enabled=True, days=7)
+        _deadline(db, school)  # 2026-06-25（CSVでは6月列空欄→削除される）
+        db.commit()
+        headers = _login_headers(client, "office12@d.example.com")
+
+        res = self._import(client, headers, [self._row("40003", **{"8月": "20"})])
+        assert res.status_code == 200, res.text
+
+        setting = db.scalar(select(WorkSchoolSetting).where(WorkSchoolSetting.school_id == school.id))
+        db.refresh(setting)
+        assert setting.early_check_enabled is True  # 空欄=現状維持
+        assert setting.notice_days_before == 7
+        deadlines = {
+            row.target_month: str(row.deadline_date)
+            for row in db.scalars(select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == school.id))
+        }
+        assert deadlines == {"2026-08": "2026-08-20"}  # 6月は空欄で削除・8月を新規設定
+
+    def test_import_changed_day_resets_notice_guard(self, db, client):
+        _user(db, "office13@d.example.com", "office")
+        school = _user(db, "s23@d.example.com", "school", user_no="40004")
+        row = _deadline(db, school)
+        row.notice_sent_at = datetime.now(timezone.utc)
+        db.commit()
+        headers = _login_headers(client, "office13@d.example.com")
+
+        res = self._import(client, headers, [self._row("40004", **{"6月": "28"})])
+        assert res.status_code == 200, res.text
+        saved = db.scalar(select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == school.id))
+        db.refresh(saved)
+        assert str(saved.deadline_date) == "2026-06-28"
+        assert saved.notice_sent_at is None
+
+    def test_import_multiple_years_for_same_school(self, db, client):
+        _user(db, "office14@d.example.com", "office")
+        school = _user(db, "s24@d.example.com", "school", user_no="40005")
+        db.commit()
+        headers = _login_headers(client, "office14@d.example.com")
+
+        res = self._import(client, headers, [
+            self._row("40005", year="2026", early="ON", **{"12月": "25"}),
+            self._row("40005", year="2027", **{"1月": "24"}),
+        ])
+        assert res.status_code == 200, res.text
+        assert res.json() == {"schools": 1, "deadlines": 2}
+        deadlines = {
+            row.target_month: str(row.deadline_date)
+            for row in db.scalars(select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == school.id))
+        }
+        assert deadlines == {"2026-12": "2026-12-25", "2027-01": "2027-01-24"}
+
+    def test_import_all_or_nothing_on_errors(self, db, client):
+        _user(db, "office15@d.example.com", "office")
+        _user(db, "s25@d.example.com", "school", user_no="40006")
+        db.commit()
+        headers = _login_headers(client, "office15@d.example.com")
+
+        res = self._import(client, headers, [
+            self._row("40006", **{"6月": "25"}),          # 正常行
+            self._row("49999", **{"6月": "25"}),          # 存在しない学校No
+            self._row("40006", year="2027", **{"2月": "30"}),  # 2月に存在しない日
+            self._row("40006", **{"6月": "2026-07-05"}),  # 対象月外の日付＋(40006,2026)重複
+        ])
+        assert res.status_code == 400, res.text
+        errors = res.json()["detail"]["errors"]
+        assert any("見つかりません" in e for e in errors)
+        assert any("1〜28の日" in e for e in errors)
+        assert any("2026年6月内の日付" in e for e in errors)
+        assert any("重複しています" in e for e in errors)
+        assert db.scalar(select(WorkSchoolDeadline)) is None  # 1件でもエラーなら全件中止
+
+    def test_import_conflicting_flag_between_rows(self, db, client):
+        _user(db, "office16@d.example.com", "office")
+        _user(db, "s26@d.example.com", "school", user_no="40007")
+        db.commit()
+        headers = _login_headers(client, "office16@d.example.com")
+
+        res = self._import(client, headers, [
+            self._row("40007", year="2026", early="ON"),
+            self._row("40007", year="2027", early="OFF"),
+        ])
+        assert res.status_code == 400
+        assert any("早期チェックが同じ学校の他の行と一致しません" in e for e in res.json()["detail"]["errors"])
+
+    def test_import_rejects_non_school_no(self, db, client):
+        _user(db, "office17@d.example.com", "office")
+        _user(db, "t20@d.example.com", "tutor", user_no="10001")
+        db.commit()
+        headers = _login_headers(client, "office17@d.example.com")
+
+        res = self._import(client, headers, [self._row("10001", **{"6月": "25"})])
+        assert res.status_code == 400
+        assert any("学校ユーザーではありません" in e for e in res.json()["detail"]["errors"])
+
+    def test_import_skips_comment_rows(self, db, client):
+        _user(db, "office18@d.example.com", "office")
+        _user(db, "s27@d.example.com", "school", user_no="40008")
+        db.commit()
+        headers = _login_headers(client, "office18@d.example.com")
+
+        res = self._import(client, headers, [
+            self._row("#記入例", **{"6月": "99"}),  # コメント行＝検証されない
+            self._row("40008", **{"6月": "25"}),
+        ])
+        assert res.status_code == 200, res.text
+        assert res.json() == {"schools": 1, "deadlines": 1}
+
+    def test_csv_requires_staff_role(self, db, client):
+        _user(db, "t21@d.example.com", "tutor")
+        db.commit()
+        headers = _login_headers(client, "t21@d.example.com")
+        assert client.get("/api/w/users/school-deadlines/export?year=2026", headers=headers).status_code == 403
+        assert self._import(client, headers, []).status_code == 403
