@@ -1,35 +1,39 @@
-"""学校単位の「契約講師全員の学校承認」進捗の集計と営業への通知。
+"""学校単位の「契約講師全員の学校承認」完了判定と運営（事務・営業）への通知。
 
-EMPS-2026-0709-01:
-- 即時通知: ある学校に紐づく有効契約の講師全員の当月報告書が学校承認を通過した時点で、
-  営業（sales ロール全員）へ完了メールを送る。最後の1件が承認されるたびに発火する
-  （差戻し後の再承認で全員承認が再成立した場合も再送する）。
-- 締切進捗メール: 月末+N日（NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END）にちょうど当たる日に
-  1回だけ、全員承認が揃っていない学校の進捗（承認済み/未承認の講師とその状態）を
-  営業へ1通のダイジェストで送る。全員承認済みの学校は即時通知済みのため対象外。
+EMPS-2026-0709-01 → 改修 202607161140:
+- 即時通知: ある学校に紐づく有効契約の講師全員（「当月授業なし」申請中の講師を除く）の
+  当月報告書が学校承認を通過した時点で、事務・営業（office / sales ロールの有効ユーザー全員）へ
+  完了メールを送る。最後の1件が承認されるたびに発火する（差戻し後の再承認で全員承認が
+  再成立した場合も再送する）。講師の「当月授業なし」申請で全員承認が成立した場合も発火する。
+- 月末+N日の進捗ダイジェストメールは 202607161140 で廃止
+  （純粋に「契約講師全員の学校承認完了」の通知のみを行う）。
 
-学校確認スキップ（学校ユーザー単位の skip_parent_approval）の学校は両方とも対象外。
-「当月授業なし」= 当月の報告書レコードが存在しない講師（未作成）を指す。
+学校確認スキップ（学校ユーザー単位の skip_parent_approval）の学校は対象外。
+「当月授業なし」= 講師が講師画面で申請する月単位のフラグ（work_no_lesson_months・全契約対象）。
+申請中の講師は報告書の有無・状態を問わず集計の対象外（完了メールには対象外として明記する）。
 """
 import calendar
 import logging
-from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from dataclasses import dataclass, field
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from zoneinfo import ZoneInfo
 
 from app.core.config import settings
 from app.models.shared import Assignment, User
-from app.models.work import WorkAssignmentProfile, WorkNotification, WorkReport
+from app.models.work import WorkAssignmentProfile, WorkNoLessonMonth, WorkNotification, WorkReport
 from app.services.notification_service import _staff_users, enqueue_email_template
 from app.workflow.definitions import WorkStatus
 
 logger = logging.getLogger(__name__)
 
 _ALL_APPROVED_TYPE = "school_all_approved"
-_PROGRESS_TYPE = "school_monthly_progress"
+
+# 完了メールの宛先ロールと、ロール別の宛名・確認画面パス（202607161140で事務を追加）
+_STAFF_RECIPIENT_ROLES = ("office", "sales")
+_STAFF_LABELS = {"office": "事務担当者", "sales": "営業担当者"}
+_STAFF_QUEUE_PATHS = {"office": "/office/queue", "sales": "/sales/queue"}
 
 # 学校承認を通過済み（現在も有効）とみなすステータス。
 # returned_to_office / approved は学校承認後の工程のため「承認済み」に含める。
@@ -40,7 +44,7 @@ _SCHOOL_APPROVED_STATUSES = {
     WorkStatus.RETURNED_TO_OFFICE,
 }
 
-# 未承認側の状態ラベル（進捗メールの内訳表示用）
+# 未承認側の状態ラベル（締め日前確認メールの内訳表示用）
 _PENDING_STATUS_LABELS = {
     WorkStatus.DRAFT: "未提出",
     WorkStatus.AWAITING_OFFICE_PRECHECK: "事務事前確認中",
@@ -48,7 +52,7 @@ _PENDING_STATUS_LABELS = {
     WorkStatus.RETURNED_TO_TUTOR: "差戻し中",
     WorkStatus.CLOSED: "打ち切り（クローズ）",
 }
-_NO_REPORT_LABEL = "当月授業なし"
+_NO_REPORT_LABEL = "未作成"
 
 
 @dataclass
@@ -56,7 +60,7 @@ class TutorProgress:
     tutor: User
     report: WorkReport | None
     approved: bool
-    label: str  # 承認済みは「承認済み」、未承認は状態ラベル（未提出/学校確認待ち/当月授業なし 等）
+    label: str  # 承認済みは「承認済み」、未承認は状態ラベル（未提出/学校確認待ち/未作成 等）
 
 
 @dataclass
@@ -64,6 +68,9 @@ class SchoolMonthProgress:
     school: User
     target_month: str
     entries: list[TutorProgress]
+    # 「当月授業なし」申請中の講師（集計対象外）。approved/label は申請が無かった場合の値を保持する
+    # （申請が完了成立の決め手だったかの判定と、完了メールの対象外表示に使う）。
+    no_lesson_entries: list[TutorProgress] = field(default_factory=list)
 
     @property
     def approved_entries(self) -> list[TutorProgress]:
@@ -75,6 +82,8 @@ class SchoolMonthProgress:
 
     @property
     def all_approved(self) -> bool:
+        # 対象講師（授業なし申請を除く）が1名以上いて、全員承認済みのときのみ成立。
+        # 全員が授業なし申請の月は成立しない（通知対象の実績が無いため）。
         return bool(self.entries) and not self.pending_entries
 
 
@@ -83,13 +92,9 @@ def _month_bounds(target_month: str) -> tuple[date, date]:
     return date(year, month, 1), date(year, month, calendar.monthrange(year, month)[1])
 
 
-def _current_jst_date() -> date:
-    return datetime.now(ZoneInfo(settings.TIMEZONE)).date()
-
-
 def _record_school_notification(db: Session, user: User, notif_type: str, subject: str, body: str) -> None:
     """学校単位通知のアプリ内ログ。報告書に紐づけない（report_id=None）ことで、
-    報告書削除時に消えず、進捗メールの重複送信防止ログとしても機能する。"""
+    報告書削除時に消えないログとして機能する。"""
     db.add(
         WorkNotification(
             user_id=user.id,
@@ -135,10 +140,25 @@ def _active_profiles_for_school(db: Session, school_id, target_month: str) -> li
     return result
 
 
+def _no_lesson_tutor_ids(db: Session, tutor_ids: list, target_month: str) -> set:
+    """指定講師のうち、対象月に「当月授業なし」を申請している講師IDの集合を返す。"""
+    if not tutor_ids:
+        return set()
+    return set(
+        db.scalars(
+            select(WorkNoLessonMonth.tutor_id).where(
+                WorkNoLessonMonth.tutor_id.in_(tutor_ids),
+                WorkNoLessonMonth.target_month == target_month,
+            )
+        )
+    )
+
+
 def school_month_progress(db: Session, school: User, target_month: str) -> SchoolMonthProgress | None:
     """学校×当月の契約講師ごとの学校承認状況を集計する。
 
     学校確認スキップの学校・有効契約が1件もない学校は対象外（None）。
+    「当月授業なし」申請中の講師は entries から外し no_lesson_entries に分ける。
     """
     if not school or not school.is_active or school.deleted_at or school.skip_parent_approval:
         return None
@@ -153,21 +173,29 @@ def school_month_progress(db: Session, school: User, target_month: str) -> Schoo
         )
     ).all()
     by_assignment = {r.assignment_id: r for r in reports}
+    no_lesson_ids = _no_lesson_tutor_ids(db, [p.tutor_id for p in profiles], target_month)
 
     entries: list[TutorProgress] = []
+    no_lesson_entries: list[TutorProgress] = []
     for p in sorted(profiles, key=lambda x: (x.tutor.tutor_no or x.tutor.user_no or "", x.tutor.display_name)):
         report = by_assignment.get(p.assignment_id)
         if report is None:
-            entries.append(TutorProgress(tutor=p.tutor, report=None, approved=False, label=_NO_REPORT_LABEL))
-            continue
-        approved = report.status in _SCHOOL_APPROVED_STATUSES
-        label = "承認済み" if approved else _PENDING_STATUS_LABELS.get(report.status, "その他")
-        entries.append(TutorProgress(tutor=p.tutor, report=report, approved=approved, label=label))
-    return SchoolMonthProgress(school=school, target_month=target_month, entries=entries)
+            entry = TutorProgress(tutor=p.tutor, report=None, approved=False, label=_NO_REPORT_LABEL)
+        else:
+            approved = report.status in _SCHOOL_APPROVED_STATUSES
+            label = "承認済み" if approved else _PENDING_STATUS_LABELS.get(report.status, "その他")
+            entry = TutorProgress(tutor=p.tutor, report=report, approved=approved, label=label)
+        if p.tutor_id in no_lesson_ids:
+            no_lesson_entries.append(entry)
+        else:
+            entries.append(entry)
+    return SchoolMonthProgress(
+        school=school, target_month=target_month, entries=entries, no_lesson_entries=no_lesson_entries
+    )
 
 
 # ---------------------------------------------------------------------------
-# 即時通知（全員の学校承認が揃った時点で営業へ）
+# 即時通知（全員の学校承認が揃った時点で事務・営業へ）
 # ---------------------------------------------------------------------------
 
 def _all_approved_subject(school: User, target_month: str) -> str:
@@ -175,7 +203,7 @@ def _all_approved_subject(school: User, target_month: str) -> str:
 
 
 async def send_school_all_approved_notifications(db: Session, reports: list[WorkReport]) -> None:
-    """学校承認直後の報告書群から、契約講師全員の承認が揃った学校を判定し営業へ通知する。
+    """学校承認直後の報告書群から、契約講師全員の承認が揃った学校を判定し事務・営業へ通知する。
 
     学校承認の遷移（approve: awaiting_school → awaiting_office）で呼ばれる前提。
     一括承認では同一学校×月につき1通にまとめる。通知の失敗は主処理を止めない。
@@ -202,110 +230,64 @@ async def send_school_all_approved_notifications(db: Session, reports: list[Work
     db.commit()
 
 
+def send_school_all_approved_after_no_lesson(db: Session, tutor: User, target_month: str) -> int:
+    """講師の「当月授業なし」申請で全員承認が成立した学校を判定し、事務・営業へ完了メールを送る。
+
+    申請した講師が実際に完了成立の決め手（＝申請前は未承認扱い）だった学校のみ送信する。
+    すでに全員承認済みだった学校（申請講師の報告書も承認済み等）へは重複送信しない。
+    戻り値は通知した学校数。通知の失敗は主処理（申請の保存）を止めない。
+    """
+    school_ids: list = []
+    for profile in db.scalars(
+        select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id,
+            WorkAssignmentProfile.is_active.is_(True),
+        )
+    ):
+        if profile.school_id not in school_ids:
+            school_ids.append(profile.school_id)
+
+    count = 0
+    for school_id in school_ids:
+        try:
+            school = db.get(User, school_id)
+            progress = school_month_progress(db, school, target_month)
+            if not progress or not progress.all_approved:
+                continue
+            entry = next((e for e in progress.no_lesson_entries if e.tutor.id == tutor.id), None)
+            if entry is None or entry.approved:
+                continue  # この講師は元々未達要因ではない＝申請前から完了済み（通知済み）のため再送しない
+            _enqueue_all_approved_mail(db, progress)
+            count += 1
+        except Exception as exc:  # noqa: BLE001 - 通知の失敗は申請の保存を止めない
+            logger.warning(
+                "school all-approved notification (no-lesson) failed: school=%s month=%s: %s",
+                school_id, target_month, exc,
+            )
+    db.commit()
+    return count
+
+
 def _enqueue_all_approved_mail(db: Session, progress: SchoolMonthProgress) -> None:
     subject = _all_approved_subject(progress.school, progress.target_month)
-    context = {
+    no_lesson_block = ""
+    if progress.no_lesson_entries:
+        lines = "\n".join(f"・{_tutor_label(e.tutor)}" for e in progress.no_lesson_entries)
+        no_lesson_block = f"\n\n【対象外（当月授業なし申請）】\n{lines}"
+    base_context = {
         "school_label": _school_label(progress.school),
         "target_month": progress.target_month,
         "tutor_count": len(progress.entries),
         "tutor_lines": "\n".join(f"・{_tutor_label(e.tutor)}" for e in progress.entries),
+        "no_lesson_block": no_lesson_block,
         "base_url": settings.NEW_BASE_URL.rstrip("/"),
     }
-    for sales in _staff_users(db, "sales"):
-        enqueue_email_template(db, sales.email, subject, "notify_school_all_approved.txt", context)
-        _record_school_notification(
-            db, sales, _ALL_APPROVED_TYPE, subject,
-            f"{progress.school.display_name}の{progress.target_month}分は契約講師全員の学校承認が完了しました。",
-        )
-
-
-# ---------------------------------------------------------------------------
-# 締切進捗メール（月末+N日に1回・未完了の学校のみ・営業へダイジェスト1通）
-# ---------------------------------------------------------------------------
-
-def _progress_subject(target_month: str) -> str:
-    return f"【業務連絡表】学校承認の進捗のお知らせ（{target_month}分）"
-
-
-def _progress_target_month(today: date, days_after: int) -> str | None:
-    """today が「ある月の末日 + N日」にちょうど当たる場合、その対象月(YYYY-MM)を返す。"""
-    candidate = today - timedelta(days=days_after)
-    last_day = calendar.monthrange(candidate.year, candidate.month)[1]
-    if candidate.day != last_day:
-        return None
-    return candidate.strftime("%Y-%m")
-
-
-def _progress_already_sent(db: Session, target_month: str) -> bool:
-    row = db.scalars(
-        select(WorkNotification).where(
-            WorkNotification.type == _PROGRESS_TYPE,
-            WorkNotification.subject == _progress_subject(target_month),
-        )
-    ).first()
-    return row is not None
-
-
-def _school_block(progress: SchoolMonthProgress) -> str:
-    lines = [
-        f"■ {_school_label(progress.school)}　承認済み {len(progress.approved_entries)}/{len(progress.entries)}名",
-        "　【承認済み】",
-    ]
-    if progress.approved_entries:
-        lines.extend(f"　・{_tutor_label(e.tutor)}" for e in progress.approved_entries)
-    else:
-        lines.append("　（なし）")
-    lines.append("　【未承認】")
-    lines.extend(f"　・{_tutor_label(e.tutor)}：{e.label}" for e in progress.pending_entries)
-    return "\n".join(lines)
-
-
-def enqueue_monthly_school_progress(db: Session, today: date | None = None) -> int:
-    """月末+N日に、全員承認が揃っていない学校の進捗を営業へダイジェスト送信する。
-
-    送信は対象月につき1回（WorkNotification のログで重複送信を防ぐ）。
-    サーバー停止等で当日を逃した月は自動送信しない（必要なら today を指定して手動実行する）。
-    戻り値は掲載した学校数（送信なしは 0）。
-    """
-    today = today or _current_jst_date()
-    days_after = max(0, int(settings.NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END))
-    target_month = _progress_target_month(today, days_after)
-    if not target_month:
-        return 0
-    if _progress_already_sent(db, target_month):
-        return 0
-
-    schools = db.scalars(
-        select(User).where(
-            User.role == "school",
-            User.is_active.is_(True),
-            User.deleted_at.is_(None),
-            User.skip_parent_approval.is_(False),
-        )
-    ).all()
-
-    pending_blocks: list[str] = []
-    for school in sorted(schools, key=lambda s: (s.user_no or "", s.display_name)):
-        progress = school_month_progress(db, school, target_month)
-        if not progress or progress.all_approved:
-            continue  # 全員承認済みの学校は即時通知済みのため対象外
-        pending_blocks.append(_school_block(progress))
-
-    if not pending_blocks:
-        return 0
-
-    subject = _progress_subject(target_month)
-    context = {
-        "target_month": target_month,
-        "school_count": len(pending_blocks),
-        "school_blocks": "\n\n".join(pending_blocks),
-        "base_url": settings.NEW_BASE_URL.rstrip("/"),
-    }
-    for sales in _staff_users(db, "sales"):
-        enqueue_email_template(db, sales.email, subject, "notify_school_monthly_progress.txt", context)
-        _record_school_notification(
-            db, sales, _PROGRESS_TYPE, subject,
-            f"{target_month}分の学校承認が未完了の学校: {len(pending_blocks)}校",
-        )
-    db.flush()
-    return len(pending_blocks)
+    body_log = f"{progress.school.display_name}の{progress.target_month}分は契約講師全員の学校承認が完了しました。"
+    for role in _STAFF_RECIPIENT_ROLES:
+        context = base_context | {
+            "recipient_label": _STAFF_LABELS[role],
+            "queue_path": _STAFF_QUEUE_PATHS[role],
+        }
+        for staff in _staff_users(db, role):
+            enqueue_email_template(db, staff.email, subject, "notify_school_all_approved.txt", context)
+            _record_school_notification(db, staff, _ALL_APPROVED_TYPE, subject, body_log)

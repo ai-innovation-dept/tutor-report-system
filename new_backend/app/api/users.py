@@ -12,8 +12,9 @@ from app.core.database import get_db
 from app.core.security import hash_password
 from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
+from app.schemas.school_settings import SchoolSettingsIn, SchoolSettingsOut
 from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
-from app.services import user_import_service
+from app.services import school_deadline_service, user_import_service
 from app.services.user_service import create_initial_user, revive_user
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
@@ -276,6 +277,64 @@ def import_users(
         db.flush()  # 連続採番が直前に確定したNoを未使用判定に反映できるようにする
     db.commit()
     return {"imported": len(targets), "created": created, "revived": revived, "updated": len(updates)}
+
+
+# ---------------------------------------------------------------------------
+# 学校の締め日通知設定（202607161140）: 早期チェックON/OFF・通知日数・月ごとの締め日（年間設定）
+# ---------------------------------------------------------------------------
+
+def _get_school_or_error(db: Session, user_id: UUID) -> User:
+    user = _get_user_or_404(db, user_id)
+    if "school" not in _user_roles(user):
+        raise HTTPException(status_code=409, detail="締め日通知設定は学校ユーザーのみ設定できます")
+    return user
+
+
+def _school_settings_out(db: Session, school: User, year: int) -> SchoolSettingsOut:
+    setting = school_deadline_service.get_school_setting(db, school.id)
+    return SchoolSettingsOut(
+        early_check_enabled=setting.early_check_enabled if setting else False,
+        notice_days_before=(
+            setting.notice_days_before if setting else school_deadline_service.DEFAULT_NOTICE_DAYS_BEFORE
+        ),
+        year=year,
+        deadlines=school_deadline_service.deadlines_for_year(db, school.id, year),
+    )
+
+
+@router.get("/{user_id}/school-settings", response_model=SchoolSettingsOut)
+def get_school_settings(
+    user_id: UUID,
+    year: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """学校の締め日通知設定と、指定年の締め日一覧を返す。"""
+    school = _get_school_or_error(db, user_id)
+    return _school_settings_out(db, school, year)
+
+
+@router.put("/{user_id}/school-settings", response_model=SchoolSettingsOut)
+def put_school_settings(
+    user_id: UUID,
+    payload: SchoolSettingsIn,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """学校の締め日通知設定を保存する。deadlines に渡した月のみ更新・削除する（None=削除）。
+
+    締め日を変更した月は送信済みガードが解除され、新しい締め日の窓で確認メールの再送対象になる。
+    """
+    school = _get_school_or_error(db, user_id)
+    school_deadline_service.save_school_settings(
+        db,
+        school,
+        early_check_enabled=payload.early_check_enabled,
+        notice_days_before=payload.notice_days_before,
+        deadlines=payload.deadlines,
+    )
+    db.commit()
+    return _school_settings_out(db, school, payload.year)
 
 
 @router.patch("/{user_id}", response_model=UserOut)

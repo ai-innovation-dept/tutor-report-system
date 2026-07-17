@@ -1,9 +1,0 @@
-営業担当者 様
-
-{target_month} 分の学校承認の進捗をお知らせします。
-学校承認が完了していない学校：{school_count}校
-
-{school_blocks}
-
-以下のURLから状況をご確認ください。
-{base_url}/sales/queue

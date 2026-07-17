@@ -94,6 +94,15 @@
                 <span class="text-sm">月分業務連絡表</span>
               </div>
               <div class="text-xs text-slate-400">対象月を選択してください</div>
+              <!-- 当月授業なし申請（202607161140）: 講師×月・全契約対象。ONの間は学校から運営（事務・営業）への
+                   「学校承認がすべて完了」通知の集計対象外になる（報告書の作成・提出は通常どおり可能） -->
+              <label id="noLessonToggleWrap"
+                class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:bg-slate-50"
+                title="長期休業などでこの月の授業を行わない場合にONにします（全契約対象）。ONの間は、学校から運営（事務・営業）への「学校承認がすべて完了」通知の集計対象外になります。報告書の作成・提出は通常どおり可能です。">
+                <input type="checkbox" id="noLessonToggle"
+                  class="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
+                <span id="noLessonToggleText">この月は授業なし（長期休業等）</span>
+              </label>
             </div>
           </div>
 
@@ -1880,8 +1889,9 @@ function setReportInputsDisabled(disabled) {
   // 読取専用時はメモ未記入行の追加アイコンをCSSで非表示にする
   reportForm.classList.toggle('form-readonly', disabled);
   reportForm.querySelectorAll('input, select, textarea, button').forEach(el => {
-    // 内容ボタンは読取専用時も「閲覧」のためクリックできるよう無効化しない
-    if (el.id !== 'monthFilter' && !el.hasAttribute('data-note-btn')) el.disabled = disabled;
+    // 内容ボタンは読取専用時も「閲覧」のためクリックできるよう無効化しない。
+    // 当月授業なしトグルは報告書の状態と無関係の月単位設定のため常に操作可能にする。
+    if (el.id !== 'monthFilter' && el.id !== 'noLessonToggle' && !el.hasAttribute('data-note-btn')) el.disabled = disabled;
   });
   // コピー系ボタンはフォーム外（報告書タブ行の右端）にあるため個別に無効化する
   const copyBtn = document.getElementById('copyPrevLineBtn');
@@ -2238,10 +2248,67 @@ async function requestApprovalFromForm() {
   if (!savedId) return;
   await submitReport(savedId, {confirmSubmit: true});
 }
+// ===== 当月授業なし申請（202607161140） =====
+// 長期休業などで授業を行わない月を講師本人が申請する（講師×月・全契約対象）。
+// 申請中は学校から運営（事務・営業）への「学校承認がすべて完了」通知の集計対象外になる。
+let noLessonMonths = new Set();
+const noLessonToggle = document.getElementById('noLessonToggle');
+const noLessonToggleWrap = document.getElementById('noLessonToggleWrap');
+async function loadNoLessonMonths() {
+  try {
+    const res = await api('/api/w/no-lesson-months');
+    noLessonMonths = new Set(res.months || []);
+  } catch (_) {
+    noLessonMonths = new Set();
+  }
+  renderNoLessonToggle();
+}
+function renderNoLessonToggle() {
+  if (!noLessonToggle) return;
+  const on = noLessonMonths.has(selectedMonth);
+  noLessonToggle.checked = on;
+  noLessonToggle.disabled = false;
+  document.getElementById('noLessonToggleText').textContent = on
+    ? `${monthLabel(selectedMonth)}は授業なし（申請中）`
+    : 'この月は授業なし（長期休業等）';
+  noLessonToggleWrap.classList.toggle('border-amber-300', on);
+  noLessonToggleWrap.classList.toggle('bg-amber-50', on);
+  noLessonToggleWrap.classList.toggle('text-amber-800', on);
+  noLessonToggleWrap.classList.toggle('border-slate-300', !on);
+  noLessonToggleWrap.classList.toggle('bg-white', !on);
+  noLessonToggleWrap.classList.toggle('text-slate-600', !on);
+}
+async function toggleNoLessonMonth(checked) {
+  const month = selectedMonth;
+  const ok = await showConfirmModal({
+    title: checked ? '授業なしの申請' : '授業なし申請の解除',
+    message: checked
+      ? `${monthLabel(month)}は授業を行わない（長期休業等）として申請します。申請中は、学校から運営への「学校承認がすべて完了」通知の集計対象外になります（全契約対象）。よろしいですか？`
+      : `${monthLabel(month)}の授業なし申請を解除します。解除すると、この月の完了通知の集計対象に戻ります。よろしいですか？`,
+    confirmLabel: checked ? '申請する' : '解除する'
+  });
+  if (!ok) {
+    renderNoLessonToggle();
+    return;
+  }
+  try {
+    await api(`/api/w/no-lesson-months/${month}`, {method: 'PUT', body: JSON.stringify({no_lesson: checked})});
+    if (checked) noLessonMonths.add(month); else noLessonMonths.delete(month);
+    showToast(checked
+      ? `${monthLabel(month)}を「授業なし」として申請しました`
+      : `${monthLabel(month)}の授業なし申請を解除しました`, 'success');
+  } catch (error) {
+    showToast(`授業なし申請を更新できませんでした：${formatApiError(error)}`, 'error');
+  }
+  renderNoLessonToggle();
+}
+noLessonToggle.addEventListener('change', () => toggleNoLessonMonth(noLessonToggle.checked));
+
 monthFilter.addEventListener('change', () => {
   selectedMonth = monthFilter.value;
   renderCurrentList();
   resetReportForm(true);
+  renderNoLessonToggle();
 });
 document.getElementById('dispatchPlaceSchool').addEventListener('change', event => {
   selectSchool(event.target.value);
@@ -2292,6 +2359,7 @@ window.authReady.then(async user => {
   await loadContracts();
   populateDispatchSchoolOptions();
   loadTutor();
+  loadNoLessonMonths();
 });
 </script>
 {% endblock %}

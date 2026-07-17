@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, reports, users, admin, pages, invitations, assignments, chat, contracts
+from app.api import auth, reports, users, admin, pages, invitations, assignments, chat, contracts, no_lesson_months
 from app.services.reminder_service import start_scheduler
 
 app = FastAPI(title="Work Report System", version="0.1.0")
@@ -19,6 +19,7 @@ app.include_router(invitations.router)
 app.include_router(assignments.router)
 app.include_router(chat.router)
 app.include_router(contracts.router)
+app.include_router(no_lesson_months.router)
 
 
 @app.on_event("startup")

@@ -328,6 +328,64 @@ class WorkNotification(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
 
+class WorkNoLessonMonth(Base):
+    """講師の「当月授業なし」申請（202607161140）。
+
+    長期休業などで授業を行わない月を講師本人が講師画面で申請する（講師×月で1行・全契約対象）。
+    申請中の講師は、学校の「契約講師全員の学校承認完了」通知（school_progress_service）の
+    集計対象外になる（報告書の有無・状態を問わない）。報告書の作成・提出自体は制限しない。
+    """
+    __tablename__ = "work_no_lesson_months"
+    __table_args__ = (UniqueConstraint("tutor_id", "target_month", name="uq_work_no_lesson_tutor_month"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    tutor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    target_month: Mapped[str] = mapped_column(String(7), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+    tutor = relationship("User", foreign_keys=[tutor_id])
+
+
+class WorkSchoolSetting(Base):
+    """学校ユーザー単位の締め日通知設定（202607161140）。ユーザ管理（学校の詳細）で設定する。
+
+    early_check_enabled=True の学校のみ、締め日の notice_days_before 日前〜締め日当日の窓で
+    1回だけ、営業（sales）全員へ【至急確認】の提出状況確認メールを送る（school_deadline_service）。
+    """
+    __tablename__ = "work_school_settings"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True, index=True)
+    # 早期チェック。ONの学校のみ締め日前の確認メールを送る
+    early_check_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # 締め日の何日前に確認メールを送るか（学校ごとにカスタマイズ可・既定3日前）
+    notice_days_before: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    school = relationship("User", foreign_keys=[school_id])
+
+
+class WorkSchoolDeadline(Base):
+    """学校×対象月ごとの締め日（202607161140）。年間分を月単位で設定できる。
+
+    notice_sent_at は締め日前確認メールの送信済みガード（月1回）。締め日を変更すると
+    None に戻り、新しい締め日の窓で再送対象になる。
+    """
+    __tablename__ = "work_school_deadlines"
+    __table_args__ = (UniqueConstraint("school_id", "target_month", name="uq_work_school_deadline_month"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    school_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    target_month: Mapped[str] = mapped_column(String(7), index=True)
+    deadline_date: Mapped[date] = mapped_column(Date, nullable=False)
+    notice_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
+
+    school = relationship("User", foreign_keys=[school_id])
+
+
 class WorkMailOutbox(Base):
     """送信待ちメールのキュー（アウトボックス）。
 

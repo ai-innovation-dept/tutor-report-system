@@ -498,6 +498,8 @@ async function updateUserRoles(id, options = {}) {
 async function openDetailDrawer(id) {
   selectedUser = users.find(item => item.id === id);
   if (!selectedUser) return;
+  schoolSettingsState = null;      // 別ユーザーの締め日設定・未保存編集を持ち越さない
+  schoolDeadlineEdits = {};
   detailOverlay.classList.remove('hidden');
   detailDrawer.classList.remove('hidden');
   requestAnimationFrame(() => detailDrawer.classList.remove('translate-x-full'));
@@ -541,6 +543,13 @@ async function renderDetailDrawer(id) {
       <p class="mt-2 text-xs text-slate-500">ONにすると、この学校宛の業務連絡表は学校確認を省略して直接事務確認へ進みます。</p>
     </section>` : '';
 
+  // 締め日・提出確認メール設定（202607161140）: 学校ユーザーのみ。内容は非同期で読み込んで描画する
+  const deadlineSection = isSchool(user) ? `
+    <section class="border-t border-slate-200 pt-5" id="schoolDeadlineSettings">
+      <h3 class="font-semibold text-slate-800">締め日・提出確認メール設定</h3>
+      <p class="mt-2 text-sm text-slate-500">読み込み中...</p>
+    </section>` : '';
+
   detailDrawer.innerHTML = `<div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
     <h2 class="font-semibold text-slate-800">ユーザー詳細</h2>
     <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeDetailDrawer()">閉じる</button>
@@ -562,6 +571,7 @@ async function renderDetailDrawer(id) {
       <button class="mt-3 rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="updateUserRoles('${user.id}', {keepDrawer: true})" ${!userHasRoleChanges(user) || updatingUsers.has(user.id) ? 'disabled' : ''}>${updatingUsers.has(user.id) ? '更新中...' : '保存'}</button>
     </section>
     ${skipSection}
+    ${deadlineSection}
     <section class="border-t border-slate-200 pt-5">
       <h3 class="font-semibold text-slate-800">状態管理</h3>
       <p class="mt-2 text-sm text-slate-700">現在の状態：${user.is_active ? '有効' : '無効'}</p>
@@ -573,6 +583,7 @@ async function renderDetailDrawer(id) {
       <button class="mt-3 rounded-lg bg-red-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40" onclick="openDeleteConfirm('${user.id}')" ${deleteBlocked ? `disabled title="${disableTitle}"` : ''}>このユーザーを削除する</button>
     </section>
   </div>`;
+  if (isSchool(user)) loadSchoolDeadlineSettings(user.id);
 }
 async function toggleSchoolSkip(id, value) {
   try {
@@ -583,6 +594,140 @@ async function toggleSchoolSkip(id, value) {
     if (selectedUser?.id === id) renderDetailDrawer(id);
   } catch (error) {
     showToast(error.message || '更新できませんでした', 'error');
+  }
+}
+
+// ===== 締め日・提出確認メール設定（202607161140） =====
+// 早期チェックONの学校のみ、各月の締め日のN日前〜締め日当日に1回だけ、営業担当全員へ
+// 【至急確認】の提出状況確認メールを自動送信する。締め日は年間分を月単位で設定できる。
+let schoolSettingsState = null;   // {userId, year, early_check_enabled, notice_days_before, deadlines: {月: {deadline_date, notice_sent_at}}}
+let schoolDeadlineEdits = {};     // 未保存の締め日編集（月 → 'YYYY-MM-DD' or null=削除）。年をまたいで保持し保存時にまとめて送る
+
+async function loadSchoolDeadlineSettings(userId, year = null) {
+  const container = document.getElementById('schoolDeadlineSettings');
+  if (!container) return;
+  const targetYear = year
+    || (schoolSettingsState && schoolSettingsState.userId === userId ? schoolSettingsState.year : new Date().getFullYear());
+  try {
+    const res = await api(`/api/w/users/${userId}/school-settings?year=${targetYear}`);
+    schoolSettingsState = {
+      userId,
+      year: res.year,
+      early_check_enabled: res.early_check_enabled,
+      notice_days_before: res.notice_days_before,
+      deadlines: Object.fromEntries((res.deadlines || []).map(item => [item.target_month, item]))
+    };
+    renderSchoolDeadlineSettings();
+  } catch (error) {
+    container.innerHTML = `<h3 class="font-semibold text-slate-800">締め日・提出確認メール設定</h3>
+      <p class="mt-2 text-sm text-rose-700">設定を読み込めませんでした：${escapeHtml(error.message || '通信エラー')}</p>`;
+  }
+}
+
+function schoolDeadlineValue(month) {
+  if (month in schoolDeadlineEdits) return schoolDeadlineEdits[month] || '';
+  return schoolSettingsState?.deadlines?.[month]?.deadline_date || '';
+}
+
+function schoolDeadlineCell(month, monthNum) {
+  const saved = schoolSettingsState?.deadlines?.[month];
+  const edited = month in schoolDeadlineEdits;
+  const sentBadge = saved?.notice_sent_at && !edited
+    ? '<span class="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700" title="この月の確認メールは送信済みです（締め日を変更すると再送対象に戻ります）">送信済</span>'
+    : (edited ? '<span class="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">未保存</span>' : '');
+  return `<div class="rounded-lg border ${edited ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200'} p-2">
+    <div class="flex min-h-[18px] items-center justify-between gap-1">
+      <span class="text-xs font-medium text-slate-600">${monthNum}月分</span>${sentBadge}
+    </div>
+    <input type="date" data-deadline-month="${month}" value="${schoolDeadlineValue(month)}"
+      onchange="onSchoolDeadlineChange('${month}', this.value)"
+      class="mt-1 w-full rounded border border-slate-300 px-1.5 py-1 text-xs focus:border-emerald-500 focus:outline-none">
+  </div>`;
+}
+
+function renderSchoolDeadlineSettings() {
+  const container = document.getElementById('schoolDeadlineSettings');
+  if (!container || !schoolSettingsState) return;
+  const state = schoolSettingsState;
+  const cells = [];
+  for (let m = 1; m <= 12; m++) {
+    cells.push(schoolDeadlineCell(`${state.year}-${String(m).padStart(2, '0')}`, m));
+  }
+  const editedCount = Object.keys(schoolDeadlineEdits).length;
+  container.innerHTML = `
+    <h3 class="font-semibold text-slate-800">締め日・提出確認メール設定</h3>
+    <p class="mt-1 text-xs leading-relaxed text-slate-500">早期チェックがONの学校は、各月の締め日の指定日数前〜締め日当日に1回、営業担当全員へ<span class="font-medium text-slate-700">【至急確認】</span>の提出状況確認メールを自動送信します。</p>
+    <label class="mt-3 flex items-center gap-2 text-sm text-slate-700">
+      <input type="checkbox" id="earlyCheckToggle" ${state.early_check_enabled ? 'checked' : ''} class="h-4 w-4 rounded border-slate-300">
+      <span>早期チェック（締め日前の確認メールを送る）</span>
+    </label>
+    <label class="mt-2 flex items-center gap-2 text-sm text-slate-700">
+      <span>送信タイミング：締め日の</span>
+      <input type="number" id="noticeDaysBefore" min="0" max="60" value="${state.notice_days_before}"
+        class="w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-right text-sm focus:border-emerald-500 focus:outline-none">
+      <span>日前</span>
+    </label>
+    <div class="mt-4 flex items-center justify-between">
+      <span class="text-sm font-medium text-slate-700">締め日（年間設定）</span>
+      <div class="flex items-center gap-1">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" onclick="changeSchoolSettingsYear(-1)" aria-label="前の年へ">◀</button>
+        <span class="min-w-[64px] text-center text-sm font-semibold text-slate-800">${state.year}年</span>
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-2 py-1 text-sm text-slate-700 hover:bg-slate-50" onclick="changeSchoolSettingsYear(1)" aria-label="次の年へ">▶</button>
+      </div>
+    </div>
+    <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">${cells.join('')}</div>
+    <p class="mt-2 text-xs leading-relaxed text-slate-500">各月分の締め日を設定します（翌月の日付も設定可）。空欄の月は送信対象外です。締め日を変更すると、その月の確認メールは再送対象に戻ります。</p>
+    <div class="mt-3 flex items-center gap-3">
+      <button type="button" class="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700" onclick="saveSchoolDeadlineSettings()">設定を保存</button>
+      ${editedCount ? `<span class="text-xs text-amber-700">未保存の締め日変更が${editedCount}件あります</span>` : ''}
+    </div>`;
+}
+
+function onSchoolDeadlineChange(month, value) {
+  const saved = schoolSettingsState?.deadlines?.[month]?.deadline_date || '';
+  if ((value || '') === saved) {
+    delete schoolDeadlineEdits[month];  // 保存済みの値に戻した＝編集取り消し
+  } else {
+    schoolDeadlineEdits[month] = value || null;  // 空欄＝その月の締め日を削除
+  }
+  renderSchoolDeadlineSettings();
+}
+
+function changeSchoolSettingsYear(delta) {
+  if (!schoolSettingsState) return;
+  // トグル・日数の編集は保持したまま年を切り替える（締め日の未保存編集も schoolDeadlineEdits に保持される）
+  schoolSettingsState.early_check_enabled = document.getElementById('earlyCheckToggle')?.checked ?? schoolSettingsState.early_check_enabled;
+  schoolSettingsState.notice_days_before = parseInt(document.getElementById('noticeDaysBefore')?.value, 10) || 0;
+  loadSchoolDeadlineSettings(schoolSettingsState.userId, schoolSettingsState.year + delta);
+}
+
+async function saveSchoolDeadlineSettings() {
+  if (!schoolSettingsState) return;
+  const days = parseInt(document.getElementById('noticeDaysBefore')?.value, 10);
+  if (Number.isNaN(days) || days < 0 || days > 60) {
+    showToast('送信タイミング（日前）は0〜60の範囲で入力してください', 'error');
+    return;
+  }
+  const payload = {
+    early_check_enabled: document.getElementById('earlyCheckToggle')?.checked || false,
+    notice_days_before: days,
+    year: schoolSettingsState.year,
+    deadlines: schoolDeadlineEdits
+  };
+  try {
+    const res = await api(`/api/w/users/${schoolSettingsState.userId}/school-settings`, {method: 'PUT', body: JSON.stringify(payload)});
+    schoolDeadlineEdits = {};
+    schoolSettingsState = {
+      userId: schoolSettingsState.userId,
+      year: res.year,
+      early_check_enabled: res.early_check_enabled,
+      notice_days_before: res.notice_days_before,
+      deadlines: Object.fromEntries((res.deadlines || []).map(item => [item.target_month, item]))
+    };
+    renderSchoolDeadlineSettings();
+    showToast('締め日・提出確認メール設定を保存しました', 'success');
+  } catch (error) {
+    showToast(error.message || '設定を保存できませんでした', 'error');
   }
 }
 async function disableUser(id) {

@@ -5,8 +5,11 @@ from .work import (
     WorkReportEvent,
     WorkChatMessage,
     WorkChatRead,
+    WorkNoLessonMonth,
     WorkNotification,
     WorkMailOutbox,
+    WorkSchoolDeadline,
+    WorkSchoolSetting,
 )
 
 __all__ = [
@@ -19,6 +22,9 @@ __all__ = [
     "WorkReportEvent",
     "WorkChatMessage",
     "WorkChatRead",
+    "WorkNoLessonMonth",
     "WorkNotification",
     "WorkMailOutbox",
+    "WorkSchoolDeadline",
+    "WorkSchoolSetting",
 ]

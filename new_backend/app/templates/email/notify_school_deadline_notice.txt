@@ -1,0 +1,7 @@
+営業担当者 様
+
+{school_label} の {target_month} 分の締め日は {deadline_label} です。
+提出状況を確認してください。
+{progress_block}
+以下のURLから状況をご確認ください。
+{base_url}/sales/queue

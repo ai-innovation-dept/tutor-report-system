@@ -1,10 +1,10 @@
-営業担当者 様
+{recipient_label} 様
 
 {school_label} の {target_month} 分について、
 契約講師全員（{tutor_count}名）の学校承認が完了しました。
 
 【契約講師】
-{tutor_lines}
+{tutor_lines}{no_lesson_block}
 
 以下のURLから状況をご確認ください。
-{base_url}/sales/queue
+{base_url}{queue_path}
