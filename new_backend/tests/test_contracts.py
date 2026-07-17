@@ -1516,3 +1516,53 @@ class TestContractNo:
         profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
             WorkAssignmentProfile.tutor_id == tutor.id))
         assert profile.contract_no == 1
+
+
+class TestContractCopy:
+    """契約のコピー新規登録（改修依頼 202607171557）。
+
+    UI はコピー元の全項目＋新しい講師×学校で作成APIを呼ぶ（コピーはクライアント側でプレフィル）。
+    バックエンドは既存の作成APIがそのまま担う＝契約番号は自動発番・同一講師×学校は409。
+    ここではその「コピー相当のペイロード」が作成APIで正しく通ることを検証する。
+    """
+
+    def _second_pair(self, db):
+        return (_add_user(db, "tutor-cp@x.example.com", "tutor"),
+                _add_user(db, "school-cp@x.example.com", "school"))
+
+    def test_copy_from_existing_creates_new_with_all_fields(self, client, db, setup):
+        headers = _auth(client, "master@x.example.com")
+        source = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, work_location="〇〇高校 北校舎", classroom_name="1年A組",
+                          scoring_enabled=True, scoring_label="教科会", scoring_unit="回",
+                          sub_tasks=[{"task_name": "教材作成", "task_id": "s1", "contract_id": "c1"}]),
+            headers=headers,
+        ).json()
+        tutor2, school2 = self._second_pair(db)
+        # UI のコピー相当: コピー元の出力をそのまま流用し、講師・学校のみ差し替えて作成する
+        copy_payload = {**source, "tutor_id": str(tutor2.id), "school_id": str(school2.id)}
+        res = client.post("/api/w/contracts", json=copy_payload, headers=headers)
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert body["tutor_id"] == str(tutor2.id)
+        assert body["school_id"] == str(school2.id)
+        # 全項目が引き継がれる
+        assert body["work_location"] == "〇〇高校 北校舎"
+        assert body["classroom_name"] == "1年A組"
+        assert body["scoring_enabled"] is True
+        assert body["scoring_label"] == "教科会"
+        assert [t["task_id"] for t in body["tasks"]] == ["11111", "22222"]
+        assert body["sub_tasks"][0]["task_name"] == "教材作成"
+        # 契約番号は新しく自動発番（コピー元の次番号）
+        assert body["contract_no"] == source["contract_no"] + 1
+        # コピー元は別レコードとして残る（合計2件）
+        assert db.query(WorkAssignmentProfile).count() == 2
+
+    def test_copy_to_same_pair_rejected(self, client, db, setup):
+        headers = _auth(client, "master@x.example.com")
+        source = client.post("/api/w/contracts", json=_payload(setup), headers=headers).json()
+        # 同一講師×学校へのコピーは409（重複契約は作れない）
+        copy_payload = {**source, "tutor_id": str(setup["tutor"].id), "school_id": str(setup["school"].id)}
+        res = client.post("/api/w/contracts", json=copy_payload, headers=headers)
+        assert res.status_code == 409

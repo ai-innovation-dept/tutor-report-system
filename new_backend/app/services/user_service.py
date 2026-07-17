@@ -145,6 +145,37 @@ def create_initial_user(db: Session, role: str, email: str, display_name: str) -
     return user
 
 
+def copy_user(db: Session, source: User, email: str, display_name: str) -> User:
+    """既存ユーザーを複製して新規作成する（改修依頼 202607171557）。
+
+    氏名・メールは新規に指定し、ロール（複数ロール含む）・利用システム・学校の承認スキップ設定を
+    コピー元から複製する。招待メールは送らず直接作成し、初期パスワード(Passw0rd!)＋初回ログイン時の
+    変更必須を設定する。番号はコピー元の主ロールの番号帯で自動採番する（`create_initial_user` と同規約）。
+    電話番号などの個人情報は複製しない。呼び出し側で氏名・メール重複・ロール権限を検証済みであること。
+    """
+    from app.core.security import hash_password
+
+    role = source.role
+    user_no = generate_user_no(db, role)
+    user = User(
+        email=email.strip().lower(),
+        role=role,
+        roles=list(source.roles) if source.roles else [role],
+        display_name=display_name.strip(),
+        user_no=user_no,
+        tutor_no=user_no if role == "tutor" else None,  # legacy 互換
+        allowed_systems=(
+            list(source.allowed_systems) if source.allowed_systems else allowed_systems_for_role(role)
+        ),
+        skip_parent_approval=source.skip_parent_approval,
+        password_hash=hash_password(INITIAL_PASSWORD),
+        is_active=True,
+        must_change_password=True,
+    )
+    db.add(user)
+    return user
+
+
 def revive_user(db: Session, user: User, role: str, email: str, display_name: str) -> User:
     """ソフトデリート済みユーザーを同一アカウントのまま復活させる（CSV新規作成行でメール再利用時）。
 

@@ -13,9 +13,9 @@ from app.core.security import hash_password
 from app.dependencies.auth import get_current_user, has_role, require_role
 from app.models.shared import User
 from app.schemas.school_settings import SchoolSettingsIn, SchoolSettingsOut
-from app.schemas.users import UserListOut, UserOut, UserPatch, UserRolesPatch
+from app.schemas.users import UserCopyIn, UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import school_deadline_import_service, school_deadline_service, user_import_service
-from app.services.user_service import create_initial_user, revive_user
+from app.services.user_service import copy_user, create_initial_user, revive_user
 
 router = APIRouter(prefix="/api/w/users", tags=["work-users"])
 
@@ -400,6 +400,44 @@ def import_school_deadlines(
     saved = school_deadline_import_service.apply_plans(db, plans)
     db.commit()
     return {"schools": len(plans), "deadlines": saved}
+
+
+@router.post("/copy", response_model=UserOut, status_code=201)
+def copy_user_endpoint(
+    payload: UserCopyIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """既存ユーザーをコピーして新規作成する（改修依頼 202607171557）。
+
+    氏名・メールは新規入力で、どちらも重複はエラー（氏名＝未削除ユーザー内・メール＝一意制約）。
+    ロール（複数ロール含む）・利用システム・学校スキップ設定はコピー元から複製する。
+    招待メールは送らず直接作成する（初期パスワード Passw0rd!・初回ログイン時に変更必須）。
+    """
+    source = db.get(User, payload.source_user_id)
+    if not source or source.deleted_at or "new" not in (source.allowed_systems or []):
+        raise HTTPException(status_code=404, detail="コピー元のユーザーが見つかりません")
+    # 管理責任者の複製は管理責任者のみ（招待・無効化と同じ職務分掌）
+    if "admin_chief" in _user_roles(source) and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者のコピーは管理責任者のみ可能です")
+
+    display_name = (payload.display_name or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="氏名を入力してください")
+    email = str(payload.email).strip().lower()
+
+    # 氏名の重複（未削除ユーザー内）を禁止。メールは一意制約のため削除済みも含めて重複を弾く。
+    if db.scalar(
+        select(User).where(func.lower(User.display_name) == display_name.lower(), User.deleted_at.is_(None))
+    ):
+        raise HTTPException(status_code=409, detail="この氏名は既に登録されています")
+    if db.scalar(select(User).where(func.lower(User.email) == email)):
+        raise HTTPException(status_code=409, detail="このメールアドレスは既に使われています")
+
+    user = copy_user(db, source, email=email, display_name=display_name)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 @router.patch("/{user_id}", response_model=UserOut)

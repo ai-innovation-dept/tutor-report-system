@@ -31,6 +31,17 @@ class UserRolesPatch(BaseModel):
     roles: list[str]
 
 
+class UserCopyIn(BaseModel):
+    """既存ユーザーをコピーして新規作成する入力（改修依頼 202607171557）。
+
+    氏名・メールのみ新規指定（両方とも重複はエラー）。ロール・利用システム・学校スキップ設定は
+    コピー元から複製する。招待メールは送らず直接作成（初期パスワード Passw0rd!・初回変更必須）。
+    """
+    source_user_id: uuid.UUID
+    display_name: str
+    email: EmailStr
+
+
 class UserListOut(BaseModel):
     items: list[UserOut]
     total: int
