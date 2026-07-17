@@ -3,6 +3,7 @@
 契約は (講師, 学校) ごとに1件で、work_assignment_profiles に格納する。
 作成時に (講師, 学校) の assignment を取得/自動作成して紐付ける。
 """
+import copy
 import re
 import uuid
 from datetime import datetime
@@ -21,6 +22,7 @@ from app.models.work import WorkAssignmentProfile
 from app.schemas.contracts import (
     MAX_MAIN_TASKS,
     MAX_SUB_TASKS,
+    ContractCopyIn,
     ContractCreate,
     ContractForTutorOut,
     ContractOut,
@@ -218,6 +220,56 @@ def create_contract(
         is_active=True,
     )
     _apply_payload(profile, payload)
+    db.add(profile)
+    db.commit()
+    return _to_out(_get_profile_loaded(db, profile.id))
+
+
+@router.post("/{contract_id}/copy", response_model=ContractOut, status_code=201)
+def copy_contract(
+    contract_id: uuid.UUID,
+    payload: ContractCopyIn,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """既存契約をコピーして新規作成する（202607171705）。
+
+    入力は講師・学校のみ。契約内容（就業場所・担当業務・期別設定・コマ設定・
+    副業務・任意項目列・表示項目・契約期間 等）はコピー元をそのまま複製する。
+    契約番号は作成順で自動発番・同一講師×学校は409。メール送信なし。
+    """
+    source = _get_profile_loaded(db, contract_id)
+    tutor, school = _resolve_pair(db, payload.tutor_id, payload.school_id)
+
+    duplicate = db.scalar(
+        select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id,
+            WorkAssignmentProfile.school_id == school.id,
+        )
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="この講師と学校の契約は既に存在します")
+
+    assignment = get_or_create_new_assignment(db, tutor, school)
+    profile = WorkAssignmentProfile(
+        assignment_id=assignment.id,
+        contract_no=issue_contract_no(db),
+        tutor_id=tutor.id,
+        school_id=school.id,
+        form_type=source.form_type,
+        contract_meta={},
+        is_active=True,
+    )
+    for field in _DETAIL_FIELDS:
+        setattr(profile, field, getattr(source, field))
+    # JSON列（期別設定・コマ設定）はネストを含めて複製する（コピー元と共有しない）
+    profile.workload_cases = copy.deepcopy(source.workload_cases or [])
+    profile.period_slots = copy.deepcopy(source.period_slots or [])
+    for prefix, max_count in (("", MAX_MAIN_TASKS), ("sub_", MAX_SUB_TASKS)):
+        for index in range(1, max_count + 1):
+            for column in ("task_name", "task_id", "contract_id"):
+                attr = f"{prefix}{column}_{index}"
+                setattr(profile, attr, getattr(source, attr))
     db.add(profile)
     db.commit()
     return _to_out(_get_profile_loaded(db, profile.id))

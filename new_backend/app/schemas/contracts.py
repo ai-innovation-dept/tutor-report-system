@@ -250,6 +250,12 @@ class ContractUpdate(ContractBase):
     school_id: uuid.UUID | None = None
 
 
+class ContractCopyIn(BaseModel):
+    """契約のコピー新規登録（202607171705）: 講師・学校のみ指定し、契約内容はコピー元から複製する。"""
+    tutor_id: uuid.UUID
+    school_id: uuid.UUID
+
+
 class ContractForTutorOut(BaseModel):
     """講師の報告書フォームへ自動反映するための契約情報＋動的列定義。"""
     school_id: uuid.UUID

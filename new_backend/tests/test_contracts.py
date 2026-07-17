@@ -1519,50 +1519,75 @@ class TestContractNo:
 
 
 class TestContractCopy:
-    """契約のコピー新規登録（改修依頼 202607171557）。
+    """契約のコピー新規登録（202607171557・202607171705でサーバ側コピーAPIへ変更）。
 
-    UI はコピー元の全項目＋新しい講師×学校で作成APIを呼ぶ（コピーはクライアント側でプレフィル）。
-    バックエンドは既存の作成APIがそのまま担う＝契約番号は自動発番・同一講師×学校は409。
-    ここではその「コピー相当のペイロード」が作成APIで正しく通ることを検証する。
+    POST /api/w/contracts/{id}/copy は講師・学校のみ受け取り、契約内容（就業場所・
+    担当業務・期別設定・コマ設定・副業務・任意項目列・表示項目 等）はコピー元から
+    サーバ側で複製する。契約番号は自動発番・同一講師×学校は409・メール送信なし。
     """
 
     def _second_pair(self, db):
         return (_add_user(db, "tutor-cp@x.example.com", "tutor"),
                 _add_user(db, "school-cp@x.example.com", "school"))
 
-    def test_copy_from_existing_creates_new_with_all_fields(self, client, db, setup):
+    def _copy(self, client, headers, source_id, tutor, school):
+        return client.post(
+            f"/api/w/contracts/{source_id}/copy",
+            json={"tutor_id": str(tutor.id), "school_id": str(school.id)},
+            headers=headers,
+        )
+
+    def test_copy_endpoint_creates_new_with_all_fields(self, client, db, setup):
         headers = _auth(client, "master@x.example.com")
         source = client.post(
             "/api/w/contracts",
             json=_payload(setup, work_location="〇〇高校 北校舎", classroom_name="1年A組",
                           scoring_enabled=True, scoring_label="教科会", scoring_unit="回",
+                          show_commuter_pass=False, use_period_slots=False,
                           sub_tasks=[{"task_name": "教材作成", "task_id": "s1", "contract_id": "c1"}]),
             headers=headers,
         ).json()
         tutor2, school2 = self._second_pair(db)
-        # UI のコピー相当: コピー元の出力をそのまま流用し、講師・学校のみ差し替えて作成する
-        copy_payload = {**source, "tutor_id": str(tutor2.id), "school_id": str(school2.id)}
-        res = client.post("/api/w/contracts", json=copy_payload, headers=headers)
+        res = self._copy(client, headers, source["id"], tutor2, school2)
         assert res.status_code == 201, res.text
         body = res.json()
         assert body["tutor_id"] == str(tutor2.id)
         assert body["school_id"] == str(school2.id)
-        # 全項目が引き継がれる
+        # 契約内容はコピー元から全項目引き継がれる
         assert body["work_location"] == "〇〇高校 北校舎"
         assert body["classroom_name"] == "1年A組"
         assert body["scoring_enabled"] is True
         assert body["scoring_label"] == "教科会"
+        assert body["show_commuter_pass"] is False
+        assert body["use_period_slots"] is False
         assert [t["task_id"] for t in body["tasks"]] == ["11111", "22222"]
         assert body["sub_tasks"][0]["task_name"] == "教材作成"
+        assert body["workload_cases"] == source["workload_cases"]
         # 契約番号は新しく自動発番（コピー元の次番号）
         assert body["contract_no"] == source["contract_no"] + 1
         # コピー元は別レコードとして残る（合計2件）
         assert db.query(WorkAssignmentProfile).count() == 2
+        # コピーでメールは送らない＝送信キューは空（実メールは飛ばない）
+        from app.models.work import WorkMailOutbox
+        assert db.query(WorkMailOutbox).count() == 0
 
     def test_copy_to_same_pair_rejected(self, client, db, setup):
         headers = _auth(client, "master@x.example.com")
         source = client.post("/api/w/contracts", json=_payload(setup), headers=headers).json()
         # 同一講師×学校へのコピーは409（重複契約は作れない）
-        copy_payload = {**source, "tutor_id": str(setup["tutor"].id), "school_id": str(setup["school"].id)}
-        res = client.post("/api/w/contracts", json=copy_payload, headers=headers)
+        res = self._copy(client, headers, source["id"], setup["tutor"], setup["school"])
         assert res.status_code == 409
+
+    def test_copy_requires_tutor_and_school_roles(self, client, db, setup):
+        headers = _auth(client, "master@x.example.com")
+        source = client.post("/api/w/contracts", json=_payload(setup), headers=headers).json()
+        tutor2, _ = self._second_pair(db)
+        # 学校に講師以外（学校でないユーザー）を指定すると422
+        res = self._copy(client, headers, source["id"], tutor2, setup["master"])
+        assert res.status_code == 422
+
+    def test_copy_source_not_found(self, client, db, setup):
+        headers = _auth(client, "master@x.example.com")
+        tutor2, school2 = self._second_pair(db)
+        res = self._copy(client, headers, "00000000-0000-0000-0000-000000000000", tutor2, school2)
+        assert res.status_code == 404

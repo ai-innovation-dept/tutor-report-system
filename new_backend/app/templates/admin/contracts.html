@@ -171,6 +171,34 @@
   </div>
 </div>
 
+<!-- 契約をコピーして新規登録（202607171705）: 講師・学校のみ選ぶ軽量ダイアログ。契約内容はサーバ側でコピー元から複製する -->
+<div id="copyOverlay" class="fixed inset-0 z-[1200] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeCopyDialog()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">契約をコピーして新規登録</h2>
+      <p id="copySourceInfo" class="mt-1 text-sm text-slate-500"></p>
+    </div>
+    <form id="copyForm" class="p-5">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">講師 <span class="text-red-600">*</span></span>
+          <select id="copyTutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required></select>
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">学校 <span class="text-red-600">*</span></span>
+          <select id="copySchoolSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required></select>
+        </label>
+      </div>
+      <p class="mt-3 text-xs leading-relaxed text-slate-500">契約内容（就業場所・担当業務・コマ設定・副業務・任意項目列・表示項目・契約期間など）はコピー元から引き継ぎ、契約管理番号は新しく自動発番されます。内容を調整したい場合は登録後に「編集」から変更できます。</p>
+      <p id="copyError" class="mt-3 hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"></p>
+      <div class="mt-5 flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeCopyDialog()">キャンセル</button>
+        <button type="submit" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-700">コピーして登録</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="deleteOverlay" class="fixed inset-0 z-[1200] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeDeleteModal()">
   <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
     <div class="border-b border-slate-200 px-5 py-4">
@@ -208,10 +236,9 @@ let contracts = [];
 let tutors = [];
 let schools = [];
 let editingId = null;
-// コピーして新規登録（202607171557）: コピー中は作成モード（POST）でコピー元の内容をプレフィルする。
-// copySource はコマ設定（未使用契約の period_slots 保持）とコピー元表示に使う。
-let copyMode = false;
-let copySource = null;
+// コピーして新規登録（202607171705）: 講師・学校のみ選ぶ軽量ダイアログで
+// POST /api/w/contracts/{id}/copy を呼ぶ（契約内容の複製はサーバ側）。
+let copySourceId = null;
 let visibleSubTaskCount = 1;
 let visiblePeriodCounts = {1: 1, 2: 1};  // 期(task_index)ごとのコマ設定の表示行数
 let deleteTarget = null;
@@ -241,7 +268,7 @@ function renderRows() {
       <td class="px-4 py-3" data-label="操作">
         <div class="flex flex-wrap gap-2">
           <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openForm('${contract.id}')">編集</button>
-          <button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="openCopyForm('${contract.id}')">コピー</button>
+          <button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="openCopyDialog('${contract.id}')">コピー</button>
           ${contract.is_active ? `<button class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100" onclick="disableContract('${contract.id}')">無効化</button>` : ''}
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
@@ -407,7 +434,6 @@ function subTaskSection(subTasks) {
   </div>`;
 }
 function renderForm(contract) {
-  // 編集/新規の判定は editingId で行う（コピーは editingId=null＝新規扱いだが contract はプレフィル用に渡す）。
   const isEdit = Boolean(editingId);
   const tasks = contract?.tasks || [];
   const subTasks = contract?.sub_tasks || [];
@@ -428,10 +454,6 @@ function renderForm(contract) {
       <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeForm()">閉じる</button>
     </div>
     <form id="contractForm" class="space-y-5 p-5">
-      ${copyMode ? `<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-        <p class="font-medium">コピー元：${escapeHtml(copySource?.tutor_name || '-')} × ${escapeHtml(copySource?.school_name || '-')}（契約No.${escapeHtml(contractNoLabel(copySource?.contract_no))}）</p>
-        <p class="mt-1 text-xs text-emerald-700">契約内容を引き継ぎました。<strong>講師・学校を選び直して</strong>登録してください（契約番号は新しく自動発番されます）。</p>
-      </div>` : ''}
       ${formSection('基本情報', `
       <div class="mb-3 flex items-center gap-2 text-sm">
         <span class="text-slate-600">契約管理番号</span>
@@ -442,11 +464,11 @@ function renderForm(contract) {
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">講師 <span class="text-red-600">*</span></span>
-          <select id="tutorSelect" class="${FORM_INPUT_CLS}" required>${copyMode ? '<option value="" selected>選択してください</option>' : ''}${userOptions(tutors, contract?.tutor_id)}</select>
+          <select id="tutorSelect" class="${FORM_INPUT_CLS}" required>${userOptions(tutors, contract?.tutor_id)}</select>
         </label>
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">学校 <span class="text-red-600">*</span></span>
-          <select id="schoolSelect" class="${FORM_INPUT_CLS}" required>${copyMode ? '<option value="" selected>選択してください</option>' : ''}${userOptions(schools, contract?.school_id)}</select>
+          <select id="schoolSelect" class="${FORM_INPUT_CLS}" required>${userOptions(schools, contract?.school_id)}</select>
         </label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="${FORM_INPUT_CLS}"></label>
         <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="${FORM_INPUT_CLS}"></label>
@@ -588,7 +610,7 @@ function collectSubTasks() {
 }
 // 未使用（グレイアウト）時に保持する、編集中契約の保存済みコマ設定（期別）。新規契約は空。
 function savedSlotsForTerm(term) {
-  const saved = editingId ? contracts.find(c => c.id === editingId) : copySource;  // コピー時は未使用コマ設定をコピー元から引き継ぐ
+  const saved = editingId ? contracts.find(c => c.id === editingId) : null;
   const workloadCase = caseForTerm(saved?.workload_cases, term);
   return (workloadCase?.slots || []).map(slot => ({start: slot.start, end: slot.end}));
 }
@@ -658,7 +680,7 @@ function buildPayload() {
   const usePeriods = document.getElementById('usePeriodSlots').checked;
   const terms = collectTerms(usePeriods);
   if (terms.error) return {error: terms.error};
-  const saved = editingId ? contracts.find(c => c.id === editingId) : copySource;  // コピー時は未使用コマ設定をコピー元から引き継ぐ
+  const saved = editingId ? contracts.find(c => c.id === editingId) : null;
   return {
     use_period_slots: usePeriods,
     // 旧形式（契約単位のコマ設定）: 使用時はクリアして期別（workload_cases[].slots）へ一本化する。
@@ -718,27 +740,63 @@ async function saveContract(event) {
 }
 function openForm(id) {
   editingId = id || null;
-  copyMode = false;
-  copySource = null;
   const contract = id ? contracts.find(c => c.id === id) : null;
   renderForm(contract);
   formOverlay.classList.remove('hidden');
   formDrawer.classList.remove('hidden');
   requestAnimationFrame(() => formDrawer.classList.remove('translate-x-full'));
 }
-// コピーして新規登録（202607171557）: コピー元の契約内容をプレフィルした作成フォームを開く。
-// 講師・学校・契約番号・IDは引き継がず選び直す（同一講師×学校はサーバ側で409）。
-function openCopyForm(id) {
+// コピーして新規登録（202607171705）: 講師・学校のみ選ぶ軽量ダイアログを開く。
+// 契約内容はサーバ側（POST /api/w/contracts/{id}/copy）でコピー元から複製する。
+function openCopyDialog(id) {
   const src = contracts.find(c => c.id === id);
   if (!src) return;
-  editingId = null;
-  copyMode = true;
-  copySource = src;
-  renderForm({...src, id: undefined, contract_no: null, tutor_id: null, school_id: null, is_active: true});
-  formOverlay.classList.remove('hidden');
-  formDrawer.classList.remove('hidden');
-  requestAnimationFrame(() => formDrawer.classList.remove('translate-x-full'));
+  copySourceId = id;
+  document.getElementById('copySourceInfo').textContent =
+    `コピー元：${src.tutor_name || '-'} × ${src.school_name || '-'}（契約No.${contractNoLabel(src.contract_no)}）`;
+  document.getElementById('copyTutorSelect').innerHTML = userOptions(tutors, null);
+  document.getElementById('copySchoolSelect').innerHTML = userOptions(schools, null);
+  const err = document.getElementById('copyError');
+  err.textContent = '';
+  err.classList.add('hidden');
+  const overlay = document.getElementById('copyOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.getElementById('copyTutorSelect').focus();
 }
+function closeCopyDialog() {
+  const overlay = document.getElementById('copyOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  copySourceId = null;
+}
+document.getElementById('copyForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const err = document.getElementById('copyError');
+  err.classList.add('hidden');
+  const tutorId = document.getElementById('copyTutorSelect').value;
+  const schoolId = document.getElementById('copySchoolSelect').value;
+  if (!tutorId || !schoolId) {
+    err.textContent = '講師と学校を選択してください';
+    err.classList.remove('hidden');
+    return;
+  }
+  try {
+    await api(`/api/w/contracts/${copySourceId}/copy`, {
+      method: 'POST',
+      body: JSON.stringify({tutor_id: tutorId, school_id: schoolId}),
+      suppressFlash: true,
+    });
+    showToast('契約をコピーして登録しました', 'success');
+    closeCopyDialog();
+    await load();
+  } catch (error) {
+    let msg = error.message;
+    try { const d = JSON.parse(msg).detail; msg = Array.isArray(d) ? d.map(e => e.msg || e).join(' / ') : (d || msg); } catch (_) {}
+    err.textContent = msg || 'コピーできませんでした';
+    err.classList.remove('hidden');
+  }
+});
 function closeForm() {
   formDrawer.classList.add('translate-x-full');
   setTimeout(() => {
@@ -746,8 +804,6 @@ function closeForm() {
     formDrawer.classList.add('hidden');
     formDrawer.innerHTML = '';
     editingId = null;
-    copyMode = false;
-    copySource = null;
   }, 200);
 }
 async function disableContract(id) {
