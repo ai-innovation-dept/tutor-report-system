@@ -161,6 +161,9 @@ class ContractBase(BaseModel):
     show_commuter_pass: bool = True
     show_break_minutes: bool = True
     show_schedule_note: bool = True
+    # コマ設定の使用/未使用（202607170831）。False=未使用: コマ設定は保持したまま編集不可となり、
+    # 講師フォームは担当時限列なしの手入力方式（開始・各分を手入力→終了のみ自動計算）になる。
+    use_period_slots: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -188,9 +191,10 @@ class ContractBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_period_slots_with_flags(self) -> "ContractBase":
-        # 休憩時間（分）列が非表示だと「隙間→休憩」の自動計算が成立しないため併用不可
+        # 休憩時間（分）列が非表示だと「隙間→休憩」の自動計算が成立しないため併用不可。
+        # コマ設定を未使用にしている契約は自動計算が働かないため対象外（保持中のコマ設定は不問）。
         has_slots = bool(self.period_slots) or any(case.slots for case in self.workload_cases)
-        if has_slots and self.show_break_minutes is False:
+        if self.use_period_slots and has_slots and self.show_break_minutes is False:
             raise ValueError("休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）")
         return self
 
@@ -249,6 +253,7 @@ class ContractForTutorOut(BaseModel):
     show_commuter_pass: bool = True
     show_break_minutes: bool = True
     show_schedule_note: bool = True
+    use_period_slots: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None
@@ -279,6 +284,7 @@ class ContractOut(BaseModel):
     show_commuter_pass: bool = True
     show_break_minutes: bool = True
     show_schedule_note: bool = True
+    use_period_slots: bool = True
     contract_start: date | None = None
     contract_end: date | None = None
     monthly_minutes: int | None = None

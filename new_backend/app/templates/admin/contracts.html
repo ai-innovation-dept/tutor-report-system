@@ -162,7 +162,7 @@
         </figure>
       </section>
 
-      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。報告書の表示項目（表示／非表示）や前期・後期のコマ設定（担当時限の時間割）など一部の設定はCSVでは変更できません（各契約の編集画面で設定します。取込時も既存の設定を保持します）。</p>
+      <p class="text-xs leading-relaxed text-slate-500">※ 文字コードは UTF-8／Shift-JIS に対応しています。報告書の表示項目（表示／非表示）や前期・後期のコマ設定（担当時限の時間割）・コマ設定の使用/未使用など一部の設定はCSVでは変更できません（各契約の編集画面で設定します。取込時も既存の設定を保持します）。</p>
     </div>
     <div class="flex justify-end border-t border-slate-200 px-5 py-3">
       <button type="button" class="rounded-lg bg-slate-200 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="closeCsvHelp()">OK</button>
@@ -249,11 +249,21 @@ function caseForTerm(workloadCases, index) {
   return cases.find(c => Number(c.task_index) === index)
     || (index === 1 ? cases.find(c => c.task_index == null) : null);
 }
-const FORM_INPUT_CLS = 'w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+const FORM_INPUT_CLS = 'w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400';
+// フォームの見出しつきセクション（レイアウト共通枠・202607170831でフォーム全体を再構成）
+function formSection(title, bodyHtml, description = '') {
+  return `<section class="rounded-lg border border-slate-200 p-4">
+    <div class="mb-3 border-b border-slate-100 pb-2">
+      <h3 class="text-sm font-semibold text-slate-800">${escapeHtml(title)}</h3>
+      ${description ? `<p class="mt-0.5 text-xs leading-relaxed text-slate-500">${escapeHtml(description)}</p>` : ''}
+    </div>
+    ${bodyHtml}
+  </section>`;
+}
 // 期別コマ設定の1行（コマ番号＋開始〜終了の時刻入力）。必要な行だけ表示して追加していく。
 function periodSlotRow(term, index, slot) {
   const hidden = index > visiblePeriodCounts[term];
-  const cls = 'w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20';
+  const cls = 'w-32 rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400';
   return `<div class="period-slot-row flex items-center gap-2 ${hidden ? 'hidden' : ''}" data-period-term="${term}" data-period-index="${index}">
     <span class="w-8 shrink-0 text-center text-base font-medium text-slate-700">${PERIOD_CIRCLED[index - 1]}</span>
     <input data-period="start" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.start || '')}" class="${cls}">
@@ -261,13 +271,14 @@ function periodSlotRow(term, index, slot) {
     <input data-period="end" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.end || '')}" class="${cls}">
   </div>`;
 }
-// 期別コマ設定のブロック（担当業務ブロック内に配置）
+// 期別コマ設定のブロック（担当業務ブロック内に配置）。
+// 「コマ設定を使用する」チェック（usePeriodSlots）がOFFの契約はグレイアウトして編集不可（値は保持）。
 function termPeriodSection(termDef, slots) {
   const term = termDef.index;
-  return `<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+  return `<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50/60 p-3" data-period-region="${term}">
     <div class="mb-2 flex items-center justify-between">
       <span class="text-sm font-medium text-slate-700">コマ設定（${termDef.label}の担当時限の時間割）</span>
-      <button type="button" data-period-add="${term}" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ コマを追加</button>
+      <button type="button" data-period-add="${term}" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">＋ コマを追加</button>
     </div>
     <div class="space-y-2">
       ${Array.from({length: MAX_PERIOD_SLOTS}, (_, i) => periodSlotRow(term, i + 1, slots[i])).join('')}
@@ -275,11 +286,44 @@ function termPeriodSection(termDef, slots) {
     <p class="mt-2 text-xs text-slate-500">講師が${termDef.label}の適用期間内に報告書を入力するとき、担当時限に各コマの時間帯が表示され、業務開始時刻・担当業務（分）・休憩時間（分）を時間割から自動計算します（スケジュール欄にも「【${termDef.label}】① 8:30〜9:20、…」を自動反映）。番号は①から詰めて入力してください（入力順は時間順でなくても構いません。例: ⑤に①より早い朝の時間帯を追加可。<strong>保存時に開始時刻順へ自動で並べ替え、①が最も早い時間帯になります</strong>。コマ同士の時間帯の重なりは不可）。未設定の期は従来どおり 開始8:40固定・1コマ50分です。</p>
   </div>`;
 }
+// コマ設定の使用/未使用（202607170831）。OFF＝前期・後期のコマ設定をグレイアウトし（値は保持）、
+// この契約の講師フォームを担当時限なしの手入力方式へ切り替える。
+function periodSlotsUseSection(useSlots) {
+  return `<section class="rounded-lg border p-4 ${useSlots ? 'border-emerald-200 bg-emerald-50/40' : 'border-slate-200 bg-slate-50/60'}" id="periodSlotsUseCard">
+    <label class="flex cursor-pointer items-start gap-3">
+      <input id="usePeriodSlots" type="checkbox" ${useSlots ? 'checked' : ''} class="mt-0.5 h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">
+      <span>
+        <span class="block text-sm font-semibold text-slate-800">コマ設定を使用する</span>
+        <span class="mt-0.5 block text-xs leading-relaxed text-slate-500">ON（既定）: 担当業務（前期・後期）内のコマ設定（担当時限の時間割）を使用し、講師の報告書は担当時限の選択から業務開始時刻・担当業務（分）・休憩時間（分）を自動計算します（従来どおり。コマ設定が未登録の期は 開始8:40固定・1コマ50分）。</span>
+        <span id="periodSlotsOffNote" class="mt-1 block rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs leading-relaxed text-amber-800 ${useSlots ? 'hidden' : ''}">未使用: 下の前期・後期のコマ設定は編集できません（設定値は保持され、再びONにすると編集できます）。この契約の講師の報告書は担当時限なしの手入力方式になります＝<strong>業務開始時間・担当業務（分）・副担当業務（分）・休憩時間（分）を手入力し、業務終了時間のみ自動計算</strong>。</span>
+      </span>
+    </label>
+  </section>`;
+}
+// チェック状態を前期・後期のコマ設定ブロックへ反映する（OFF＝グレイアウト＋入力・追加ボタン無効化）
+function applyPeriodSlotsUse() {
+  const use = document.getElementById('usePeriodSlots')?.checked !== false;
+  formDrawer.querySelectorAll('[data-period-region]').forEach(region => {
+    region.classList.toggle('opacity-60', !use);
+    region.querySelectorAll('input, button').forEach(el => { el.disabled = !use; });
+  });
+  const note = document.getElementById('periodSlotsOffNote');
+  if (note) note.classList.toggle('hidden', use);
+  const card = document.getElementById('periodSlotsUseCard');
+  if (card) {
+    card.classList.toggle('border-emerald-200', use);
+    card.classList.toggle('bg-emerald-50/40', use);
+    card.classList.toggle('border-slate-200', !use);
+    card.classList.toggle('bg-slate-50/60', !use);
+  }
+  // 使用時のみコマ追加ボタンの表示上限制御を復元する
+  if (use) TERMS.forEach(termDef => updatePeriodAddButton(termDef.index));
+}
 // 担当業務（前期/後期）のブロック。名称・ID類＋月時間・週コマ・適用期間＋期別コマ設定を1箇所で設定する。
 function termSection(termDef, task, workloadCase, slots) {
   const term = termDef.index;
   return `<div class="rounded-lg border border-slate-200 p-4" data-term-section="${term}">
-    <div class="mb-3 text-sm font-medium text-slate-800">担当業務（${termDef.label}） <span class="text-red-600">*</span></div>
+    <div class="mb-3 border-b border-slate-100 pb-2 text-sm font-semibold text-slate-800">担当業務（${termDef.label}） <span class="text-red-600">*</span></div>
     <div class="grid gap-2 sm:grid-cols-3">
       <label class="block text-sm">
         <span class="mb-1 block text-slate-600">委託業務名（必須）</span>
@@ -338,8 +382,8 @@ function subTaskRow(index, task) {
 }
 function subTaskSection(subTasks) {
   return `<div class="rounded-lg border border-slate-200 p-4">
-    <div class="mb-2 flex items-center justify-between">
-      <span class="text-sm font-medium text-slate-800">副業務（任意）</span>
+    <div class="mb-2 flex items-center justify-between border-b border-slate-100 pb-2">
+      <span class="text-sm font-semibold text-slate-800">副業務（任意）</span>
       <button type="button" id="subAddTaskBtn" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-50">＋ 副業務を追加</button>
     </div>
     <div id="subTaskRows" class="space-y-3">
@@ -362,45 +406,48 @@ function renderForm(contract) {
   });
   visibleSubTaskCount = Math.max(1, subTasks.length);
   visiblePeriodCounts = Object.fromEntries(termData.map(t => [t.termDef.index, Math.max(1, t.slots.length)]));
+  const useSlots = contract?.use_period_slots !== false;
   formDrawer.innerHTML = `
     <div class="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
       <h2 class="font-semibold text-slate-800">${isEdit ? '契約を編集' : '契約を新規登録'}</h2>
       <button class="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-slate-100" onclick="closeForm()">閉じる</button>
     </div>
     <form id="contractForm" class="space-y-5 p-5">
+      ${formSection('基本情報', `
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">講師 <span class="text-red-600">*</span></span>
-          <select id="tutorSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>${userOptions(tutors, contract?.tutor_id)}</select>
+          <select id="tutorSelect" class="${FORM_INPUT_CLS}" required>${userOptions(tutors, contract?.tutor_id)}</select>
         </label>
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">学校 <span class="text-red-600">*</span></span>
-          <select id="schoolSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>${userOptions(schools, contract?.school_id)}</select>
+          <select id="schoolSelect" class="${FORM_INPUT_CLS}" required>${userOptions(schools, contract?.school_id)}</select>
         </label>
-      </div>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="${FORM_INPUT_CLS}"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="${FORM_INPUT_CLS}"></label>
+      </div>`, '契約の当事者（講師×学校）と管理情報。同じ講師×学校の契約は1件のみ登録できます。')}
+      ${formSection('就業場所・事業所', `
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">お客様ID</span><input id="customerId" value="${escapeHtml(contract?.customer_id || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">弊社担当</span><input id="ourStaff" value="${escapeHtml(contract?.our_staff || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-      </div>
+        <label class="block text-sm sm:col-span-2"><span class="mb-1 block text-slate-700">事業所の所在地</span><input id="dispatchPlaceAddress" maxlength="255" placeholder="例：東京都渋谷区〇〇1-2-3" value="${escapeHtml(contract?.dispatch_place_address || '')}" class="${FORM_INPUT_CLS}"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">教室名</span><input id="classroomName" maxlength="100" placeholder="例：〇〇教室" value="${escapeHtml(contract?.classroom_name || '')}" class="${FORM_INPUT_CLS}"><span class="mt-1 block text-xs text-slate-500">報告書の「事業所の名称」の隣に表示されます。</span></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">就業場所</span><input id="workLocation" maxlength="255" placeholder="例：〇〇高等学校 △△校舎" value="${escapeHtml(contract?.work_location || '')}" class="${FORM_INPUT_CLS}"><span class="mt-1 block text-xs text-slate-500">報告書の「事業所の所在地」の下に表示されます（PDFにも出力）。</span></label>
+      </div>`, '講師の報告書ヘッダーへ自動反映される項目（講師側は読取専用）。')}
+      ${formSection('契約期間・スケジュール', `
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">事業所の所在地</span><input id="dispatchPlaceAddress" maxlength="255" placeholder="例：東京都渋谷区〇〇1-2-3" value="${escapeHtml(contract?.dispatch_place_address || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">教室名</span><input id="classroomName" maxlength="100" placeholder="例：〇〇教室" value="${escapeHtml(contract?.classroom_name || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"><span class="mt-1 block text-xs text-slate-500">報告書の「事業所の名称」の隣に表示されます。</span></label>
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">就業場所</span><input id="workLocation" maxlength="255" placeholder="例：〇〇高等学校 △△校舎" value="${escapeHtml(contract?.work_location || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"><span class="mt-1 block text-xs text-slate-500">報告書の「事業所の所在地」の下に表示されます（PDFにも出力）。</span></label>
-      </div>
-      <div class="grid gap-3 sm:grid-cols-2">
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></label>
-      </div>
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます（コマ設定がある場合は「【前期】① 8:30〜9:20、…」の後ろに併記されます）。</span></label>
-      <label class="block text-sm"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">${escapeHtml(contract?.work_content || '')}</textarea></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約開始</span><input id="contractStart" type="date" value="${escapeHtml(contract?.contract_start || '')}" class="${FORM_INPUT_CLS}"></label>
+        <label class="block text-sm"><span class="mb-1 block text-slate-700">契約終了</span><input id="contractEnd" type="date" value="${escapeHtml(contract?.contract_end || '')}" class="${FORM_INPUT_CLS}"></label>
+        <label class="block text-sm sm:col-span-2"><span class="mb-1 block text-slate-700">スケジュール欄</span><textarea id="shiftNote" rows="2" placeholder="例：月(9:30～10:20、10:30～11:20)金(11:30～12:20)。年間スケジュール又はシフト表に準ずる。" class="${FORM_INPUT_CLS}">${escapeHtml(contract?.shift_note || '')}</textarea><span class="mt-1 block text-xs text-slate-500">講師の報告書の「スケジュール欄」へ自動反映されます（コマ設定を使用する契約は「【前期】① 8:30〜9:20、…」の後ろに併記されます）。</span></label>
+        <label class="block text-sm sm:col-span-2"><span class="mb-1 block text-slate-700">従事業務内容</span><textarea id="workContent" rows="2" class="${FORM_INPUT_CLS}">${escapeHtml(contract?.work_content || '')}</textarea></label>
+      </div>`)}
 
+      ${periodSlotsUseSection(useSlots)}
       ${termData.map(t => termSection(t.termDef, t.task, t.workloadCase, t.slots)).join('')}
       ${subTaskSection(subTasks)}
 
       <div class="rounded-lg border border-slate-200 p-4">
         <div class="flex items-center justify-between gap-3">
           <div>
-            <span class="text-sm font-medium text-slate-800">任意項目列</span>
+            <span class="text-sm font-semibold text-slate-800">任意項目列</span>
             <p class="mt-0.5 text-xs text-slate-500">報告書に「項目（単位）」列を1つ追加します。1セルに「nn単位 / nn分」を入力（分は固定）。例：項目「教科会」・単位「回」→ 報告書に「教科会（回）」列、値は nn回 / nn分。</p>
           </div>
           <label class="inline-flex cursor-pointer items-center gap-2 text-sm">
@@ -432,7 +479,7 @@ function renderForm(contract) {
       </div>
 
       <div class="rounded-lg border border-slate-200 p-4">
-        <div class="text-sm font-medium text-slate-800">報告書フォームの表示項目</div>
+        <div class="text-sm font-semibold text-slate-800">報告書フォームの表示項目</div>
         <p class="mt-0.5 text-xs text-slate-500">チェックを外した項目は、この契約（講師×学校）の報告書フォームで非表示になります（既定は全て表示）。変更は既存の報告書にも反映されます。</p>
         <div class="mt-3 grid gap-2 sm:grid-cols-2">
           <label class="inline-flex items-center gap-2 text-sm text-slate-700"><input id="showDispatchAddress" type="checkbox" ${contract?.show_dispatch_address === false ? '' : 'checked'} class="h-4 w-4 rounded border-slate-300 text-emerald-600 focus:ring-emerald-500">事業所の所在地</label>
@@ -453,9 +500,11 @@ function renderForm(contract) {
   formDrawer.querySelectorAll('[data-period-add]').forEach(btn => {
     btn.addEventListener('click', () => revealNextPeriod(Number(btn.dataset.periodAdd)));
   });
+  document.getElementById('usePeriodSlots').addEventListener('change', applyPeriodSlotsUse);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
   updateSubAddTaskButton();
   TERMS.forEach(termDef => updatePeriodAddButton(termDef.index));
+  applyPeriodSlotsUse();
 }
 function revealNextPeriod(term) {
   if (visiblePeriodCounts[term] >= MAX_PERIOD_SLOTS) return;
@@ -512,9 +561,17 @@ function collectSubTasks() {
   }
   return tasks;
 }
+// 未使用（グレイアウト）時に保持する、編集中契約の保存済みコマ設定（期別）。新規契約は空。
+function savedSlotsForTerm(term) {
+  const saved = editingId ? contracts.find(c => c.id === editingId) : null;
+  const workloadCase = caseForTerm(saved?.workload_cases, term);
+  return (workloadCase?.slots || []).map(slot => ({start: slot.start, end: slot.end}));
+}
 // 担当業務（前期・後期）と期別設定（月時間・週コマ・適用期間・コマ設定）をセットで収集・検証する。
 // サーバ（term_payload_errors）と同じ必須ルール: 委託業務名・適用期間は両期とも必須、期間の重複は不可。
-function collectTerms() {
+// コマ設定未使用（usePeriods=false）の保存は、画面のコマ入力を無視して保存済みのコマ設定をそのまま保持する
+// （グレイアウト中は編集不可のため検証もスキップ。再びONにしたとき従来の値から編集を再開できる）。
+function collectTerms(usePeriods) {
   const tasks = [];
   const cases = [];
   for (const termDef of TERMS) {
@@ -525,8 +582,14 @@ function collectTerms() {
     const end = value('case_end');
     if (!start || !end) return {error: `担当業務（${termDef.label}）の適用期間（開始日・終了日）を入力してください`};
     if (end < start) return {error: `担当業務（${termDef.label}）の適用期間は終了日を開始日以降にしてください`};
-    const periods = collectPeriodSlots(termDef);
-    if (periods.error) return {error: periods.error};
+    let slots;
+    if (usePeriods) {
+      const periods = collectPeriodSlots(termDef);
+      if (periods.error) return {error: periods.error};
+      slots = periods.slots;
+    } else {
+      slots = savedSlotsForTerm(termDef.index);
+    }
     tasks.push({task_name: name, task_id: value('task_id'), contract_id: value('contract_id')});
     cases.push({
       task_index: termDef.index,
@@ -534,7 +597,7 @@ function collectTerms() {
       weekly_lessons: numberOrNull(value('weekly_lessons')),
       start_date: start,
       end_date: end,
-      slots: periods.slots,
+      slots,
     });
   }
   if (cases[0].start_date <= cases[1].end_date && cases[1].start_date <= cases[0].end_date) {
@@ -552,11 +615,15 @@ function showFormMessage(text) {
   el.className = 'rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700';
 }
 function buildPayload() {
-  const terms = collectTerms();
+  const usePeriods = document.getElementById('usePeriodSlots').checked;
+  const terms = collectTerms(usePeriods);
   if (terms.error) return {error: terms.error};
+  const saved = editingId ? contracts.find(c => c.id === editingId) : null;
   return {
-    // 旧形式（契約単位のコマ設定）はクリアし、期別（workload_cases[].slots）へ一本化する
-    period_slots: [],
+    use_period_slots: usePeriods,
+    // 旧形式（契約単位のコマ設定）: 使用時はクリアして期別（workload_cases[].slots）へ一本化する。
+    // 未使用時は編集不可のため、保存済みの値をそのまま保持する（設定値を失わない）。
+    period_slots: usePeriods ? [] : (saved?.period_slots || []).map(slot => ({start: slot.start, end: slot.end})),
     tutor_id: document.getElementById('tutorSelect').value,
     school_id: document.getElementById('schoolSelect').value,
     customer_id: document.getElementById('customerId').value.trim() || null,
@@ -588,7 +655,8 @@ async function saveContract(event) {
   const payload = buildPayload();
   if (payload.error) { showFormMessage(payload.error); return; }
   if (!payload.tutor_id || !payload.school_id) { showFormMessage('講師と学校を選択してください'); return; }
-  if (payload.workload_cases.some(item => item.slots.length) && !payload.show_break_minutes) {
+  // 休憩非表示×コマ設定の併用不可はコマ設定を使用する契約のみ（未使用は自動計算が働かないため対象外）
+  if (payload.use_period_slots && payload.workload_cases.some(item => item.slots.length) && !payload.show_break_minutes) {
     showFormMessage('休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）');
     return;
   }

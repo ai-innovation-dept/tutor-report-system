@@ -41,11 +41,12 @@ _DETAIL_FIELDS = (
     "monthly_minutes", "weekly_lessons", "shift_note", "work_content",
     "scoring_enabled", "scoring_label", "scoring_unit", "scoring_task_id", "scoring_contract_id",
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
+    "use_period_slots",
 )
-# CSVは報告書の表示項目フラグ・コマ設定を扱わないため、CSV upsert の更新では既存値を保持する（ドロワー管理）。
+# CSVは報告書の表示項目フラグ・コマ設定（使用/未使用含む）を扱わないため、CSV upsert の更新では既存値を保持する（ドロワー管理）。
 _CSV_PRESERVED_FIELDS = (
     "show_dispatch_address", "show_work_content", "show_commuter_pass", "show_break_minutes", "show_schedule_note",
-    "period_slots",
+    "period_slots", "use_period_slots",
 )
 
 
@@ -103,6 +104,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
         show_commuter_pass=profile.show_commuter_pass,
         show_break_minutes=profile.show_break_minutes,
         show_schedule_note=profile.show_schedule_note,
+        use_period_slots=profile.use_period_slots,
         contract_start=profile.contract_start,
         contract_end=profile.contract_end,
         monthly_minutes=profile.monthly_minutes,
@@ -366,6 +368,7 @@ def list_contracts_for_tutor(
             show_commuter_pass=p.show_commuter_pass,
             show_break_minutes=p.show_break_minutes,
             show_schedule_note=p.show_schedule_note,
+            use_period_slots=p.use_period_slots,
             contract_start=p.contract_start,
             contract_end=p.contract_end,
             monthly_minutes=p.monthly_minutes,
@@ -443,10 +446,11 @@ def update_contract(
             raise HTTPException(status_code=422, detail="／".join(term_errors))
 
     # 部分更新（片方だけ送信）でもコマ設定×休憩非表示の組み合わせにならないよう最終状態で検証する
+    # （コマ設定を未使用にしている契約は自動計算が働かないため対象外。保持中のコマ設定は不問）
     has_slots = bool(profile.period_slots) or any(
         case.get("slots") for case in (profile.workload_cases or []) if isinstance(case, dict)
     )
-    if has_slots and profile.show_break_minutes is False:
+    if profile.use_period_slots and has_slots and profile.show_break_minutes is False:
         raise HTTPException(
             status_code=422,
             detail="休憩時間を非表示にしている契約ではコマ設定を使用できません（表示項目の「休憩時間」をONにしてください）",

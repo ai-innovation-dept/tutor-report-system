@@ -51,6 +51,10 @@ class WorkAssignmentProfile(Base):
     show_commuter_pass: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_break_minutes: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     show_schedule_note: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # コマ設定の使用/未使用（202607170831）。True=使用（従来どおり。設定が無い期は8:40固定ロジック）。
+    # False=未使用: コマ設定はグレイアウト（値は保持）し、講師フォームは担当時限列なしの手入力方式
+    # （業務開始時間・担当業務・副担当業務・休憩時間を手入力→終了時間のみ自動計算）になる。
+    use_period_slots: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     # コマ設定（担当時限の時間割）。各要素 {"start": "HH:MM", "end": "HH:MM"}（最大10・①から順・重なり不可）。
     # 設定がある契約は講師フォームで選択コマから業務開始・担当業務（分）・休憩時間（分）を自動計算する。
     # 空リストの契約は従来ロジック（開始8:40固定・1コマ50分・休憩(コマ数-1)×10分）。

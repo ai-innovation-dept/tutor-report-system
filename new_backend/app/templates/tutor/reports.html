@@ -508,11 +508,14 @@ function contractMetaValues() {
   const contract = contractForSchool(selectedSchoolId);
   if (!contract) return {};
   // スケジュール欄: 期別コマ設定「【前期】① 8:30〜9:20、…」（設定のある期のみ）を自動生成し、
-  // 旧形式（契約単位のコマ設定）は従来のラベルなし1行、自由記述（shift_note）があれば併記する
-  const termSlotCases = contractTermCases(contract).filter(item => Array.isArray(item.slots) && item.slots.length);
+  // 旧形式（契約単位のコマ設定）は従来のラベルなし1行、自由記述（shift_note）があれば併記する。
+  // コマ設定未使用（use_period_slots=false）の契約は保持中のコマ設定を反映しない（shift_noteのみ）。
+  const useSlots = contract.use_period_slots !== false;
+  const termSlotCases = useSlots
+    ? contractTermCases(contract).filter(item => Array.isArray(item.slots) && item.slots.length) : [];
   const slotLines = termSlotCases.length
     ? termSlotCases.map(item => `${termLabel(item.task_index)}${slotScheduleText(item.slots)}`)
-    : ((Array.isArray(contract.period_slots) && contract.period_slots.length) ? [slotScheduleText(contract.period_slots)] : []);
+    : ((useSlots && Array.isArray(contract.period_slots) && contract.period_slots.length) ? [slotScheduleText(contract.period_slots)] : []);
   const schedule = [...slotLines, contract.shift_note || ''].filter(Boolean).join('\n');
   return {
     customer_id: contract.customer_id || '',
@@ -649,9 +652,11 @@ async function selectSchool(schoolId) {
   resetReportForm(true);
   renderCurrentList();
 }
-// 入力ルールのヒント文言は共通コアの定義を契約のコマ設定（時間割）の有無で出し分ける
+// 入力ルールのヒント文言は共通コアの定義を契約のコマ設定（時間割）の有無・使用/未使用で出し分ける
 function subjectPeriodHint() { return WorkReportCalc.subjectPeriodHintText(contractPeriodSlots()); }
-function timeRangeHint() { return WorkReportCalc.timeRangeHintText(contractPeriodSlots()); }
+function timeRangeHint() {
+  return manualTimeEntry() ? WorkReportCalc.manualTimeRangeHintText() : WorkReportCalc.timeRangeHintText(contractPeriodSlots());
+}
 function columnLabel(column) {
   if (column.key === 'subject_period') return '担当時限';
   return column.label;
@@ -681,8 +686,8 @@ function renderLineHeader(form) {
     } else if (column.key === 'start') {
       const next = columns[index + 1];
       if (next?.key === 'end') {
-        // 自動計算表示のため入力セレクト時代（w-72）より狭くできる
-        headers.push(`<th class="w-36 px-1 py-2 text-left">業務開始〜終了時間${fieldHintButtonHtml(timeRangeHint(), '自動計算ルールを表示')}</th>`);
+        // 自動計算表示のため入力セレクト時代（w-72）より狭くできる（手入力方式は開始入力＋終了表示のため広め）
+        headers.push(`<th class="${manualTimeEntry() ? 'w-44' : 'w-36'} px-1 py-2 text-left">業務開始〜終了時間${fieldHintButtonHtml(timeRangeHint(), '自動計算ルールを表示')}</th>`);
         index += 1;
       } else {
         headers.push(`<th class="w-24 px-1 py-2 text-left">${columnHeaderHtml(column)}</th>`);
@@ -739,10 +744,22 @@ function renderCell(column, line) {
     </td>`;
   }
   if (column.key === 'start') {
-    // 業務開始〜終了時間は自動計算（手動入力不可）。開始8:40固定＋担当時限より右の分数合計。
-    // 値は従来どおり hidden の start / end（HH:MM）に保持して保存する（report_view・PDF・CSVと互換）。
     const startVal = line.start || '';
     const endVal = line.end || '';
+    if (manualTimeEntry()) {
+      // コマ設定未使用の契約（担当時限列なし・202607170831）: 業務開始時間は手入力、
+      // 業務終了時間のみ自動計算（開始＋担当業務・副担当業務・採点の分・休憩時間の合計）。
+      return `<td class="relative px-1 py-1" data-time-range>
+        <div class="flex items-center gap-1">
+          <input type="time" data-field="start" value="${escapeHtml(startVal)}" title="業務開始時間（手入力）" class="line-input h-9 w-[92px] rounded border border-slate-300 px-1 text-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500/20 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400">
+          <span class="shrink-0 text-slate-500">〜</span>
+          <input type="hidden" data-field="end" value="${escapeHtml(endVal)}">
+          <div data-time-display title="${escapeHtml(timeRangeHint())}" class="flex h-9 min-w-[56px] flex-1 items-center justify-center whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-1 text-sm ${endVal ? 'font-medium text-slate-800' : 'text-slate-400'}">${endVal ? escapeHtml(endVal) : '自動'}</div>
+        </div>
+      </td>`;
+    }
+    // 業務開始〜終了時間は自動計算（手動入力不可）。開始8:40固定＋担当時限より右の分数合計。
+    // 値は従来どおり hidden の start / end（HH:MM）に保持して保存する（report_view・PDF・CSVと互換）。
     const range = (startVal || endVal) ? `${startVal}〜${endVal}` : '';
     return `<td class="relative px-1 py-1" data-time-range>
       <input type="hidden" data-field="start" value="${escapeHtml(startVal)}">
@@ -809,6 +826,10 @@ function buildLineRows(lines) {
     input.addEventListener('input', () => {
       if (input.dataset.field === 'date') {
         input.closest('tr').querySelector('[data-weekday]').textContent = weekdayParen(input.value);
+      }
+      // 手入力方式（コマ設定未使用）: 業務開始時間の入力に業務終了時間を連動させる
+      if (input.dataset.field === 'start') {
+        recomputeRowTimes(input.closest('tr'), true);
       }
       // 分数の手動修正（1分単位）に業務開始〜終了時間を連動させる
       if (minuteKeys.has(input.dataset.field)) {
@@ -1088,6 +1109,11 @@ function contractPeriodSlots() {
 function secondaryPlacementEnabled() {
   return Boolean(contractPeriodSlots()) && secondaryMinuteKeys().length > 0;
 }
+// コマ設定未使用の契約＝手入力方式（業務開始時間を手入力・終了のみ自動計算）か。
+// 列定義（既存報告書はスナップショット）に担当時限列が無いことで判定する（共通コア・202607170831）。
+function manualTimeEntry() {
+  return WorkReportCalc.manualStartEntry(activeColumnDefinition());
+}
 // 担当時限の自動入力先の担当業務列（適用期の task_minutes_N を優先。2列時代のスナップショット対策）
 function periodAutoFillTaskKey() {
   return periodAutoFillKeyForCase(activeColumnDefinition(), activeContractTermCase());
@@ -1126,25 +1152,38 @@ function recomputeRowTimes(row, notify = false) {
   const kind = row.querySelector('[data-field="kind"]')?.value || '';
   const slots = contractPeriodSlots();
   const total = isLeaveKind(kind) ? 0 : rowMinutesTotal(row);
-  const startOverride = rowStartMinutesOverride(slots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
-  const {start, end, overflow} = computeAutoTimes(total, startOverride);
-  cell.querySelector('[data-field="start"]').value = start;
+  const manual = manualTimeEntry();
+  let start, end, overflow;
+  if (manual) {
+    // 手入力方式（コマ設定未使用）: 開始は手入力値のまま、終了のみ自動計算する
+    start = cell.querySelector('[data-field="start"]')?.value || '';
+    ({end, overflow} = WorkReportCalc.computeManualEnd(start, total));
+  } else {
+    const startOverride = rowStartMinutesOverride(slots, row.querySelector('[data-field="subject_period"]')?.value || '', kind);
+    ({start, end, overflow} = computeAutoTimes(total, startOverride));
+    cell.querySelector('[data-field="start"]').value = start;
+  }
   cell.querySelector('[data-field="end"]').value = end;
   const display = cell.querySelector('[data-time-display]');
   if (display) {
-    display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可' : '自動計算');
-    display.classList.toggle('font-medium', !!start);
-    display.classList.toggle('text-slate-800', !!start);
-    display.classList.toggle('text-slate-400', !start && !overflow);
+    display.textContent = manual
+      ? (end || (overflow ? '計算不可' : '自動'))
+      : (start ? `${start}〜${end}` : (overflow ? '計算不可' : '自動計算'));
+    const hasValue = manual ? !!end : !!start;
+    display.classList.toggle('font-medium', hasValue);
+    display.classList.toggle('text-slate-800', hasValue);
+    display.classList.toggle('text-slate-400', !hasValue && !overflow);
     display.classList.toggle('text-rose-600', overflow);
     display.classList.toggle('border-rose-300', overflow);
     display.classList.toggle('bg-rose-50', overflow);
     display.classList.toggle('border-slate-200', !overflow);
     display.classList.toggle('bg-slate-50', !overflow);
   }
-  if (overflow && notify) showTimePopup(cell, slots
-    ? WorkReportCalc.SLOT_OVERFLOW_MESSAGE
-    : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）');
+  if (overflow && notify) showTimePopup(cell, manual
+    ? WorkReportCalc.MANUAL_OVERFLOW_MESSAGE
+    : (slots
+      ? WorkReportCalc.SLOT_OVERFLOW_MESSAGE
+      : '時間（分）の合計が長すぎるため終了時間を計算できません（同日23:59まで）'));
 }
 function recomputeAllRowTimes() {
   lineRows.querySelectorAll('tr').forEach(row => recomputeRowTimes(row));
@@ -1399,8 +1438,15 @@ function openLineSheet(index) {
       <select data-sheet-field="kind" ${disabledMap.kind ? 'disabled' : ''} class="${sheetInputClass('w-full')}">${options}</select>
     </div>`);
   }
+  // 手入力方式（コマ設定未使用＝担当時限列なし）: 業務開始時間を手入力するフィールドを種別の直後に置く
+  if (manualTimeEntry() && columns.some(column => column.key === 'start')) {
+    parts.push(`<div>${sheetFieldLabel('業務開始時間')}
+      <input type="time" data-sheet-field="start" value="${escapeHtml(line.start || '')}" ${disabledMap.start ? 'disabled' : ''} class="${sheetInputClass('w-full')}">
+      <p class="mt-1 text-[11px] leading-relaxed text-slate-400">業務終了時間は自動計算されます（業務開始時間＋担当業務・副担当業務・採点の分・休憩時間（分）の合計）。</p>
+    </div>`);
+  }
   // 担当時限（時間帯つきトグル）。コマ設定契約は設定済みコマの時間帯、未設定契約は従来の導出時間帯を表示する。
-  // 期別コマ設定は入力タイミング（今日）で適用中の期のもの（明細行と共通）。
+  // 期別コマ設定は入力タイミング（今日）で適用中の期のもの（明細行と共通）。コマ設定未使用の契約は列ごと無い。
   const hasPeriod = columns.some(column => column.key === 'subject_period');
   if (hasPeriod) {
     const selected = new Set(parseSubjectPeriods(line.subject_period));
@@ -1447,8 +1493,8 @@ function openLineSheet(index) {
   parts.push(sheetGroupBox('管理業務（副担当業務）', subCols.map(column => column.type === 'count_minutes'
     ? sheetCountMinutesField(column, line, disabledMap)
     : sheetSimpleField(column, line[column.key], disabledMap[column.key])).join('') + placementField));
-  // 業務開始〜終了時間（自動計算・読取専用）
-  parts.push(`<div>${sheetFieldLabel('業務開始〜終了時間（自動計算）')}
+  // 業務開始〜終了時間（自動計算・読取専用。手入力方式は開始＝上の手入力値・終了のみ自動計算）
+  parts.push(`<div>${sheetFieldLabel(manualTimeEntry() ? '業務開始〜終了時間（終了は自動計算）' : '業務開始〜終了時間（自動計算）')}
     <div data-sheet-time title="${escapeHtml(timeRangeHint())}" class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-center text-base text-slate-400">自動計算</div>
   </div>`);
   if (feeCol) parts.push(sheetSimpleField(feeCol, line[feeCol.key], disabledMap[feeCol.key]));
@@ -1537,7 +1583,7 @@ function applySheetKind() {
   refreshSheetPeriodButtons();
   recomputeSheetTime();
 }
-// 業務開始〜終了時間のプレビュー（明細行と同じ computeAutoTimes を使用）
+// 業務開始〜終了時間のプレビュー（明細行と同じ計算コアを使用。手入力方式は開始手入力＋終了自動）
 function recomputeSheetTime() {
   const display = document.getElementById('lineSheetBody').querySelector('[data-sheet-time]');
   if (!display) return;
@@ -1546,8 +1592,15 @@ function recomputeSheetTime() {
     const input = sheetField(key);
     return sum + (input ? numberValue(input.value) : 0);
   }, 0);
-  const startOverride = rowStartMinutesOverride(contractPeriodSlots(), sheetField('subject_period')?.value || '', kind);
-  const {start, end, overflow} = computeAutoTimes(total, startOverride);
+  let start, end, overflow;
+  if (manualTimeEntry()) {
+    const startValue = sheetField('start')?.value || '';
+    ({end, overflow} = WorkReportCalc.computeManualEnd(startValue, total));
+    start = end ? startValue : '';
+  } else {
+    const startOverride = rowStartMinutesOverride(contractPeriodSlots(), sheetField('subject_period')?.value || '', kind);
+    ({start, end, overflow} = computeAutoTimes(total, startOverride));
+  }
   display.textContent = start ? `${start}〜${end}` : (overflow ? '計算不可（同日23:59まで）' : '自動計算');
   display.classList.toggle('font-medium', !!start);
   display.classList.toggle('text-slate-800', !!start);
@@ -1588,6 +1641,11 @@ function bindSheetEvents(body) {
     if (!btn || btn.disabled) return;
     sheetTogglePeriod(btn.dataset.sheetPeriod);
   });
+  // 手入力方式（コマ設定未使用）: 業務開始時間の入力に終了プレビューを連動させる
+  const sheetStartInput = sheetField('start');
+  if (sheetStartInput && sheetStartInput.type === 'time') {
+    sheetStartInput.addEventListener('input', recomputeSheetTime);
+  }
   const sheetMinuteKeys = new Set(timeMinuteKeys());
   const sheetSecondaryKeys = new Set(secondaryMinuteKeys());
   body.querySelectorAll('input[type="number"][data-sheet-field]').forEach(input => {
@@ -2096,13 +2154,30 @@ async function saveReportForm() {
     showFormMessage('業務終了時間が業務開始時間より早い行があります', true);
     return null;
   }
-  // 業務開始〜終了時間は自動計算のため、計算不可（分の合計が同日23:59を超過）の行は保存できない
   const minuteKeys = timeMinuteKeys();
-  const overflowIndex = lines.findIndex(line =>
-    !isLeaveKind(line.kind) && lineMinutesTotal(line, minuteKeys) > 0 && (!line.start || !line.end));
-  if (overflowIndex !== -1) {
-    showFormMessage(`${overflowIndex + 1}回目：時間（分）の合計が長すぎるため業務開始〜終了時間を計算できません。分数を修正してください。`, true);
-    return null;
+  if (manualTimeEntry()) {
+    // 手入力方式（コマ設定未使用）: 時間（分）の記入がある行は業務開始時間が必須。
+    // 終了時間は自動計算のため、計算不可（開始＋合計が同日23:59を超過）の行は保存できない。
+    const noStartIndex = lines.findIndex(line =>
+      !isLeaveKind(line.kind) && lineMinutesTotal(line, minuteKeys) > 0 && !line.start);
+    if (noStartIndex !== -1) {
+      showFormMessage(`${noStartIndex + 1}回目：業務開始時間を入力してください（終了時間は自動計算されます）`, true);
+      return null;
+    }
+    const manualOverflowIndex = lines.findIndex(line =>
+      !isLeaveKind(line.kind) && lineMinutesTotal(line, minuteKeys) > 0 && line.start && !line.end);
+    if (manualOverflowIndex !== -1) {
+      showFormMessage(`${manualOverflowIndex + 1}回目：${WorkReportCalc.MANUAL_OVERFLOW_MESSAGE}`, true);
+      return null;
+    }
+  } else {
+    // 業務開始〜終了時間は自動計算のため、計算不可（分の合計が同日23:59を超過）の行は保存できない
+    const overflowIndex = lines.findIndex(line =>
+      !isLeaveKind(line.kind) && lineMinutesTotal(line, minuteKeys) > 0 && (!line.start || !line.end));
+    if (overflowIndex !== -1) {
+      showFormMessage(`${overflowIndex + 1}回目：時間（分）の合計が長すぎるため業務開始〜終了時間を計算できません。分数を修正してください。`, true);
+      return null;
+    }
   }
   const duplicateDate = findDuplicateLineDate(lines);
   if (duplicateDate) {

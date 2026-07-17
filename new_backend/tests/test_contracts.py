@@ -692,6 +692,18 @@ class TestContractImport:
         assert profile.our_staff == "更新後"
         assert profile.period_slots == [{"start": "08:30", "end": "09:20"}]
 
+    def test_csv_upsert_preserves_use_period_slots(self, client, db, import_setup):
+        # コマ設定の使用/未使用（use_period_slots）もCSVでは扱わないため、再取込で保持される
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100")]))
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == import_setup["imp_tutor"].id))
+        profile.use_period_slots = False
+        db.commit()
+        self._upload(client, _csv_bytes([_csv_row("T100", "S100", **{cis.OUR_STAFF: "更新後"})]))
+        db.refresh(profile)
+        assert profile.our_staff == "更新後"
+        assert profile.use_period_slots is False  # CSV取込で使用/未使用は保持
+
     def test_import_requires_school_no(self, client, db, import_setup):
         row = _csv_row("T100", "")  # 学校番号なし
         res = self._upload(client, _csv_bytes([row]))
@@ -1166,3 +1178,105 @@ class TestPeriodSlots:
         res3 = client.patch(f"/api/w/contracts/{cid}", json={"period_slots": []}, headers=headers)
         assert res3.status_code == 200, res3.text
         assert res3.json()["period_slots"] == []
+
+
+class TestUsePeriodSlots:
+    """コマ設定の使用/未使用（use_period_slots・202607170831）。
+
+    未使用の契約はコマ設定を保持したまま自動計算を無効化し、講師フォームは
+    担当時限列なしの手入力方式（開始・各分を手入力→終了のみ自動計算）になる。
+    """
+
+    SLOTS = [{"start": "08:30", "end": "09:20"}, {"start": "09:30", "end": "10:20"}]
+
+    def _headers(self, client):
+        return _auth(client, "master@x.example.com")
+
+    def test_default_true_and_patch_roundtrip(self, client, db, setup):
+        headers = self._headers(client)
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=headers)
+        assert created.status_code == 201, created.text
+        assert created.json()["use_period_slots"] is True  # 既定は使用（従来動作）
+        cid = created.json()["id"]
+        res = client.patch(f"/api/w/contracts/{cid}", json={"use_period_slots": False}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["use_period_slots"] is False
+        assert client.get(f"/api/w/contracts/{cid}", headers=headers).json()["use_period_slots"] is False
+
+    def test_unused_keeps_stored_slots(self, client, db, setup):
+        # 未使用へ切り替えてもコマ設定の値は保持される（グレイアウト＝編集不可・値は残す）
+        headers = self._headers(client)
+        cases = _default_cases()
+        cases[0]["slots"] = self.SLOTS
+        created = client.post("/api/w/contracts", json=_payload(setup, workload_cases=cases), headers=headers)
+        assert created.status_code == 201, created.text
+        res = client.patch(f"/api/w/contracts/{created.json()['id']}", json={"use_period_slots": False}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["use_period_slots"] is False
+        assert res.json()["workload_cases"][0]["slots"] == self.SLOTS
+
+    def test_column_definition_omits_subject_period_when_unused(self, client, db, setup):
+        # 未使用の契約は報告書の列定義に担当時限列を生成しない＝講師フォームは手入力方式
+        headers = self._headers(client)
+        assert client.post(
+            "/api/w/contracts", json=_payload(setup, use_period_slots=False), headers=headers,
+        ).status_code == 201
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["use_period_slots"] is False
+        keys = [c["key"] for c in entry["column_definition"]]
+        assert "subject_period" not in keys
+        # 開始・終了・分列・末尾固定列は従来どおり
+        assert keys == [
+            "date", "start", "end",
+            "task_minutes_1",
+            "break_minutes", "commute_fee", "note",
+        ]
+
+    def test_column_definition_includes_subject_period_when_used(self, client, db, setup):
+        headers = self._headers(client)
+        assert client.post("/api/w/contracts", json=_payload(setup), headers=headers).status_code == 201
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        assert entry["use_period_slots"] is True
+        assert "subject_period" in [c["key"] for c in entry["column_definition"]]
+
+    def test_break_hidden_allowed_when_unused(self, client, db, setup):
+        # 休憩非表示×コマ設定の併用不可はコマ設定を使用する契約のみ（未使用は自動計算が働かないため許容）
+        headers = self._headers(client)
+        cases = _default_cases()
+        cases[0]["slots"] = self.SLOTS
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, workload_cases=cases, show_break_minutes=False, use_period_slots=False),
+            headers=headers,
+        )
+        assert res.status_code == 201, res.text
+
+    def test_patch_break_hidden_allowed_when_unused(self, client, db, setup):
+        headers = self._headers(client)
+        cases = _default_cases()
+        cases[0]["slots"] = self.SLOTS
+        created = client.post(
+            "/api/w/contracts", json=_payload(setup, workload_cases=cases, use_period_slots=False), headers=headers,
+        )
+        assert created.status_code == 201, created.text
+        res = client.patch(
+            f"/api/w/contracts/{created.json()['id']}", json={"show_break_minutes": False}, headers=headers,
+        )
+        assert res.status_code == 200, res.text
+
+    def test_patch_enable_slots_rejected_when_break_hidden(self, client, db, setup):
+        # 未使用＋休憩非表示の契約を「使用」へ戻すときは、休憩非表示との併用不可を再検証する
+        headers = self._headers(client)
+        cases = _default_cases()
+        cases[0]["slots"] = self.SLOTS
+        created = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, workload_cases=cases, show_break_minutes=False, use_period_slots=False),
+            headers=headers,
+        )
+        assert created.status_code == 201, created.text
+        res = client.patch(
+            f"/api/w/contracts/{created.json()['id']}", json={"use_period_slots": True}, headers=headers,
+        )
+        assert res.status_code == 422
+        assert "休憩時間" in res.text

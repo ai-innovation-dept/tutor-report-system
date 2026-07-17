@@ -131,8 +131,16 @@ def _sub_task_columns(profile: WorkAssignmentProfile) -> list[dict]:
 
 
 def build_column_definition(profile: WorkAssignmentProfile, target_month: str | None = None) -> list[dict]:
-    """契約の担当業務（対象月の期）→サブ業務（いずれも分のみ）と採点専用欄から報告書の列定義を生成する。"""
-    columns: list[dict] = [dict(c) for c in _LEADING_COLUMNS]
+    """契約の担当業務（対象月の期）→サブ業務（いずれも分のみ）と採点専用欄から報告書の列定義を生成する。
+
+    コマ設定を未使用（use_period_slots=False）にした契約は担当時限列を生成しない（202607170831）。
+    担当時限列の無い報告書は手入力方式（業務開始時間・各分を手入力→終了時間のみ自動計算）として
+    講師フォーム・事務修正の双方で扱われる（クライアントは列スナップショットで判定）。
+    """
+    columns: list[dict] = [
+        dict(c) for c in _LEADING_COLUMNS
+        if profile.use_period_slots or c["key"] != "subject_period"
+    ]
     columns += _main_task_columns(profile, target_month)
     columns += _sub_task_columns(profile)
     if profile.scoring_enabled:

@@ -197,8 +197,9 @@
       || null;
   }
   // 対象月の報告書に適用するコマ設定（適用期の slots → 旧形式の契約単位 period_slots の順）。無ければ null。
+  // コマ設定を未使用（use_period_slots=false）にした契約は、保持中のコマ設定があっても常に null（202607170831）。
   function termSlotsForMonth(contract, month, todayStr) {
-    if (!contract) return null;
+    if (!contract || contract.use_period_slots === false) return null;
     const activeCase = activeTermCaseForMonth(contract, month, todayStr);
     if (activeCase && Array.isArray(activeCase.slots) && activeCase.slots.length) return activeCase.slots;
     const legacy = contract.period_slots;
@@ -278,6 +279,25 @@
   // コマ設定契約で終了時間が同日23:59を超える行の調整案内（講師フォーム・事務修正で共通の文言）
   const SLOT_OVERFLOW_MESSAGE = '終了時間が同日23:59を超えるため計算できません。副担当業務（分）や休憩時間（分）を減らすか、「副担当の位置」を「コマ間」にして調整してください。';
 
+  // ===== コマ設定未使用の契約（手入力方式・202607170831） =====
+  // コマ設定を未使用にした契約の報告書は、列定義（スナップショット）に担当時限列が無い。
+  // この場合は業務開始時間・担当業務・副担当業務・休憩時間を手入力し、終了時間のみ自動計算する。
+  // 判定は列スナップショット基準（契約のフラグを後から切り替えても既存報告書の入力方式は変わらない）。
+  function manualStartEntry(columns) {
+    return Array.isArray(columns) && columns.length > 0
+      && !columns.some(column => column && column.key === 'subject_period');
+  }
+  // 手入力方式の終了時間＝業務開始時間＋時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計。
+  // 開始未入力・合計0分は未計算（空）、同日23:59超過は overflow=true（計算不可として保存をブロック）。
+  function computeManualEnd(startValue, total) {
+    const startMinutes = timeToMinutes(startValue);
+    if (startMinutes == null || total <= 0) return {end: '', overflow: false};
+    const overflow = startMinutes + total > DAY_END_MINUTES;
+    return {end: overflow ? '' : minutesToTime(startMinutes + total), overflow};
+  }
+  // 手入力方式で終了時間が同日23:59を超える行の調整案内（講師フォーム・事務修正で共通の文言）
+  const MANUAL_OVERFLOW_MESSAGE = '終了時間が同日23:59を超えるため計算できません。業務開始時間または各時間（分）を調整してください。';
+
   // ===== 保存時の検証補助 =====
   function findDuplicateLineDate(lines) {
     const seen = new Set();
@@ -302,6 +322,10 @@
     if (!slots) return '1〜10から担当した時限を選択します。選択したコマ数×50分が右隣の担当業務（分）へ、（コマ数−1）×10分が休憩時間（分）へ自動入力されます。自動入力後の分数は1分単位で修正できます（担当時限を選び直すと自動値で上書きされます）。';
     return `契約管理のコマ設定（①〜${CIRCLED_NUMBERS[slots.length - 1]}）から担当した時限を選択します。業務開始は選択したコマのうち時刻がいちばん早いコマの開始時刻、担当業務（分）は選択コマの合計時間、休憩時間（分）はコマ間の隙間が自動入力されます。副担当業務等は既定で最終コマの後に実施する扱い（「副担当の位置」＝コマ後）で、「コマ間」に切り替えた行は休憩時間（分）＝隙間−副担当業務等の分になります（分は1分単位で修正できます。時限や副担当を変更すると自動値で上書きされます）。`;
   }
+  // コマ設定未使用の契約（手入力方式）の業務開始〜終了時間のヒント（3UI共通）
+  function manualTimeRangeHintText() {
+    return '業務開始時間は手入力します。業務終了時間は自動計算のため手動入力できません（業務開始時間に担当業務・副担当業務・採点の分・休憩時間（分）の合計を加算した時刻。往復交通費（円）・採点の回数は加算しません）。担当業務・副担当業務・休憩時間（分）はすべて手入力です。';
+  }
   function timeRangeHintText(slots) {
     if (!slots) return '業務開始〜終了時間は自動計算のため手動入力できません。開始は8:40固定、終了は担当時限より右の時間（分）列（担当業務・副担当業務・採点の分・休憩時間）の合計を開始時間に加算した時刻です。往復交通費（円）・採点の回数は加算しません。';
     return '業務開始〜終了時間は自動計算のため手動入力できません。開始は選択したコマのうち時刻がいちばん早いコマの開始時刻（時限未選択の行は時間割の最早開始）、終了は開始に担当業務・副担当業務・採点の分・休憩時間の合計を加算した時刻です（副担当業務等は既定で最終コマの後に実施する扱い＝「副担当の位置」で変更できます）。実働（休憩を除く）が6時間を超える場合は45分以上、8時間を超える場合は60分以上の休憩が必要です（不足時は自動調整されます）。';
@@ -322,6 +346,7 @@
     computeAutoTimes, rowStartMinutesOverride, periodAutoFillValues, periodTimeRange,
     slotTimeLabel, slotRangeLabel, slotScheduleText, slotDuration, selectedSlotNumbers, slotSelectionMetrics,
     requiredBreakMinutes, slotBreakDecision, breakBumpMessage, SLOT_OVERFLOW_MESSAGE,
+    manualStartEntry, computeManualEnd, MANUAL_OVERFLOW_MESSAGE, manualTimeRangeHintText,
     findDuplicateLineDate, findUndatedLineIndex, subjectPeriodHintText, timeRangeHintText, secondaryPlacementHintText
   };
 })();
