@@ -57,6 +57,7 @@
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
+          <th class="px-4 py-3 text-left">契約No</th>
           <th class="px-4 py-3 text-left">講師名</th>
           <th class="px-4 py-3 text-left">学校名</th>
           <th class="px-4 py-3 text-left">お客様ID</th>
@@ -129,7 +130,7 @@
             <p class="mt-1 text-xs leading-relaxed text-emerald-900/80">その講師×学校の契約が無ければ、<strong>新しい契約</strong>として追加します。</p>
           </div>
         </div>
-        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ <strong>講師番号・学校番号はどちらも必須</strong>です。登録済みの講師・学校の番号を指定してください（見つからない・講師/学校でない番号はエラーになります）。<strong>担当業務（前期）（後期）の委託業務名・適用期間</strong>も必須です。</p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ <strong>講師番号・学校番号はどちらも必須</strong>です。登録済みの講師・学校の番号を指定してください（見つからない・講師/学校でない番号はエラーになります）。<strong>担当業務は前期・後期のうち少なくとも1期が必須</strong>で、設定する期は委託業務名・適用期間を入力します（未設定の期は空欄のままで構いません）。</p>
         <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 text-slate-500">
@@ -138,12 +139,12 @@
             <tbody class="divide-y divide-slate-100">
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">講師番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの講師の番号（講師Noまたは tutor_no）を指定します。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">学校番号</td><td class="px-3 py-2 text-slate-600">必須・照合キー。登録済みの学校の番号を指定します。講師番号＋学校番号で契約を1件に特定します。</td></tr>
-              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">担当業務(前期)／(後期)の名・ID・個別契約ID</td><td class="px-3 py-2 text-slate-600">担当業務は前期・後期の2本で、<strong>委託業務名はどちらも必須</strong>です（ID・個別契約IDは任意）。副業務①〜⑤は任意です。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">担当業務(前期)／(後期)の名・ID・個別契約ID</td><td class="px-3 py-2 text-slate-600">担当業務は前期・後期のうち<strong>少なくとも1期が必須</strong>です（前期だけの契約も可）。設定する期は委託業務名が必須（ID・個別契約IDは任意）。副業務①〜⑤は任意です。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">月時間(分)(前期/後期)／週コマ(前期/後期)</td><td class="px-3 py-2 text-slate-600">数値で入力します（任意）。超えて提出された報告書は事務の事前確認を挟む承認ルートになります。</td></tr>
-              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">適用開始／適用終了(前期/後期)</td><td class="px-3 py-2 text-slate-600"><strong>必須</strong>。各期の適用期間（YYYY-MM-DD）。前期と後期で期間を重複させることはできません。講師の入力タイミングがどちらの期かをこの期間で判定します。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">適用開始／適用終了(前期/後期)</td><td class="px-3 py-2 text-slate-600"><strong>設定する期は必須</strong>。各期の適用期間（YYYY-MM-DD）。前期と後期の両方を設定する場合、期間を重複させることはできません。講師の入力タイミングがどちらの期かをこの期間で判定します。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">契約開始／契約終了</td><td class="px-3 py-2 text-slate-600">日付（YYYY-MM-DD）。「2026/4/1」のような「/」区切り・ゼロ詰めなしも取り込めます。</td></tr>
               <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700">採点を追加する(有/無) ほか採点列</td><td class="px-3 py-2 text-slate-600">「有」で採点項目を追加し、項目名・単位・委託業務ID・個別契約IDを設定します。</td></tr>
-              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">講師氏名(参考)・学校名(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。照合・取り込みには使われません。</td></tr>
+              <tr><td class="whitespace-nowrap px-3 py-2 font-medium text-slate-400">講師氏名(参考)・学校名(参考)・契約管理番号(参考)</td><td class="px-3 py-2 text-slate-500">表示用の参考列です。照合・取り込みには使われません（契約管理番号は作成順の自動発番のため編集不可。列が無い旧テンプレートも取込できます）。</td></tr>
             </tbody>
           </table>
         </div>
@@ -218,9 +219,14 @@ function periodLabel(contract) {
   if (!contract.contract_start && !contract.contract_end) return '-';
   return `${contract.contract_start || '—'} 〜 ${contract.contract_end || '—'}`;
 }
+// 契約管理番号の表示（5桁ゼロ詰め。発番前の旧データは「-」）
+function contractNoLabel(no) {
+  return (no == null || no === '') ? '-' : String(no).padStart(5, '0');
+}
 function renderRows() {
   contractRows.innerHTML = contracts.length ? contracts.map(contract => `
     <tr class="border-t border-slate-100 ${contract.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
+      <td class="px-4 py-3 font-mono text-slate-700" data-label="契約No">${escapeHtml(contractNoLabel(contract.contract_no))}</td>
       <td class="px-4 py-3 font-medium text-slate-800" data-label="講師名">${escapeHtml(contract.tutor_name || '-')}</td>
       <td class="px-4 py-3" data-label="学校名">${escapeHtml(contract.school_name || '-')}</td>
       <td class="px-4 py-3" data-label="お客様ID">${escapeHtml(contract.customer_id || '-')}</td>
@@ -235,7 +241,7 @@ function renderRows() {
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
       </td>
-    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="6">契約はまだ登録されていません。</td></tr>';
+    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">契約はまだ登録されていません。</td></tr>';
 }
 function userOptions(users, selectedId) {
   return ['<option value="">選択してください</option>', ...users.map(u =>
@@ -323,10 +329,13 @@ function applyPeriodSlotsUse() {
 function termSection(termDef, task, workloadCase, slots) {
   const term = termDef.index;
   return `<div class="rounded-lg border border-slate-200 p-4" data-term-section="${term}">
-    <div class="mb-3 border-b border-slate-100 pb-2 text-sm font-semibold text-slate-800">担当業務（${termDef.label}） <span class="text-red-600">*</span></div>
+    <div class="mb-3 flex items-baseline justify-between gap-2 border-b border-slate-100 pb-2">
+      <span class="text-sm font-semibold text-slate-800">担当業務（${termDef.label}）</span>
+      <span class="text-xs text-slate-500">前期・後期のうち少なくとも1期を設定（未設定の期は空欄のまま）</span>
+    </div>
     <div class="grid gap-2 sm:grid-cols-3">
       <label class="block text-sm">
-        <span class="mb-1 block text-slate-600">委託業務名（必須）</span>
+        <span class="mb-1 block text-slate-600">委託業務名（設定する期は必須）</span>
         <input data-task="name" data-term="${term}" value="${escapeHtml(task?.task_name || '')}" class="${FORM_INPUT_CLS}">
       </label>
       <label class="block text-sm">
@@ -348,11 +357,11 @@ function termSection(termDef, task, workloadCase, slots) {
         <input data-task="weekly_lessons" data-term="${term}" type="number" min="0" value="${workloadCase?.weekly_lessons ?? ''}" class="${FORM_INPUT_CLS}">
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-slate-600">適用開始日（必須）</span>
+        <span class="mb-1 block text-slate-600">適用開始日（設定する期は必須）</span>
         <input data-task="case_start" data-term="${term}" type="date" value="${escapeHtml(workloadCase?.start_date || '')}" class="${FORM_INPUT_CLS}">
       </label>
       <label class="block text-sm">
-        <span class="mb-1 block text-slate-600">適用終了日（必須）</span>
+        <span class="mb-1 block text-slate-600">適用終了日（設定する期は必須）</span>
         <input data-task="case_end" data-term="${term}" type="date" value="${escapeHtml(workloadCase?.end_date || '')}" class="${FORM_INPUT_CLS}">
       </label>
     </div>
@@ -414,6 +423,12 @@ function renderForm(contract) {
     </div>
     <form id="contractForm" class="space-y-5 p-5">
       ${formSection('基本情報', `
+      <div class="mb-3 flex items-center gap-2 text-sm">
+        <span class="text-slate-600">契約管理番号</span>
+        ${isEdit
+          ? `<span class="rounded bg-slate-100 px-2 py-0.5 font-mono font-semibold text-slate-800">${escapeHtml(contractNoLabel(contract?.contract_no))}</span>`
+          : '<span class="rounded bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">保存時に作成順で自動発番されます</span>'}
+      </div>
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="block text-sm">
           <span class="mb-1 block text-slate-700">講師 <span class="text-red-600">*</span></span>
@@ -568,20 +583,23 @@ function savedSlotsForTerm(term) {
   return (workloadCase?.slots || []).map(slot => ({start: slot.start, end: slot.end}));
 }
 // 担当業務（前期・後期）と期別設定（月時間・週コマ・適用期間・コマ設定）をセットで収集・検証する。
-// サーバ（term_payload_errors）と同じ必須ルール: 委託業務名・適用期間は両期とも必須、期間の重複は不可。
+// サーバ（term_payload_errors）と同じ必須ルール（202607170952で「少なくとも1期」へ緩和）:
+//   - 何も入力していない期は未設定（任意）としてスキップ（前期のみ・後期のみの契約が可能）
+//   - 入力がある期は委託業務名・適用期間が必須。両期を設定した場合のみ期間の重複を検証
 // コマ設定未使用（usePeriods=false）の保存は、画面のコマ入力を無視して保存済みのコマ設定をそのまま保持する
-// （グレイアウト中は編集不可のため検証もスキップ。再びONにしたとき従来の値から編集を再開できる）。
+// （グレイアウト中は編集不可のため検証もスキップ。未設定へ戻した期は保持中のコマ設定ごと外れる）。
 function collectTerms(usePeriods) {
   const tasks = [];
   const cases = [];
   for (const termDef of TERMS) {
     const value = field => formDrawer.querySelector(`[data-task="${field}"][data-term="${termDef.index}"]`)?.value.trim() || '';
     const name = value('name');
-    if (!name) return {error: `担当業務（${termDef.label}）の委託業務名は必須です`};
+    const taskId = value('task_id');
+    const contractId = value('contract_id');
+    const monthly = value('monthly_minutes');
+    const weekly = value('weekly_lessons');
     const start = value('case_start');
     const end = value('case_end');
-    if (!start || !end) return {error: `担当業務（${termDef.label}）の適用期間（開始日・終了日）を入力してください`};
-    if (end < start) return {error: `担当業務（${termDef.label}）の適用期間は終了日を開始日以降にしてください`};
     let slots;
     if (usePeriods) {
       const periods = collectPeriodSlots(termDef);
@@ -590,17 +608,29 @@ function collectTerms(usePeriods) {
     } else {
       slots = savedSlotsForTerm(termDef.index);
     }
-    tasks.push({task_name: name, task_id: value('task_id'), contract_id: value('contract_id')});
+    // 未設定の期（コマ設定未使用時はグレイアウト中のコマ設定を除いて判定）はスキップ
+    const hasAny = Boolean(name || taskId || contractId || monthly || weekly || start || end || (usePeriods && slots.length));
+    if (!hasAny) {
+      tasks.push({task_name: '', task_id: '', contract_id: ''});
+      continue;
+    }
+    if (!name) return {error: `担当業務（${termDef.label}）の委託業務名は必須です（設定する期のみ）`};
+    if (!start || !end) return {error: `担当業務（${termDef.label}）の適用期間（開始日・終了日）を入力してください`};
+    if (end < start) return {error: `担当業務（${termDef.label}）の適用期間は終了日を開始日以降にしてください`};
+    tasks.push({task_name: name, task_id: taskId, contract_id: contractId});
     cases.push({
       task_index: termDef.index,
-      monthly_minutes: numberOrNull(value('monthly_minutes')),
-      weekly_lessons: numberOrNull(value('weekly_lessons')),
+      monthly_minutes: numberOrNull(monthly),
+      weekly_lessons: numberOrNull(weekly),
       start_date: start,
       end_date: end,
       slots,
     });
   }
-  if (cases[0].start_date <= cases[1].end_date && cases[1].start_date <= cases[0].end_date) {
+  if (!cases.length) {
+    return {error: '担当業務は少なくとも1期（前期または後期）を設定してください'};
+  }
+  if (cases.length === 2 && cases[0].start_date <= cases[1].end_date && cases[1].start_date <= cases[0].end_date) {
     return {error: '担当業務（前期）と（後期）の適用期間が重複しています'};
   }
   return {tasks, cases};

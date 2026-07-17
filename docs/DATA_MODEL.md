@@ -292,6 +292,7 @@ erDiagram
 | workload_cases | JSONB | default=[] | 前期・後期の**期別設定**。各要素 `{task_index(1=前期/2=後期), monthly_minutes, weekly_lessons, start_date, end_date, slots:[{start,end}...]}`。適用期間は必須（前期・後期の重複不可）・`slots` は期別コマ設定（担当時限の時間割・最大10）。表示・超過判定・講師フォームの列/時間割の適用はこちらが正 |
 | period_slots | JSONB | default=[] | 旧形式: 契約単位のコマ設定（各要素 `{start,end}`）。新規保存では期別 `workload_cases[].slots` を使用（読込互換のため残存） |
 | use_period_slots | Boolean | NOT NULL default=true | コマ設定の使用/未使用（202607170831・migration 0016）。false=未使用: コマ設定は保持したまま編集不可（グレイアウト）となり、報告書の列定義に担当時限列を生成しない＝講師フォームは手入力方式（業務開始時間・各分を手入力→終了時間のみ自動計算） |
+| contract_no | Integer | UNIQUE, NULL可 | 契約管理番号（202607170952・migration 0017）。作成順に1から自動発番（最大値+1・途中の欠番は再利用しない）。表示は5桁ゼロ詰め。既存契約は migration で created_at 昇順に発番済み |
 | shift_note | TEXT | NULL | シフト・備考 |
 | work_content | TEXT | NULL | 従事業務内容 |
 | task_name_1 / task_name_2 / task_name_3 | VARCHAR(100) | NULL | **担当**業務名。1=前期／2=後期（いずれも必須）。`task_name_3` は旧仕様①〜③の名残（新規保存では未使用） |

@@ -299,9 +299,17 @@ class TestContractWorkloadCases:
         res = client.patch(f"/api/w/contracts/{profile.id}", json={"our_staff": "新担当"}, headers=headers)
         assert res.status_code == 200, res.text
         assert res.json()["our_staff"] == "新担当"
-        # 期別設定に触るPATCHは新仕様の検証がかかる
-        res = client.patch(f"/api/w/contracts/{profile.id}", json={"workload_cases": [self.CASES[0]]}, headers=headers)
+        # 期別設定に触るPATCHは新仕様の検証がかかる（設定する期＝前期の適用期間が無いケースは不可）。
+        # ※前期のみ＋適用期間ありへの更新は 202607170952（少なくとも1期）で合法になった。
+        res = client.patch(
+            f"/api/w/contracts/{profile.id}",
+            json={"workload_cases": [{"task_index": 1, "monthly_minutes": 600}]}, headers=headers,
+        )
         assert res.status_code == 422
+        assert "担当業務（前期）の適用期間" in res.json()["detail"]
+        # 前期のみ＋適用期間ありなら通る（両期必須の緩和）
+        res = client.patch(f"/api/w/contracts/{profile.id}", json={"workload_cases": [self.CASES[0]]}, headers=headers)
+        assert res.status_code == 200, res.text
 
     def test_invalid_case_period_rejected(self, client, db, setup):
         cases = _default_cases()
@@ -1280,3 +1288,231 @@ class TestUsePeriodSlots:
         )
         assert res.status_code == 422
         assert "休憩時間" in res.text
+
+
+class TestSingleTermContracts:
+    """担当業務の必須緩和（202607170952）: 前期・後期のうち少なくとも1期でOK。
+
+    設定する期は委託業務名・適用期間が必須。両期を設定した場合のみ期間の重複を検証する。
+    """
+
+    def _headers(self, client):
+        return _auth(client, "master@x.example.com")
+
+    def test_first_term_only_ok(self, client, db, setup):
+        # 前期だけの契約を登録できる（後期は名称・期別設定とも未設定）
+        payload = _payload(
+            setup,
+            tasks=[{"task_name": "数学指導", "task_id": "T1", "contract_id": "C1"}],
+            workload_cases=[_default_cases()[0]],
+        )
+        res = client.post("/api/w/contracts", json=payload, headers=self._headers(client))
+        assert res.status_code == 201, res.text
+        assert [t["task_name"] for t in res.json()["tasks"]] == ["数学指導"]
+        assert len(res.json()["workload_cases"]) == 1
+        # 列定義は前期の1列のみ（担当時限あり＝コマ設定は既定の使用）
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        keys = [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
+        assert keys == ["task_minutes_1"]
+
+    def test_second_term_only_ok(self, client, db, setup):
+        # 後期だけの契約も登録できる（前期は位置を空にして送る）
+        case = {"task_index": 2, "monthly_minutes": 600, "start_date": _PAST, "end_date": _FUTURE}
+        payload = _payload(
+            setup,
+            tasks=[{}, {"task_name": "数学指導（後期）", "task_id": "T2", "contract_id": "C2"}],
+            workload_cases=[case],
+        )
+        res = client.post("/api/w/contracts", json=payload, headers=self._headers(client))
+        assert res.status_code == 201, res.text
+        body = res.json()
+        assert len(body["tasks"]) == 2  # 位置固定（[0]=前期は空・[1]=後期）
+        assert (body["tasks"][0]["task_name"] or "") == ""
+        assert body["tasks"][1]["task_name"] == "数学指導（後期）"
+        entry = client.get("/api/w/contracts/for-tutor", headers=_auth(client, "tutor@x.example.com")).json()[0]
+        keys = [c["key"] for c in entry["column_definition"] if str(c["key"]).startswith("task_minutes_")]
+        assert keys == ["task_minutes_2"]
+
+    def test_no_terms_rejected(self, client, db, setup):
+        # どちらの期も未設定はエラー（報告書の担当業務列が生成できない）
+        res = client.post(
+            "/api/w/contracts", json=_payload(setup, tasks=[], workload_cases=[]),
+            headers=self._headers(client),
+        )
+        assert res.status_code == 422
+        assert "少なくとも1期" in res.text
+
+    def test_configured_term_requires_period(self, client, db, setup):
+        # 設定する期（名称あり）は適用期間が必須のまま
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, tasks=[{"task_name": "数学指導"}], workload_cases=[]),
+            headers=self._headers(client),
+        )
+        assert res.status_code == 422
+        assert "担当業務（前期）の適用期間" in res.text
+
+    def test_case_only_term_requires_name(self, client, db, setup):
+        # 期別設定だけがある期（名称なし）は委託業務名が必須
+        res = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, tasks=[], workload_cases=[_default_cases()[0]]),
+            headers=self._headers(client),
+        )
+        assert res.status_code == 422
+        assert "担当業務（前期）の委託業務名は必須です" in res.text
+
+    def test_patch_to_single_term_ok(self, client, db, setup):
+        # 両期の既存契約を前期のみへ更新できる（後期を未設定へ戻す）
+        headers = self._headers(client)
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=headers)
+        assert created.status_code == 201, created.text
+        res = client.patch(
+            f"/api/w/contracts/{created.json()['id']}",
+            json={
+                "tasks": [{"task_name": "数学指導", "task_id": "11111"}],
+                "workload_cases": [_default_cases()[0]],
+            },
+            headers=headers,
+        )
+        assert res.status_code == 200, res.text
+        assert [t["task_name"] for t in res.json()["tasks"]] == ["数学指導"]
+
+    def test_csv_first_term_only_ok(self, client, db, setup):
+        # CSVでも後期の列をすべて空欄にした行（前期のみ）を取り込める
+        tutor = _add_user(db, "t200@x.example.com", "tutor")
+        tutor.user_no = "T200"
+        school = _add_user(db, "s200@x.example.com", "school")
+        school.user_no = "S200"
+        db.commit()
+        row = _csv_row("T200", "S200")
+        for header in (cis._main_name_h(2), cis._case_start_h(2), cis._case_end_h(2)):
+            row[header] = ""
+        res = client.post(
+            "/api/w/contracts/import",
+            files={"file": ("contracts.csv", _csv_bytes([row]), "text/csv")},
+            headers=self._headers(client),
+        )
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id))
+        assert profile.task_name_1 == "数学指導"
+        assert profile.task_name_2 is None
+        assert len(profile.workload_cases) == 1
+
+
+class TestContractNo:
+    """契約管理番号（202607170952）: 作成順に自動発番・欠番は再利用しない・更新では変わらない。"""
+
+    def _headers(self, client):
+        return _auth(client, "master@x.example.com")
+
+    def _second_pair(self, db):
+        tutor = _add_user(db, "tutor-b@x.example.com", "tutor")
+        school = _add_user(db, "school-b@x.example.com", "school")
+        return tutor, school
+
+    def test_sequential_by_creation_order(self, client, db, setup):
+        headers = self._headers(client)
+        first = client.post("/api/w/contracts", json=_payload(setup), headers=headers)
+        assert first.status_code == 201, first.text
+        assert first.json()["contract_no"] == 1
+        tutor, school = self._second_pair(db)
+        second = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, tutor_id=str(tutor.id), school_id=str(school.id)),
+            headers=headers,
+        )
+        assert second.status_code == 201, second.text
+        assert second.json()["contract_no"] == 2
+
+    def test_patch_keeps_number(self, client, db, setup):
+        headers = self._headers(client)
+        created = client.post("/api/w/contracts", json=_payload(setup), headers=headers)
+        cid = created.json()["id"]
+        res = client.patch(f"/api/w/contracts/{cid}", json={"our_staff": "変更"}, headers=headers)
+        assert res.status_code == 200, res.text
+        assert res.json()["contract_no"] == created.json()["contract_no"]
+
+    def test_middle_deletion_gap_not_reused(self, client, db, setup):
+        # 途中の契約を物理削除しても、残る契約より小さい番号（欠番）へは巻き戻らない（最大値+1）
+        headers = self._headers(client)
+        first = client.post("/api/w/contracts", json=_payload(setup), headers=headers)
+        assert first.json()["contract_no"] == 1
+        tutor, school = self._second_pair(db)
+        second = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, tutor_id=str(tutor.id), school_id=str(school.id)),
+            headers=headers,
+        )
+        assert second.json()["contract_no"] == 2
+        # 1番（途中の契約）を物理削除 → 次の発番は 3（欠番1は再利用しない）
+        assert client.delete(f"/api/w/contracts/{first.json()['id']}?hard=true", headers=headers).status_code == 200
+        tutor3 = _add_user(db, "tutor-c@x.example.com", "tutor")
+        school3 = _add_user(db, "school-c@x.example.com", "school")
+        third = client.post(
+            "/api/w/contracts",
+            json=_payload(setup, tutor_id=str(tutor3.id), school_id=str(school3.id)),
+            headers=headers,
+        )
+        assert third.status_code == 201, third.text
+        assert third.json()["contract_no"] == 3
+
+    def test_csv_import_issues_numbers_and_upsert_keeps(self, client, db, setup):
+        headers = self._headers(client)
+        tutor = _add_user(db, "t300@x.example.com", "tutor")
+        tutor.user_no = "T300"
+        school = _add_user(db, "s300@x.example.com", "school")
+        school.user_no = "S300"
+        db.commit()
+        res = client.post(
+            "/api/w/contracts/import",
+            files={"file": ("contracts.csv", _csv_bytes([_csv_row("T300", "S300")]), "text/csv")},
+            headers=headers,
+        )
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id))
+        assert profile.contract_no == 1
+        # 同じ行を再取込（upsert更新）しても番号は変わらない
+        res2 = client.post(
+            "/api/w/contracts/import",
+            files={"file": ("contracts.csv", _csv_bytes([_csv_row("T300", "S300", **{cis.OUR_STAFF: "更新"})]), "text/csv")},
+            headers=headers,
+        )
+        assert res2.status_code == 200, res2.text
+        db.refresh(profile)
+        assert profile.contract_no == 1
+        assert profile.our_staff == "更新"
+
+    def test_export_includes_contract_no_reference(self, client, db, setup):
+        headers = self._headers(client)
+        assert client.post("/api/w/contracts", json=_payload(setup), headers=headers).status_code == 201
+        res = client.get("/api/w/contracts/export", headers=headers)
+        assert res.status_code == 200
+        text = res.content.decode("utf-8-sig")
+        assert cis.CONTRACT_NO_REF in text.splitlines()[0]
+        assert "00001" in text
+
+    def test_import_accepts_template_without_contract_no_column(self, client, db, setup):
+        # 契約管理番号(参考)列の無い旧テンプレートも取り込める（参考列のため必須にしない）
+        tutor = _add_user(db, "t400@x.example.com", "tutor")
+        tutor.user_no = "T400"
+        school = _add_user(db, "s400@x.example.com", "school")
+        school.user_no = "S400"
+        db.commit()
+        old_headers = [h for h in cis.headers() if h != cis.CONTRACT_NO_REF]
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=old_headers)
+        writer.writeheader()
+        row = _csv_row("T400", "S400")
+        writer.writerow({h: row.get(h, "") for h in old_headers})
+        res = client.post(
+            "/api/w/contracts/import",
+            files={"file": ("contracts.csv", buf.getvalue().encode("utf-8-sig"), "text/csv")},
+            headers=self._headers(client),
+        )
+        assert res.status_code == 200, res.text
+        profile = db.scalar(__import__("sqlalchemy").select(WorkAssignmentProfile).where(
+            WorkAssignmentProfile.tutor_id == tutor.id))
+        assert profile.contract_no == 1

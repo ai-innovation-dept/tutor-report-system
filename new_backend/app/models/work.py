@@ -28,6 +28,10 @@ class WorkAssignmentProfile(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     assignment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignments.id"), unique=True, index=True)
+    # 契約管理番号（202607170952・migration 0017）。作成した順に自動発番する連番（1はじまり・最大値+1＝
+    # 途中の欠番は再利用しない）。発番は services/contract_number_service.issue_contract_no（作成経路すべてで採番）。
+    # 表示は5桁ゼロ詰め（一覧・編集ドロワー・CSV参考列）。
+    contract_no: Mapped[int | None] = mapped_column(Integer, unique=True, nullable=True)
     form_type: Mapped[str] = mapped_column(String(50))
     contract_meta: Mapped[dict] = mapped_column(_JSONB, default=dict)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)

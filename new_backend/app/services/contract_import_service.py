@@ -5,7 +5,9 @@
 - 識別子(必須): 講師=講師番号(user_no/tutor_no)、学校=学校番号(user_no)。氏名・学校名は参考列(照合に未使用)。
 - 「講師番号」が空、または先頭が「#」の行はコメント行として取り込み対象外。
 - (講師番号, 学校番号)が一致する契約は上書き更新、一致しなければ新規追加（upsert）。
-- 担当業務は前期・後期の2本（名称・適用期間が必須）。期別のコマ設定はCSV対象外（取込時も保持）。
+- 担当業務は前期・後期のうち少なくとも1期（設定する期は名称・適用期間が必須。202607170952で
+  両期必須から緩和）。期別のコマ設定・使用/未使用はCSV対象外（取込時も保持）。
+- 契約管理番号は参考列（自動発番のため取込では無視。旧テンプレート＝列なしも取込可）。
 """
 import csv
 import io
@@ -31,6 +33,10 @@ TUTOR_NO = "講師番号"
 TUTOR_NAME_REF = "講師氏名(参考)"
 SCHOOL_NO = "学校番号"
 SCHOOL_NAME = "学校名(参考)"
+# 契約管理番号は作成順の自動発番のため参考列（取込では無視）。旧テンプレート（列なし）も取込可。
+CONTRACT_NO_REF = "契約管理番号(参考)"
+# 取込時に無くてもエラーにしない列（参考・自動発番の列）。エクスポートには常に含める。
+OPTIONAL_HEADERS = {CONTRACT_NO_REF}
 CUSTOMER_ID = "お客様ID"
 OUR_STAFF = "弊社担当"
 DISPATCH_ADDRESS = "事業所の所在地"
@@ -94,7 +100,7 @@ def _sub_contract_id_h(i: int) -> str:
 
 
 def headers() -> list[str]:
-    cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NO, SCHOOL_NAME, CUSTOMER_ID, OUR_STAFF,
+    cols = [TUTOR_NO, TUTOR_NAME_REF, SCHOOL_NO, SCHOOL_NAME, CONTRACT_NO_REF, CUSTOMER_ID, OUR_STAFF,
             DISPATCH_ADDRESS, WORK_LOCATION, CLASSROOM_NAME, CONTRACT_START, CONTRACT_END,
             SHIFT_NOTE, WORK_CONTENT]
     for i in range(1, MAX_MAIN_TASKS + 1):
@@ -123,6 +129,7 @@ def _row_from_profile(profile) -> dict:
         TUTOR_NAME_REF: (tutor.display_name or "") if tutor else "",
         SCHOOL_NO: (school.user_no or "") if school else "",
         SCHOOL_NAME: (school.display_name or "") if school else "",
+        CONTRACT_NO_REF: f"{profile.contract_no:05d}" if profile.contract_no is not None else "",
         CUSTOMER_ID: profile.customer_id or "",
         OUR_STAFF: profile.our_staff or "",
         DISPATCH_ADDRESS: profile.dispatch_place_address or "",
@@ -182,7 +189,8 @@ def parse_rows(data: bytes) -> list[dict]:
     if reader.fieldnames is None:
         raise ValueError("CSVが空です。")
     actual = {(h or "").strip() for h in reader.fieldnames}
-    missing = [h for h in headers() if h not in actual]
+    # 参考・自動発番の列（OPTIONAL_HEADERS）は旧テンプレートに無くても取込可
+    missing = [h for h in headers() if h not in actual and h not in OPTIONAL_HEADERS]
     if missing:
         raise ValueError("CSVの見出しがテンプレートと一致しません。不足列: " + " / ".join(missing))
     return [{(k or "").strip(): (v or "").strip() for k, v in row.items()} for row in reader]

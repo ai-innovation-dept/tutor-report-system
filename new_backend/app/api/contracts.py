@@ -33,6 +33,7 @@ from app.schemas.contracts import (
 from app.services import contract_import_service
 from app.services.assignment_service import get_or_create_new_assignment
 from app.services.contract_form_service import build_column_definition
+from app.services.contract_number_service import issue_contract_no
 
 router = APIRouter(prefix="/api/w/contracts", tags=["work-contracts"])
 
@@ -90,6 +91,7 @@ def _to_out(profile: WorkAssignmentProfile) -> ContractOut:
     return ContractOut(
         id=profile.id,
         assignment_id=profile.assignment_id,
+        contract_no=profile.contract_no,
         tutor_id=profile.tutor_id,
         school_id=profile.school_id,
         tutor_name=profile.tutor.display_name if profile.tutor else None,
@@ -208,6 +210,7 @@ def create_contract(
     assignment = get_or_create_new_assignment(db, tutor, school)
     profile = WorkAssignmentProfile(
         assignment_id=assignment.id,
+        contract_no=issue_contract_no(db),
         tutor_id=tutor.id,
         school_id=school.id,
         form_type="monthly_dispatch",
@@ -234,6 +237,7 @@ def _upsert_contract(db: Session, payload: ContractCreate) -> bool:
         assignment = get_or_create_new_assignment(db, tutor, school)
         profile = WorkAssignmentProfile(
             assignment_id=assignment.id,
+            contract_no=issue_contract_no(db),
             tutor_id=tutor.id,
             school_id=school.id,
             form_type="monthly_dispatch",

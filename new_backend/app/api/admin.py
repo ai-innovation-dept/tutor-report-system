@@ -10,6 +10,7 @@ from app.dependencies.auth import require_role
 from app.models.shared import Assignment, User
 from app.models.work import WorkAssignmentProfile
 from app.schemas.users import UserOut
+from app.services.contract_number_service import issue_contract_no
 
 router = APIRouter(prefix="/api/w/admin", tags=["work-admin"])
 
@@ -53,6 +54,7 @@ def create_profile(
         raise HTTPException(status_code=409, detail="profile already exists for this assignment")
     profile = WorkAssignmentProfile(
         assignment_id=payload.assignment_id,
+        contract_no=issue_contract_no(db),
         tutor_id=assignment.tutor_id,
         school_id=assignment.parent_id,
         form_type=payload.form_type,

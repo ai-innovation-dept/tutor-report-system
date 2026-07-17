@@ -113,9 +113,12 @@ class ContractWorkloadCase(BaseModel):
 def term_payload_errors(tasks: list[ContractTask], workload_cases: list[ContractWorkloadCase]) -> list[str]:
     """担当業務（前期・後期）の必須検証（画面保存・CSV取込・APIで共用）。
 
-    - 前期・後期とも委託業務名（またはID）と適用期間（開始・終了）が必須
+    202607170952: 両期必須 → 「少なくとも1期」へ緩和（前期のみ・後期のみの契約を許容）。
+    - 設定する期（委託業務名・ID類・期別設定のいずれかに入力がある期）は
+      委託業務名（名称そのもの）と適用期間（開始・終了）が必須
+    - どちらの期も未設定はエラー（報告書の担当業務列が生成できないため）
     - 各期の期別設定（ケース）は1件まで
-    - 前期・後期の適用期間は重複不可
+    - 前期・後期の両方を設定した場合、適用期間は重複不可
     戻り値はエラーメッセージのリスト（空＝妥当）。
     """
     errors: list[str] = []
@@ -123,18 +126,26 @@ def term_payload_errors(tasks: list[ContractTask], workload_cases: list[Contract
     for case in workload_cases:
         cases_by_index.setdefault(case.task_index or 1, []).append(case)
 
+    configured = 0
     for index in range(1, MAX_MAIN_TASKS + 1):
         label = TERM_LABELS[index]
         task = tasks[index - 1] if len(tasks) >= index else None
+        cases = cases_by_index.get(index, [])
+        has_task = task is not None and not task.is_empty()
+        has_case = any(not case.is_empty() for case in cases)
+        if not has_task and not has_case:
+            continue  # 未設定の期はスキップ（任意）
+        configured += 1
         # 報告書の列は委託業務名から生成されるため、ID類だけでなく名称そのものを必須とする
         if task is None or not (task.task_name or "").strip():
             errors.append(f"担当業務（{label}）の委託業務名は必須です")
-        cases = cases_by_index.get(index, [])
         if len(cases) > 1:
             errors.append(f"担当業務（{label}）の月時間・週コマ・適用期間は1件のみ設定できます")
         case = cases[0] if cases else None
         if case is None or not (case.start_date and case.end_date):
             errors.append(f"担当業務（{label}）の適用期間（開始日・終了日）は必須です")
+    if not configured:
+        errors.append("担当業務は少なくとも1期（前期または後期）を設定してください")
 
     first = next(iter(cases_by_index.get(1, [])), None)
     second = next(iter(cases_by_index.get(2, [])), None)
@@ -270,6 +281,8 @@ class ContractForTutorOut(BaseModel):
 class ContractOut(BaseModel):
     id: uuid.UUID
     assignment_id: uuid.UUID
+    # 契約管理番号（作成順の自動発番・202607170952）。発番前の旧経路データは None（表示は「-」）。
+    contract_no: int | None = None
     tutor_id: uuid.UUID
     school_id: uuid.UUID
     tutor_name: str | None = None
