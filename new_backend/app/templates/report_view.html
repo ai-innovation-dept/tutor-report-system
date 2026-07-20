@@ -93,6 +93,61 @@
       const [y, m, d] = String(value).split('-');
       return (y && m && d) ? `${y}年${m}月${d}日` : String(value);
     }
+    // ISO日時 →「YYYY年M月D日 HH:MM」（JST）。差戻し日時などタイムスタンプ表示に使う。
+    function formatDateTimeJa(value) {
+      if (!value) return '';
+      const d = new Date(value);
+      if (Number.isNaN(d.getTime())) return '';
+      return d.toLocaleString('ja-JP', {timeZone: 'Asia/Tokyo', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit'});
+    }
+
+    // ===== 差戻し理由の表示（改修依頼 202607201303） =====
+    // 差戻し元ロール → 表示名。事務・営業は講師画面と同じく「運営」でまとめる（last_return_actor_role は
+    // 学校=school / 事務=office / 営業=sales。営業は差戻し要求の許可 approve_return_request 経由も含む）。
+    function returnActorText(role) {
+      if (role === 'office' || role === 'sales') return '運営';
+      if (role === 'school') return '学校';
+      return '';
+    }
+    // 直近の差戻しイベント（差戻し return・差戻し要求の許可 approve_return_request）を履歴から取得し、日時を得る。
+    // モデルの _last_return_event（last_return_comment/last_return_actor_role の導出元）と同じ判定。
+    function lastReturnEvent(report) {
+      const events = report && Array.isArray(report.events) ? report.events : [];
+      for (let i = events.length - 1; i >= 0; i -= 1) {
+        if (events[i].action === 'return' || events[i].action === 'approve_return_request') return events[i];
+      }
+      return null;
+    }
+    // 差戻しが行われた報告書（last_return_comment あり）に「差戻し理由」欄を表示する。
+    // 現在も差戻し中（returned_to_tutor / returned_to_office）は赤系で強調、解消済み（過去に差戻された履歴）は
+    // 控えめな橙系＋注記で区別し、承認済みの報告書で赤い警告に見えないようにする。
+    function returnReasonHtml(report) {
+      const comment = report && report.last_return_comment ? String(report.last_return_comment).trim() : '';
+      if (!comment) return '';
+      const isReturned = ['returned_to_tutor', 'returned_to_office'].includes(report.status);
+      const actor = returnActorText(report.last_return_actor_role);
+      const when = formatDateTimeJa((lastReturnEvent(report) || {}).created_at);
+      const metaParts = [];
+      if (actor) metaParts.push(`差戻し元：${escapeHtml(actor)}`);
+      if (when) metaParts.push(`日時：${escapeHtml(when)}`);
+      const tone = isReturned
+        ? {box: 'border-red-300 bg-red-50', head: 'text-red-800', meta: 'text-red-700'}
+        : {box: 'border-amber-300 bg-amber-50', head: 'text-amber-900', meta: 'text-amber-700'};
+      const heading = isReturned ? '差戻し理由' : '差戻し理由（履歴）';
+      const note = isReturned ? ''
+        : `<p class="mt-2 text-xs ${tone.meta}">※ 過去に差戻された履歴です（現在は差戻し中ではありません）。</p>`;
+      return `<section class="rounded-xl border ${tone.box} p-5 shadow-sm">
+        <div class="flex items-start gap-2">
+          <span aria-hidden="true">↩️</span>
+          <div class="min-w-0 flex-1">
+            <h2 class="font-semibold ${tone.head}">${heading}</h2>
+            ${metaParts.length ? `<div class="mt-0.5 text-xs ${tone.meta}">${metaParts.join(' ・ ')}</div>` : ''}
+            <div class="mt-2 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800">${escapeHtml(comment)}</div>
+            ${note}
+          </div>
+        </div>
+      </section>`;
+    }
     // 委託業務（契約より）: 保存済みスナップショット（meta.task_reference。前期・後期の
     // 名称・委託業務ID・個別契約IDを含む）を優先し、旧報告書は講師フォームと同じく
     // 列定義スナップショットから担当業務→副業務→採点を導出する（従来表記）。
@@ -257,7 +312,7 @@
       document.getElementById('loading').classList.add('hidden');
       const content = document.getElementById('content');
       content.classList.remove('hidden');
-      content.innerHTML = bannerHtml() + requestPassiveNoticeHtml(report) + `
+      content.innerHTML = bannerHtml() + requestPassiveNoticeHtml(report) + returnReasonHtml(report) + `
         <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <h1 class="text-lg font-bold text-slate-800">${escapeHtml(monthLabel(report.target_month))} 業務連絡表（参照）</h1>

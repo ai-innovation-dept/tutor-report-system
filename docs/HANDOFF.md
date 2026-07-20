@@ -4,7 +4,7 @@
 
 > メモ: Claude Code の個人メモリ（`~/.claude/...`）はアカウント/PCに紐づくため引き継がれない。引継ぎに必要な文脈はすべて本ファイル（リポジトリ）に集約している。
 
-最終更新: 2026-07-17（EMPS: コマ設定 使用/未使用＋手入力方式 202607170831／担当業務の前期・後期を「少なくとも1期」へ緩和＋契約管理番号の作成順自動発番 202607170952）
+最終更新: 2026-07-20（EMPS: 業務連絡表（参照）に差戻し理由欄を追加 202607201303）
 
 ---
 
@@ -158,6 +158,7 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 ## 5. 直近の主な改修
 
 > 正確な履歴は `git log --oneline` を参照（手動コミット表は陳腐化しやすいため要点のみ）。
+- **EMPS 業務連絡表（参照）に差戻し理由欄を追加（改修依頼 202607201303）**（2026-07-20）: 「報告書を確認」→「yyyy年mm月分 業務連絡表（参照）」（`report_view.html`）の上部に**差戻し理由欄**を新設。差戻しが行われた報告書（`last_return_comment` あり）で、**差戻し理由・差戻し元（学校/運営）・差戻し日時**を表示する。現在も差戻し中（`returned_to_tutor`/`returned_to_office`）は赤系で強調、既に解消済み（過去に差戻された履歴）は控えめな橙系＋注記で区別（承認済み報告書で赤い警告に見えないようにするため）。**バックエンド・DB変更なし**＝表示に使う `last_return_comment`／`last_return_actor_role`（`WorkReport` の導出プロパティ）は既に `GET /api/w/reports/{id}` が返しており、差戻し日時はレスポンスの `events`（action=return/approve_return_request の created_at）からフロントで導出（モデルの `_last_return_event` と同一判定）。差戻し元ラベルは講師画面（`tutor/reports.html`）と同じく office/sales=運営・school=学校。実装は `new_backend/app/templates/report_view.html` のJSのみ＝他画面・PDF・CSV・他サービスへの影響なし。テスト: `test_tutor_fixes.py::TestLastReturnComment` に2件追加（テンプレ配線の静的検証＋事務ロール視点で差戻し理由/差戻し元/差戻しイベントが取得できることの検証。`MAIL_BACKEND=console` で実送信ゼロ）＝new 466件通過。**本番未反映**。
 - **メール**: 送信キュー(outbox)化＝1通ずつ間隔送信＋`MAIL_BACKEND`(smtp/console)／`mailmode.sh`(sandbox/off/live) 導入。
 - **本番クリーン投入** `seed_production.py`＋migration 0014 の本番ガード。検証用サンプルユーザーは単一ロール（§2）。
 - **担当管理**「＋担当を追加」を 講師→生徒 の検索式UIへ刷新（生徒候補API・No検索）。
