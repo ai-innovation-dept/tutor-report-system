@@ -37,8 +37,11 @@
 </style>
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
   <h2 class="font-semibold text-slate-800">新規ユーザー登録</h2>
-  <form id="inviteForm" class="mt-4 space-y-3">
-    <div class="grid gap-3 md:grid-cols-[150px_1fr_1.4fr]">
+  <!-- 新規ユーザー登録（202607201825）: ロール・氏名・メール・送信ボタンを1行に横並び。
+       ラベル上置きのため items-end で入力欄と送信ボタンの下端を揃える。氏名・メールは等幅(minmax(0,1fr))で
+       ボタン分を均等に縮め、右端からはみ出さない。ボタンは入力欄と同じ高さ(h-[42px])。 -->
+  <form id="inviteForm" class="mt-4">
+    <div class="grid items-end gap-3 md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <label class="block text-sm">
         <span class="mb-1 block text-slate-700">ロール</span>
         <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
@@ -58,11 +61,9 @@
         <span class="mb-1 block text-slate-700">メール</span>
         <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
       </label>
+      <button class="inline-flex h-[42px] w-full items-center justify-center whitespace-nowrap rounded-lg bg-emerald-600 px-4 font-medium text-white transition hover:bg-emerald-700 md:w-auto">招待メールを送る</button>
     </div>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <p id="roleHint" class="text-sm text-slate-500">Noは自動で割り当てられます。</p>
-      <button class="rounded-lg bg-emerald-600 px-4 py-2 font-medium text-white transition hover:bg-emerald-700">招待メールを送る</button>
-    </div>
+    <p id="roleHint" class="mt-3 text-sm text-slate-500">Noは自動で割り当てられます。</p>
   </form>
   <p id="inviteMessage" class="mt-3 text-sm"></p>
 </section>

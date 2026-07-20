@@ -159,6 +159,33 @@ class TestPhase2Pages:
         assert "secondaryPlacementIsGap" in static.text
         assert "normalizedSecondaryPlacement" in static.text
 
+    def test_invite_form_inline_single_row(self, client, users):
+        """新規ユーザー登録フォーム（202607201825）: ロール・氏名・メール・送信ボタンを1行に横並び。
+        氏名/メールは等幅・ボタンは入力欄と同じ高さで下端揃え。注記はフォーム左下に維持。"""
+        _login(client, "p2-office@example.com")
+        res = client.get("/admin/users")
+        assert res.status_code == 200
+        # 4カラム1行グリッド（ロール150px・氏名/メール等幅minmax・ボタンauto）＋下端揃え
+        assert "md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_auto]" in res.text
+        assert "grid items-end gap-3" in res.text
+        # 送信ボタンは入力欄と同じ高さ(h-[42px])で同一グリッド行内に配置
+        assert "h-[42px]" in res.text
+        assert "招待メールを送る" in res.text
+        # 注記は従来どおりフォーム左下（idは不変＝ロール別文言のJSに影響なし）
+        assert 'id="roleHint"' in res.text
+        assert "Noは自動で割り当てられます。" in res.text
+
+    def test_contracts_action_column_right_aligned(self, client, users):
+        """契約管理（202607201825）: ＋新規登録の右端ラインと操作列（削除ボタン）の右端ラインを揃える。"""
+        _login(client, "p2-office@example.com")
+        res = client.get("/admin/contracts")
+        assert res.status_code == 200
+        # 操作列はテーブル表示時(md以上)のみ右寄せ（モバイルのカード表示は従来どおり左）
+        assert "flex flex-wrap gap-2 md:justify-end" in res.text
+        assert '<th class="px-4 py-3 text-left md:text-right">操作</th>' in res.text
+        # ツールバーの左右パディングをテーブルのセル(px-4)と揃え、右端ラインを一直線にする
+        assert "flex flex-wrap items-center justify-between gap-3 px-4" in res.text
+
 
 class TestPhase2Api:
     def test_office_bulk_approve_moves_to_awaiting_sales(self, client, users):

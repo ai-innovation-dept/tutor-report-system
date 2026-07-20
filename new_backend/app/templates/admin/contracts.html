@@ -34,7 +34,9 @@
   }
 }
 </style>
-<section class="mb-4 flex flex-wrap items-center justify-between gap-3">
+<!-- 上部ツールバー（202607201825）: 左右パディング px-4 を下のテーブル(セル px-4)と揃え、
+     「＋新規登録」の右端ラインとテーブル最右列（削除ボタン・md:justify-end で右寄せ）の右端ラインを一直線にする。 -->
+<section class="mb-4 flex flex-wrap items-center justify-between gap-3 px-4">
   <div>
     <h1 class="text-xl font-bold text-slate-800">契約管理</h1>
     <p class="mt-1 text-sm text-slate-500">講師×学校ごとの契約情報を登録・管理します。</p>
@@ -46,7 +48,7 @@
     <button id="newContractBtn" type="button" class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700">＋ 新規登録</button>
   </div>
 </section>
-<div class="mb-4 -mt-1 flex items-center gap-2">
+<div class="mb-4 -mt-1 flex items-center gap-2 px-4">
   <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
   <button id="csvHelpBtn" type="button" onclick="openCsvHelp()" aria-haspopup="dialog" aria-controls="csvHelpOverlay" aria-label="CSV一括取込の使い方を見る" title="使い方を見る"
     class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">?</button>
@@ -63,7 +65,7 @@
           <th class="px-4 py-3 text-left">お客様ID</th>
           <th class="px-4 py-3 text-left">契約期間</th>
           <th class="px-4 py-3 text-left">状態</th>
-          <th class="px-4 py-3 text-left">操作</th>
+          <th class="px-4 py-3 text-left md:text-right">操作</th>
         </tr>
       </thead>
       <tbody id="contractRows"></tbody>
@@ -266,7 +268,7 @@ function renderRows() {
         ? '<span class="inline-flex rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">有効</span>'
         : '<span class="inline-flex rounded-full bg-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600">無効</span>'}</td>
       <td class="px-4 py-3" data-label="操作">
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2 md:justify-end">
           <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openForm('${contract.id}')">編集</button>
           <button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="openCopyDialog('${contract.id}')">コピー</button>
           ${contract.is_active ? `<button class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100" onclick="disableContract('${contract.id}')">無効化</button>` : ''}
