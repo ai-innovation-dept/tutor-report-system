@@ -31,13 +31,19 @@
     min-width: 70px;
     margin-right: 8px;
   }
-  .mobile-cards tbody td .min-w-72 { min-width: 0; }
+  /* スマホはタップしやすいよう操作ボタンに44pxの高さを確保する（PCはコンパクト表示） */
+  .mobile-cards tbody td .row-actions { flex-wrap: wrap; }
+  .mobile-cards tbody td .row-actions button { min-height: 44px; padding: 8px 14px; font-size: 14px; }
 }
 </style>
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
   <h2 class="font-semibold text-slate-800">新規ユーザー登録</h2>
+  <!-- 新規ユーザー登録（202607201825）: ロール・氏名・メール・送信ボタンを1行に横並び。
+       ラベル上置きのため items-end で入力欄と送信ボタンの下端を揃える。氏名・メールは等幅(minmax(0,1fr))で
+       ボタン分を均等に縮め、右端からはみ出さない。ボタンは入力欄と同じ高さ(h-[42px])。
+       保護者ロール選択時の「担当講師・生徒名」は下段に表示（legacy固有・EMPSにはない）。 -->
   <form id="inviteForm" class="mt-4 space-y-3">
-    <div class="grid gap-3 md:grid-cols-[150px_1fr_1.4fr]">
+    <div class="grid items-end gap-3 md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_auto]">
       <label class="block text-sm">
         <span class="mb-1 block text-slate-700">ロール</span>
         <select name="role" id="roleSelect" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
@@ -59,6 +65,7 @@
         <span class="mb-1 block text-slate-700">メール</span>
         <input name="email" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
       </label>
+      <button class="inline-flex h-[42px] w-full items-center justify-center whitespace-nowrap rounded-lg bg-blue-600 px-4 font-medium text-white transition hover:bg-blue-700 md:w-auto">招待メールを送る</button>
     </div>
     <div id="parentFields" class="hidden grid gap-3 md:grid-cols-[1fr_1fr]">
       <label class="block text-sm">
@@ -70,34 +77,31 @@
         <input name="student_name" id="studentNameInput" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" maxlength="100">
       </label>
     </div>
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <p id="roleHint" class="text-sm text-slate-500">講師Noは自動で割り当てられます。</p>
-      <button class="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white transition hover:bg-blue-700">招待メールを送る</button>
-    </div>
+    <p id="roleHint" class="text-sm text-slate-500">講師Noは自動で割り当てられます。</p>
   </form>
   <p id="inviteMessage" class="mt-3 text-sm"></p>
 </section>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
-  <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 p-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-    <h2 class="font-semibold text-slate-800">登録済みユーザー</h2>
-    <div class="flex flex-col gap-3 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-      <div id="roleTabs" class="flex flex-wrap gap-2"></div>
+  <div class="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+    <h2 class="shrink-0 font-semibold text-slate-800">登録済みユーザー</h2>
+    <div class="flex flex-col gap-2 sm:flex-1 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+      <div id="roleTabs" class="flex flex-wrap gap-1.5"></div>
       <label class="text-sm">
         <span class="sr-only">検索</span>
-        <input id="userSearch" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-64" placeholder="名前・メールアドレス">
+        <input id="userSearch" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 sm:w-56" placeholder="名前・メールアドレス">
       </label>
     </div>
   </div>
-  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
     <div class="flex items-center gap-2">
       <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
       <button id="csvHelpBtn" type="button" onclick="openCsvHelp()" aria-haspopup="dialog" aria-controls="csvHelpOverlay" aria-label="CSV一括取込の使い方を見る" title="使い方を見る"
         class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/30">?</button>
     </div>
-    <div class="flex shrink-0 items-center gap-2">
-      <a href="/api/users/export" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
-      <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
+    <div class="flex shrink-0 flex-wrap items-center gap-2">
+      <a href="/api/users/export" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
+      <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
       <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
     </div>
   </div>
@@ -105,14 +109,14 @@
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
         <tr>
-          <th class="px-4 py-3 text-left">No</th>
-          <th class="px-4 py-3 text-left">名前</th>
-          <th class="px-4 py-3 text-left">ロール</th>
-          <th class="px-4 py-3 text-left">役割</th>
-          <th class="px-4 py-3 text-left">メール</th>
-          <th class="px-4 py-3 text-left">送信日時</th>
-          <th class="px-4 py-3 text-left">状態</th>
-          <th class="px-4 py-3 text-left">操作</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">No</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">名前</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">ロール</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">役割</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">メール</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">送信日時</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">状態</th>
+          <th class="whitespace-nowrap px-3 py-2 text-left">操作</th>
         </tr>
       </thead>
       <tbody id="userRows"></tbody>
@@ -446,19 +450,30 @@ function pendingInvitations() {
     return true;
   });
 }
+// ロールをバッジ（チップ）で表示する。一覧はバッジ表示・ロール変更は「詳細」ドロワーで行う（202607202109＝EMPS 202607171705 と同構成）
+function roleBadges(roles) {
+  return `<div class="flex flex-wrap gap-1">${roles.map(role =>
+    `<span class="inline-flex whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">${escapeHtml(roleLabel(role))}</span>`
+  ).join('')}</div>`;
+}
+function invitationStatusBadge(invitation) {
+  const text = statusText(invitation);
+  const cls = text === '期限切れ' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
+  return `<span class="inline-flex whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium ${cls}">${escapeHtml(text)}</span>`;
+}
 function pendingInvitationRow(invitation) {
   return `<tr class="border-t border-slate-100 bg-amber-50/40 hover:bg-amber-50">
-    <td class="px-4 py-3 text-slate-500" data-label="No">${escapeHtml(invitation.user_no || '-')}</td>
-    <td class="px-4 py-3" data-label="名前">${escapeHtml(invitation.display_name || '-')}</td>
-    <td class="min-w-72 px-4 py-3 text-xs text-slate-500" data-label="ロール">${escapeHtml(roleLabel(invitation.role))}</td>
-    <td class="px-4 py-3" data-label="役割">${escapeHtml(categoryOf(invitation.role))}</td>
-    <td class="px-4 py-3" data-label="メール">${escapeHtml(invitation.email)}</td>
-    <td class="px-4 py-3" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
-    <td class="px-4 py-3" data-label="状態">${statusText(invitation)}</td>
-    <td class="px-4 py-3" data-label="操作">
-      <div class="flex flex-wrap gap-2">
-        <button class="min-h-[44px] rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendInvitation('${invitation.id}')">再送</button>
-        <button class="min-h-[44px] rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>
+    <td class="whitespace-nowrap px-3 py-2 text-slate-500" data-label="No">${escapeHtml(invitation.user_no || '-')}</td>
+    <td class="px-3 py-2 font-medium text-slate-800" data-label="名前">${escapeHtml(invitation.display_name || '-')}</td>
+    <td class="px-3 py-2" data-label="ロール">${roleBadges([invitation.role])}</td>
+    <td class="whitespace-nowrap px-3 py-2" data-label="役割">${escapeHtml(categoryOf(invitation.role))}</td>
+    <td class="px-3 py-2 text-slate-600" data-label="メール">${escapeHtml(invitation.email)}</td>
+    <td class="whitespace-nowrap px-3 py-2 text-slate-600" data-label="送信日時">${formatDateTime(invitation.created_at)}</td>
+    <td class="whitespace-nowrap px-3 py-2" data-label="状態">${invitationStatusBadge(invitation)}</td>
+    <td class="px-3 py-2" data-label="操作">
+      <div class="row-actions flex flex-nowrap gap-1.5">
+        <button class="whitespace-nowrap rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-medium text-white transition hover:bg-blue-700" onclick="resendInvitation('${invitation.id}')">再送</button>
+        <button class="whitespace-nowrap rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs font-medium text-red-700 transition hover:bg-red-100" onclick="deleteInvitation('${invitation.id}')">取消</button>
       </div>
     </td>
   </tr>`;
@@ -478,28 +493,28 @@ function renderRoleTabs() {
   const counts = paginationState.role_counts || {};
   roleTabs.innerHTML = TABS.map(tab => {
     const active = activeRole === tab.key;
-    return `<button type="button" class="rounded-lg border px-3 py-2 text-sm font-medium transition ${active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="selectRoleTab('${tab.key}')">
-      ${tab.label}<span class="ml-2 rounded-full px-2 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}">${counts[tab.countKey] || 0}</span>
+    return `<button type="button" class="whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-sm font-medium transition ${active ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}" onclick="selectRoleTab('${tab.key}')">
+      ${tab.label}<span class="ml-1.5 rounded-full px-1.5 py-0.5 text-xs ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}">${counts[tab.countKey] || 0}</span>
     </button>`;
   }).join('');
 }
+// 一覧はロールをバッジ表示・状態はバッジ・操作は「詳細」のみ（ロール変更＝営業/事務等の兼務設定は詳細ドロワーへ集約）。
+// 行内「更新」ボタンは廃止（202607202109＝EMPS 202607171705 と同構成）。
 function userRow(user) {
-  const active = user.is_active ? '有効' : '無効';
-  const updating = updatingUsers.has(user.id);
-  const changed = userHasRoleChanges(user);
-  const updateClasses = changed ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-slate-200 text-slate-500';
+  const statusBadge = user.is_active
+    ? '<span class="inline-flex whitespace-nowrap rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">有効</span>'
+    : '<span class="inline-flex whitespace-nowrap rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">無効</span>';
   return `<tr class="border-t border-slate-100 ${user.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-500'}">
-    <td class="px-4 py-3 font-medium text-slate-700" data-label="No">${escapeHtml(user.user_no || '-')}</td>
-    <td class="px-4 py-3" data-label="名前">${escapeHtml(user.display_name)}</td>
-    <td class="min-w-72 px-4 py-3" data-label="ロール">${roleCheckboxes(user, 'row')}</td>
-    <td class="px-4 py-3" data-label="役割">${escapeHtml(userCategory(user))}</td>
-    <td class="px-4 py-3" data-label="メール">${escapeHtml(user.email)}</td>
-    <td class="px-4 py-3" data-label="送信日時">${sentAtText(user)}</td>
-    <td class="px-4 py-3" data-label="状態">${active}</td>
-    <td class="px-4 py-3" data-label="操作">
-      <div class="flex flex-wrap gap-2">
-        <button class="min-h-[44px] rounded-lg bg-slate-200 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
-        <button class="min-h-[44px] rounded-lg px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60 ${updateClasses}" onclick="updateUserRoles('${user.id}')" ${!changed || updating ? 'disabled' : ''}>${updating ? '更新中...' : '更新'}</button>
+    <td class="whitespace-nowrap px-3 py-2 font-medium text-slate-700" data-label="No">${escapeHtml(user.user_no || '-')}</td>
+    <td class="px-3 py-2 font-medium text-slate-800" data-label="名前">${escapeHtml(user.display_name)}</td>
+    <td class="px-3 py-2" data-label="ロール">${roleBadges(userRoles(user))}</td>
+    <td class="whitespace-nowrap px-3 py-2" data-label="役割">${escapeHtml(userCategory(user))}</td>
+    <td class="px-3 py-2 text-slate-600" data-label="メール">${escapeHtml(user.email)}</td>
+    <td class="whitespace-nowrap px-3 py-2 text-slate-600" data-label="送信日時">${sentAtText(user)}</td>
+    <td class="whitespace-nowrap px-3 py-2" data-label="状態">${statusBadge}</td>
+    <td class="px-3 py-2" data-label="操作">
+      <div class="row-actions flex flex-nowrap gap-1.5">
+        <button class="whitespace-nowrap rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
       </div>
     </td>
   </tr>`;
