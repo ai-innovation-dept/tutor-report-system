@@ -199,8 +199,10 @@ class TestLastReturnComment:
         assert "function returnReasonSectionHtml(report)" in template
         assert "${multilineBox(meta.work_content)}" in template
         assert "${returnReasonSectionHtml(report)}" in template
-        # 差戻しの都度を「・差戻し日時/理由：yyyy年mm月dd日（w）hh:mm　/　理由」の行で列挙する
-        assert "差戻し日時/理由：" in template
+        # 見出しは「差戻し日時/理由」（コロンなし）。各行の接頭辞「差戻し日時/理由：」は削除し
+        # 「yyyy年mm月dd日（w）hh:mm　/　理由」だけを列挙する
+        assert "差戻し日時/理由" in template
+        assert "差戻し日時/理由：" not in template
         assert "function formatReturnDateTime(value)" in template
         assert "function returnEvents(report)" in template
         # 先頭への差し込み・旧関数は撤去済み
