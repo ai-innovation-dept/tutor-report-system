@@ -88,6 +88,27 @@ class TestPhase2Pages:
         assert res.status_code == 302
         assert res.headers["location"] == "/login"
 
+    def test_tutor_reports_header_layout(self, client, users):
+        """業務連絡表ヘッダーのレイアウト再設計（202607201442）: ラベル上置き＋6カラムグリッド＋対象月パネル。
+        入力欄の id・data-meta・data-fieldgroup は従来どおり（保存・契約ロック・表示フラグ・e2e互換）。"""
+        _login(client, "p2-tutor@example.com")
+        res = client.get("/tutor/reports")
+        assert res.status_code == 200
+        # 2ゾーン構成: フォーム群（左）＋対象月パネル（xl以上=右カラム・モバイル=先頭）
+        assert "xl:grid-cols-[minmax(0,1fr)_17rem]" in res.text
+        # ラベルは入力欄の上（label for=... 形式）＝セル内側ラベルの強制改行を廃止
+        assert '<label for="dispatchPlaceSchool"' in res.text
+        assert '<label for="workContent"' in res.text
+        assert "事業所の<br>名称・組織単位" not in res.text
+        # 入力欄の id・data-meta・data-fieldgroup は不変（JS・e2e が参照）
+        for marker in [
+            'id="dispatchPlaceSchool"', 'id="classroomName"', 'id="dispatchPlaceAddress"',
+            'id="workLocation"', 'id="tutorNameDisplay"', 'id="tutorNo"', 'id="customerId"',
+            'id="workContent"', 'id="monthFilter"', 'id="noLessonToggleWrap"', 'id="noLessonToggle"',
+            'data-fieldgroup="dispatch_address"', 'data-fieldgroup="work_content"',
+        ]:
+            assert marker in res.text, marker
+
     def test_tutor_reports_page_has_mobile_line_ui(self, client, users):
         """講師の報告書一覧にスマホ入力UI（明細リスト＋詳細シート）が含まれる。
         md未満では明細テーブルを隠してリスト表示し、行タップでシートを開いて入力する。"""
