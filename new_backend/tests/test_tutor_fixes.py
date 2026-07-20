@@ -193,15 +193,19 @@ class TestLastReturnComment:
         assert res.json()["last_return_comment"] is None
 
     def test_report_view_renders_return_reason(self):
-        """業務連絡表（参照）に差戻し理由欄を新設し上部へ差し込む（改修依頼 202607201303）。"""
+        """業務連絡表（参照）の「従事業務内容」の下に差戻し理由欄を設ける（改修依頼 202607201303）。"""
         template = (Path(__file__).resolve().parents[1] / "app" / "templates" / "report_view.html").read_text(encoding="utf-8")
-        # 差戻し理由欄の生成関数と画面上部（差戻し要求案内の直後）への差し込み
-        assert "function returnReasonHtml(report)" in template
-        assert "requestPassiveNoticeHtml(report) + returnReasonHtml(report)" in template
-        # 差戻し理由・差戻し元（学校/運営）を表示する（講師画面と同じ呼称マッピング）
-        assert "差戻し理由" in template
-        assert "report.last_return_comment" in template
-        assert "returnActorText(report.last_return_actor_role)" in template
+        # 差戻し理由欄の生成関数と、従事業務内容の直下への差し込み
+        assert "function returnReasonSectionHtml(report)" in template
+        assert "${multilineBox(meta.work_content)}" in template
+        assert "${returnReasonSectionHtml(report)}" in template
+        # 差戻しの都度を「・差戻し日時/理由：yyyy年mm月dd日（w）hh:mm　/　理由」の行で列挙する
+        assert "差戻し日時/理由：" in template
+        assert "function formatReturnDateTime(value)" in template
+        assert "function returnEvents(report)" in template
+        # 先頭への差し込み・旧関数は撤去済み
+        assert "returnReasonHtml(report)" not in template
+        assert "returnActorText" not in template
 
     def test_return_reason_data_available_for_office_report_view(self, client, db, setup):
         """事務(office)が参照画面を開いたとき、差戻し理由・差戻し元・差戻し日時(events)が得られる。"""
@@ -218,11 +222,11 @@ class TestLastReturnComment:
         res = client.get(f"/api/w/reports/{report_id}", headers=_auth(client, "office-view@x.example.com"))
         assert res.status_code == 200, res.text
         body = res.json()
-        assert body["last_return_comment"] == "内容を修正してください"
-        assert body["last_return_actor_role"] == "school"
-        # 参照画面の「日時」欄は差戻しイベントの created_at から導出する
+        # 参照画面の差戻し理由欄は events（差戻しの都度の created_at ＋ comment）から各行を組み立てる
         return_events = [e for e in body["events"] if e["action"] == "return"]
-        assert return_events and return_events[-1]["created_at"]
+        assert return_events, body["events"]
+        assert return_events[-1]["created_at"]
+        assert return_events[-1]["comment"] == "内容を修正してください"
 
 
 class TestReportNames:
