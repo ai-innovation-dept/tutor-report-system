@@ -55,6 +55,14 @@
 </div>
 
 <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+  <!-- 検索窓（202607201957 ④）: 講師名・学校名・お客様ID・契約No をクライアント側で絞り込む（ユーザ管理と同一UI） -->
+  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="text-sm text-slate-600">全 <span id="contractCount" class="font-medium text-slate-800">0</span> 件</div>
+    <label class="text-sm sm:w-64">
+      <span class="sr-only">契約を検索</span>
+      <input id="contractSearch" type="search" class="w-full rounded-lg border border-slate-300 px-3 py-1.5 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" placeholder="講師名・学校名・お客様ID・契約No">
+    </label>
+  </div>
   <div class="overflow-x-auto">
     <table class="mobile-cards w-full text-sm">
       <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
@@ -256,8 +264,18 @@ function periodLabel(contract) {
 function contractNoLabel(no) {
   return (no == null || no === '') ? '-' : String(no).padStart(5, '0');
 }
+// 検索キーワードで契約を絞り込む（202607201957 ④）。講師名・学校名・お客様ID・契約No（表示形式）を対象。
+function filterContracts(list) {
+  const kw = (document.getElementById('contractSearch')?.value || '').trim().toLowerCase();
+  if (!kw) return list;
+  return list.filter(c => [c.tutor_name, c.school_name, c.customer_id, contractNoLabel(c.contract_no)]
+    .some(v => String(v || '').toLowerCase().includes(kw)));
+}
 function renderRows() {
-  contractRows.innerHTML = contracts.length ? contracts.map(contract => `
+  const filtered = filterContracts(contracts);
+  const countEl = document.getElementById('contractCount');
+  if (countEl) countEl.textContent = filtered.length;
+  contractRows.innerHTML = filtered.length ? filtered.map(contract => `
     <tr class="border-t border-slate-100 ${contract.is_active ? 'hover:bg-slate-50' : 'bg-slate-100 text-slate-400'}">
       <td class="px-4 py-3 font-mono text-slate-700" data-label="契約No">${escapeHtml(contractNoLabel(contract.contract_no))}</td>
       <td class="px-4 py-3 font-medium text-slate-800" data-label="講師名">${escapeHtml(contract.tutor_name || '-')}</td>
@@ -277,7 +295,7 @@ function renderRows() {
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
       </td>
-    </tr>`).join('') : '<tr><td class="p-4 text-slate-600" colspan="7">契約はまだ登録されていません。</td></tr>';
+    </tr>`).join('') : `<tr><td class="p-4 text-slate-600" colspan="7">${contracts.length ? '該当する契約はありません。' : '契約はまだ登録されていません。'}</td></tr>`;
 }
 function userOptions(users, selectedId) {
   return ['<option value="">選択してください</option>', ...users.map(u =>
@@ -913,6 +931,8 @@ async function load() {
   renderRows();
 }
 newContractBtn.addEventListener('click', () => openForm(null));
+// 検索窓の入力で即時に絞り込み再描画（クライアント側・全件ロード済みのためAPI不要・202607201957 ④）
+document.getElementById('contractSearch')?.addEventListener('input', renderRows);
 
 function closeImportResult() {
   document.getElementById('importOverlay').classList.add('hidden');

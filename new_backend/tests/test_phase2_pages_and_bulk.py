@@ -199,6 +199,21 @@ class TestPhase2Pages:
         assert 'data-period-remove="${term}"' in res.text
         assert "function removePeriodSlot(term, index)" in res.text
 
+    def test_contracts_keyword_search(self, client, users):
+        """契約管理（202607201957 ④）: キーワード検索窓のみ（ロール別タブは無し）。
+        講師名・学校名・お客様ID・契約No をクライアント側で絞り込む。"""
+        _login(client, "p2-office@example.com")
+        res = client.get("/admin/contracts")
+        assert res.status_code == 200
+        # 検索窓と絞り込みロジック
+        assert 'id="contractSearch"' in res.text
+        assert "function filterContracts(list)" in res.text
+        assert "c.tutor_name, c.school_name, c.customer_id, contractNoLabel(c.contract_no)" in res.text
+        # 該当なし時の空表示
+        assert "該当する契約はありません。" in res.text
+        # ④は検索のみ＝ユーザ管理のようなロール別タブ（roleTabs）は追加しない
+        assert 'id="roleTabs"' not in res.text
+
     def test_tutor_reports_target_month_stretch(self, client, users):
         """講師の対象月（202607201957）: 「業務連絡表」テキスト削除＋セレクトをw-fullで引き伸ばす。"""
         import re
