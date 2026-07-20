@@ -186,6 +186,19 @@ class TestPhase2Pages:
         # ツールバーの左右パディングをテーブルのセル(px-4)と揃え、右端ラインを一直線にする
         assert "flex flex-wrap items-center justify-between gap-3 px-4" in res.text
 
+    def test_tutor_approval_accordion_affordance(self, client, users):
+        """承認管理カード（202607201858）: 開閉可能をシェブロン＋ホバーで示す（文字に頼らない）。"""
+        _login(client, "p2-tutor@example.com")
+        res = client.get("/tutor/approval")
+        assert res.status_code == 200
+        # ネイティブ<details>カードにホバー（シャドウ持ち上げ）と開時のシェブロン反転CSS
+        assert ".accordion-card:hover" in res.text
+        assert "accordion-card[open] .accordion-chevron" in res.text
+        # summary に下向きシェブロンSVGを配置（開時はCSSで180°反転して上向き）
+        assert "accordion-summary flex cursor-pointer list-none" in res.text
+        assert 'class="accordion-chevron' in res.text
+        assert "${ACCORDION_CHEVRON}" in res.text
+
 
 class TestPhase2Api:
     def test_office_bulk_approve_moves_to_awaiting_sales(self, client, users):
