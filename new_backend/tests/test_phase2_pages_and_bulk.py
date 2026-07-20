@@ -96,6 +96,11 @@ class TestPhase2Pages:
         assert res.status_code == 200
         # 2ゾーン構成: フォーム群（左）＋対象月パネル（xl以上=右カラム・モバイル=先頭）
         assert "xl:grid-cols-[minmax(0,1fr)_17rem]" in res.text
+        # 追加修正: ヘッダーは親コンテナの右端まで100%広がる（固定max-widthなし）・
+        # 対象月カードは内容の高さにフィット（縦の間延びなし・縦中央寄せの浮きなし）
+        assert "max-w-6xl" not in res.text
+        assert "xl:self-start" in res.text
+        assert "justify-center rounded-lg border border-slate-200 bg-slate-50" not in res.text
         # ラベルは入力欄の上（label for=... 形式）＝セル内側ラベルの強制改行を廃止
         assert '<label for="dispatchPlaceSchool"' in res.text
         assert '<label for="workContent"' in res.text
