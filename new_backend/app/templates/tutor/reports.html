@@ -35,11 +35,11 @@
       <div id="reportList" class="order-last flex w-full flex-1 gap-2 overflow-x-auto sm:order-none sm:min-w-[16rem]"></div>
       <button type="button" id="copyPrevLineBtn" onclick="copyPreviousLine()" title="最後に記入した行と同じ内容（日付以外）を次の行に追加します" class="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
-        前回の記入分をコピー
+        前回コピー
       </button>
       <button type="button" id="copyLastMonthBtn" onclick="copyLastMonthLines()" title="選択中の学校の先月の報告書から明細をコピーします（日付は同じ第N曜日で当月へ変換）" class="inline-flex w-full shrink-0 items-center justify-center gap-1.5 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto sm:justify-start">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
-        先月の記入分をコピー
+        先月コピー
       </button>
     </div>
   </section>
@@ -54,22 +54,22 @@
              フォーム群は6カラムグリッドで縦の整列ラインを統一:
                xl: [名称(4)|教室名(2)] / [所在地(4)|就業場所(2)] / [氏名(2)|講師番号(2)|お客様ID(2)] / [従事業務内容(6)]
                ＝4列目の縦ラインが全行を貫通し、長い情報（名称・所在地）は広く・短い情報（番号類）は狭く。
-             対象月パネルは独立カード（xl以上=右カラム17rem・xl:self-startで内容の高さにフィット・
-             モバイル/タブレット=先頭に全幅の1行ツールバー）。ヘッダー全体は親コンテナの右端まで100%広がる
-             （固定のmax-widthは置かない＝表示倍率を下げても右側に空白ができない）。
+             対象月はカードにせず他の項目と同じラベル上置き形式（xl以上=右カラム17rem・「教室名」等と
+             ラベル・入力欄の高さが揃う。モバイル/タブレット=先頭に1行ツールバー）。ヘッダー全体は
+             親コンテナの右端まで100%広がる（固定のmax-widthは置かない＝表示倍率を下げても右側に空白ができない）。
              入力欄の id・data-meta・data-fieldgroup は従来どおり（保存・契約ロック・表示フラグのJS・e2eは無変更）。 -->
         <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
 
-          <!-- 対象月パネル: どの月の業務連絡表かのコンテキスト選択（対象月＋当月授業なし申請）。
-               ラベルはフォーム群と同じ上置き・左揃え。sm〜lg=横並び1行（トグルはセレクト行と下端揃え）、xl=縦積み -->
-          <aside class="rounded-lg border border-slate-200 bg-slate-50 p-4 xl:order-2 xl:self-start">
+          <!-- 対象月: どの月の業務連絡表かのコンテキスト選択（対象月＋当月授業なし申請）。
+               他の項目と同じラベル上置き・左揃え。sm〜lg=横並び1行（トグルはセレクト行と下端揃え）、xl=縦積み -->
+          <aside class="xl:order-2">
             <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end xl:flex-col xl:items-start">
               <div>
                 <div class="mb-1 text-sm text-slate-700">対象月</div>
                 <div class="flex items-center gap-1.5 whitespace-nowrap">
                   <select id="monthFilter"
-                    class="w-36 rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
-                  <span class="text-sm font-bold text-slate-900">月分業務連絡表</span>
+                    class="w-36 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+                  <span class="text-sm font-bold text-slate-900">業務連絡表</span>
                 </div>
               </div>
               <!-- 当月授業なし申請（202607161140）: 講師×月・全契約対象。ONの間は学校から運営（事務・営業）への
@@ -79,7 +79,7 @@
                 title="長期休業などでこの月の授業を行わない場合にONにします（全契約対象）。ONの間は、学校から運営（事務・営業）への「学校承認がすべて完了」通知の集計対象外になります。報告書の作成・提出は通常どおり可能です。">
                 <input type="checkbox" id="noLessonToggle"
                   class="h-3.5 w-3.5 rounded border-slate-300 text-amber-600 focus:ring-amber-500">
-                <span id="noLessonToggleText">この月は授業なし（長期休業等）</span>
+                <span id="noLessonToggleText">この月は授業なし</span>
               </label>
             </div>
           </aside>
@@ -2262,7 +2262,7 @@ function renderNoLessonToggle() {
   noLessonToggle.disabled = false;
   document.getElementById('noLessonToggleText').textContent = on
     ? `${monthLabel(selectedMonth)}は授業なし（申請中）`
-    : 'この月は授業なし（長期休業等）';
+    : 'この月は授業なし';
   noLessonToggleWrap.classList.toggle('border-amber-300', on);
   noLessonToggleWrap.classList.toggle('bg-amber-50', on);
   noLessonToggleWrap.classList.toggle('text-amber-800', on);

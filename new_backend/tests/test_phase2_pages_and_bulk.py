@@ -96,11 +96,20 @@ class TestPhase2Pages:
         assert res.status_code == 200
         # 2ゾーン構成: フォーム群（左）＋対象月パネル（xl以上=右カラム・モバイル=先頭）
         assert "xl:grid-cols-[minmax(0,1fr)_17rem]" in res.text
-        # 追加修正: ヘッダーは親コンテナの右端まで100%広がる（固定max-widthなし）・
-        # 対象月カードは内容の高さにフィット（縦の間延びなし・縦中央寄せの浮きなし）
+        # 追加修正: ヘッダーは親コンテナの右端まで100%広がる（固定max-widthなし）
         assert "max-w-6xl" not in res.text
-        assert "xl:self-start" in res.text
+        # 追加修正2: 対象月はカードにせず他の項目とラベル・入力欄の高さを揃える（プレーンな右カラム）
+        assert '<aside class="xl:order-2">' in res.text
         assert "justify-center rounded-lg border border-slate-200 bg-slate-50" not in res.text
+        # 追加修正2: 「月分業務連絡表」→「業務連絡表」（セレクトの「〇〇月分」と月分が重複するため）
+        assert ">業務連絡表</span>" in res.text
+        assert "月分業務連絡表" not in res.text
+        # 追加修正2: トグルは「この月は授業なし」（（長期休業等）は表示しない。HTML初期値とJS再描画の両方）
+        assert ">この月は授業なし</span>" in res.text
+        assert "この月は授業なし（長期休業等）" not in res.text
+        # 追加修正2: コピーボタンは「前回コピー」「先月コピー」の短縮表記
+        assert "前回コピー" in res.text
+        assert "先月コピー" in res.text
         # ラベルは入力欄の上（label for=... 形式）＝セル内側ラベルの強制改行を廃止
         assert '<label for="dispatchPlaceSchool"' in res.text
         assert '<label for="workContent"' in res.text
