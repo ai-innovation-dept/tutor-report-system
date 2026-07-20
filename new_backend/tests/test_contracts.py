@@ -595,6 +595,20 @@ class TestContractListGetUpdateDelete:
         listed = client.get("/api/w/contracts", headers=headers).json()
         assert created["id"] in [c["id"] for c in listed]
 
+    def test_activate_restores_disabled_contract(self, client, db, setup):
+        """無効化した契約を /activate で再び有効化できる（202607201957・双方向トグル）。"""
+        created = self._create(client, setup)
+        headers = _auth(client, "master@x.example.com")
+        # 無効化 → is_active False
+        assert client.delete(f"/api/w/contracts/{created['id']}", headers=headers).status_code == 200
+        assert db.get(WorkAssignmentProfile, __import__("uuid").UUID(created["id"])).is_active is False
+        # 有効化 → is_active True・一覧にも残る
+        res = client.post(f"/api/w/contracts/{created['id']}/activate", headers=headers)
+        assert res.status_code == 200
+        assert res.json()["is_active"] is True
+        db.expire_all()
+        assert db.get(WorkAssignmentProfile, __import__("uuid").UUID(created["id"])).is_active is True
+
     def test_delete_hard_removes_contract(self, client, db, setup):
         # hard=true は物理削除：行が消え、一覧からも消える
         created = self._create(client, setup)

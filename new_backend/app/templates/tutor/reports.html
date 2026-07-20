@@ -61,16 +61,14 @@
         <div class="grid gap-4 xl:grid-cols-[minmax(0,1fr)_17rem]">
 
           <!-- 対象月: どの月の業務連絡表かのコンテキスト選択（対象月＋当月授業なし申請）。
-               他の項目と同じラベル上置き・左揃え。sm〜lg=横並び1行（トグルはセレクト行と下端揃え）、xl=縦積み -->
+               他の項目と同じラベル上置き・左揃え。sm〜lg=横並び（トグルは下端揃え）、xl=縦積み。
+               202607201957: 「業務連絡表」テキストを削除し、空いた分だけセレクトを右へ引き伸ばす（w-full）。 -->
           <aside class="xl:order-2">
             <div class="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end xl:flex-col xl:items-start">
-              <div>
+              <div class="w-full sm:min-w-[12rem] sm:flex-1 xl:flex-none">
                 <div class="mb-1 text-sm text-slate-700">対象月</div>
-                <div class="flex items-center gap-1.5 whitespace-nowrap">
-                  <select id="monthFilter"
-                    class="w-36 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
-                  <span class="text-sm font-bold text-slate-900">業務連絡表</span>
-                </div>
+                <select id="monthFilter"
+                  class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-900 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
               </div>
               <!-- 当月授業なし申請（202607161140）: 講師×月・全契約対象。ONの間は学校から運営（事務・営業）への
                    「学校承認がすべて完了」通知の集計対象外になる（報告書の作成・提出は通常どおり可能） -->

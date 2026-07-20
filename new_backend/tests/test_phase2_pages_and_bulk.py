@@ -186,6 +186,31 @@ class TestPhase2Pages:
         # ツールバーの左右パディングをテーブルのセル(px-4)と揃え、右端ラインを一直線にする
         assert "flex flex-wrap items-center justify-between gap-3 px-4" in res.text
 
+    def test_contracts_activate_toggle_and_slot_delete(self, client, users):
+        """契約管理（202607201957）: ②無効化↔有効化トグル・③コマ削除ボタン。"""
+        _login(client, "p2-office@example.com")
+        res = client.get("/admin/contracts")
+        assert res.status_code == 200
+        # ② 状態に応じて無効化/有効化を出し分け＋有効化ハンドラは /activate を呼ぶ
+        assert "enableContract('${contract.id}')" in res.text
+        assert "/api/w/contracts/${id}/activate" in res.text
+        assert "有効化" in res.text and "無効化" in res.text
+        # ③ コマ設定の各行に削除ボタン（詰め直し）
+        assert 'data-period-remove="${term}"' in res.text
+        assert "function removePeriodSlot(term, index)" in res.text
+
+    def test_tutor_reports_target_month_stretch(self, client, users):
+        """講師の対象月（202607201957）: 「業務連絡表」テキスト削除＋セレクトをw-fullで引き伸ばす。"""
+        import re
+        _login(client, "p2-tutor@example.com")
+        res = client.get("/tutor/reports")
+        assert res.status_code == 200
+        # 「業務連絡表」の固定テキスト（月分と重複していた表記）を対象月エリアから削除
+        assert '<span class="text-sm font-bold text-slate-900">業務連絡表</span>' not in res.text
+        # 対象月セレクトは w-full で右へ引き伸ばす（旧 w-36 固定は撤去）
+        m = re.search(r'<select id="monthFilter"\s+class="([^"]*)"', res.text)
+        assert m and "w-full" in m.group(1) and "w-36" not in m.group(1)
+
     def test_tutor_approval_accordion_affordance(self, client, users):
         """承認管理カード（202607201858）: 開閉可能をシェブロン＋ホバーで示す（文字に頼らない）。"""
         _login(client, "p2-tutor@example.com")

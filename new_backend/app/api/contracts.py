@@ -532,3 +532,17 @@ def delete_contract(
         profile.is_active = False
     db.commit()
     return {"status": "ok"}
+
+
+@router.post("/{contract_id}/activate", response_model=ContractOut)
+def activate_contract(
+    contract_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_role("admin_master", "admin_chief", "sales", "office")),
+):
+    """無効化した契約を再び有効化する（is_active=True）。誤操作の取り消しや契約再開に対応する。
+    (講師,学校)は一意（作成時に409で重複を弾く）のため、有効化で重複が生じることはない。"""
+    profile = _get_profile_loaded(db, contract_id)
+    profile.is_active = True
+    db.commit()
+    return _to_out(_get_profile_loaded(db, profile.id))

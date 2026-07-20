@@ -271,7 +271,9 @@ function renderRows() {
         <div class="flex flex-wrap gap-2 md:justify-end">
           <button class="rounded-lg bg-slate-200 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-300" onclick="openForm('${contract.id}')">編集</button>
           <button class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="openCopyDialog('${contract.id}')">コピー</button>
-          ${contract.is_active ? `<button class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100" onclick="disableContract('${contract.id}')">無効化</button>` : ''}
+          ${contract.is_active
+            ? `<button class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-sm font-medium text-amber-700 hover:bg-amber-100" onclick="disableContract('${contract.id}')">無効化</button>`
+            : `<button class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 hover:bg-emerald-100" onclick="enableContract('${contract.id}')">有効化</button>`}
           <button class="rounded-lg border border-red-300 bg-red-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-700" onclick="openDeleteModal('${contract.id}')">削除</button>
         </div>
       </td>
@@ -309,6 +311,10 @@ function periodSlotRow(term, index, slot) {
     <input data-period="start" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.start || '')}" class="${cls}">
     <span class="text-slate-500">〜</span>
     <input data-period="end" data-term="${term}" data-index="${index}" type="time" value="${escapeHtml(slot?.end || '')}" class="${cls}">
+    <button type="button" data-period-remove="${term}" data-index="${index}" title="このコマを削除" aria-label="コマ${PERIOD_CIRCLED[index - 1]}を削除"
+      class="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-slate-200 text-slate-400 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40">
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 6l8 8M14 6l-8 8"/></svg>
+    </button>
   </div>`;
 }
 // 期別コマ設定のブロック（担当業務ブロック内に配置）。
@@ -549,6 +555,9 @@ function renderForm(contract) {
   formDrawer.querySelectorAll('[data-period-add]').forEach(btn => {
     btn.addEventListener('click', () => revealNextPeriod(Number(btn.dataset.periodAdd)));
   });
+  formDrawer.querySelectorAll('[data-period-remove]').forEach(btn => {
+    btn.addEventListener('click', () => removePeriodSlot(Number(btn.dataset.periodRemove), Number(btn.dataset.index)));
+  });
   document.getElementById('usePeriodSlots').addEventListener('change', applyPeriodSlotsUse);
   document.getElementById('contractForm').addEventListener('submit', saveContract);
   updateSubAddTaskButton();
@@ -559,6 +568,30 @@ function revealNextPeriod(term) {
   if (visiblePeriodCounts[term] >= MAX_PERIOD_SLOTS) return;
   visiblePeriodCounts[term] += 1;
   formDrawer.querySelector(`.period-slot-row[data-period-term="${term}"][data-period-index="${visiblePeriodCounts[term]}"]`)?.classList.remove('hidden');
+  updatePeriodAddButton(term);
+}
+// コマ削除（202607201957）: 指定コマを削除し、後続の値を前へ詰めて①からの連番を保つ
+// （collectPeriodSlots の「途中に空きコマ不可」を満たす）。最低1行は残す（最後の1つを消した場合は空欄化）。
+function removePeriodSlot(term, index) {
+  const count = visiblePeriodCounts[term];
+  if (index > count) return;
+  const q = (period, i) => formDrawer.querySelector(`[data-period="${period}"][data-term="${term}"][data-index="${i}"]`);
+  // 対象コマを除いた現在値を、番号順のまま集める
+  const values = [];
+  for (let i = 1; i <= count; i++) {
+    if (i === index) continue;
+    values.push({start: q('start', i)?.value || '', end: q('end', i)?.value || ''});
+  }
+  const newCount = Math.max(1, values.length);
+  visiblePeriodCounts[term] = newCount;
+  for (let i = 1; i <= MAX_PERIOD_SLOTS; i++) {
+    const row = formDrawer.querySelector(`.period-slot-row[data-period-term="${term}"][data-period-index="${i}"]`);
+    if (!row) continue;
+    const v = values[i - 1];
+    q('start', i).value = v ? v.start : '';
+    q('end', i).value = v ? v.end : '';
+    row.classList.toggle('hidden', i > newCount);
+  }
   updatePeriodAddButton(term);
 }
 function updatePeriodAddButton(term) {
@@ -817,6 +850,18 @@ async function disableContract(id) {
     await load();
   } catch (error) {
     showToast(error.message || '無効化できませんでした', 'error');
+  }
+}
+// 無効化した契約を再び有効化する（202607201957）。誤操作の取り消し・契約再開に対応。
+async function enableContract(id) {
+  const contract = contracts.find(c => c.id === id);
+  if (!confirm(`${contract?.tutor_name || ''} × ${contract?.school_name || ''} の契約を有効化します。よろしいですか？`)) return;
+  try {
+    await api(`/api/w/contracts/${id}/activate`, {method: 'POST'});
+    showToast('契約を有効化しました', 'success');
+    await load();
+  } catch (error) {
+    showToast(error.message || '有効化できませんでした', 'error');
   }
 }
 // 物理削除（誤操作防止: 確認テキスト一致まで「削除する」を無効化）
