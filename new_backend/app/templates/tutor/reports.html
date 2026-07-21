@@ -1914,15 +1914,15 @@ function resetReportForm(keepAssignment = false) {
   clearFormMessage();
   renderFormAvailability();
 }
-// 「承認依頼」ボタンは当月の下書き・差戻し報告書（＝講師が提出できる状態）のみ表示する。
-// 過去月（参照のみ）や承認フロー進行中・承認済みの報告書では非表示。
+// 「承認依頼」ボタンは下書き・差戻し報告書（＝講師が提出できる状態）のみ表示する。
+// 月をまたいだ入力（改修 202607211716・案B）に対応するため当月/過去月は問わない
+// （承認フロー進行中・承認済みの報告書では非表示）。
 function updateRequestApprovalButton() {
   const btn = document.getElementById('requestApprovalButton');
   if (!btn) return;
   const report = selectedReport();
   const canRequest = Boolean(report
-    && ['draft', 'returned_to_tutor'].includes(report.status)
-    && report.target_month === currentMonth);
+    && ['draft', 'returned_to_tutor'].includes(report.status));
   btn.classList.toggle('hidden', !canRequest);
 }
 function renderFormAvailability() {
@@ -1937,11 +1937,8 @@ function renderFormAvailability() {
   }
   formPanel.classList.remove('hidden');
   const report = selectedReport();
-  if (selectedMonth !== currentMonth) {
-    setReportInputsDisabled(true);
-    showFormMessage('過去月は参照のみです');
-    return;
-  }
+  // 過去月でも編集可否はステータスで判定する（改修 202607211716・案B）。
+  // 承認依頼前（下書き／差戻し／未作成）は当月・過去月を問わず編集可、提出後は読取専用。
   if (report && !EDITABLE_STATUSES.has(report.status)) {
     setReportInputsDisabled(true);
     if (report.return_request_pending) {
@@ -1995,9 +1992,10 @@ function editReport(id) {
 }
 async function loadContracts() {
   // 契約管理に登録された自分の契約（学校ごと）＋動的列定義を取得。
-  // 列定義は当月に適用される期（前期/後期）で生成されるため、当月を明示して取得する（新規報告書は当月のみ）。
+  // 列定義は選択中の対象月に適用される期（前期/後期）で生成される。過去月の新規作成にも
+  // 正しい列を反映するため対象月を明示して取得する（対象月変更時に再取得＝改修 202607211716）。
   try {
-    const list = await api(`/api/w/contracts/for-tutor?target_month=${encodeURIComponent(currentMonth)}`);
+    const list = await api(`/api/w/contracts/for-tutor?target_month=${encodeURIComponent(selectedMonth)}`);
     contractsBySchool = {};
     (list || []).forEach(contract => { contractsBySchool[String(contract.school_id)] = contract; });
   } catch (_) {
@@ -2294,8 +2292,10 @@ async function toggleNoLessonMonth(checked) {
 }
 noLessonToggle.addEventListener('change', () => toggleNoLessonMonth(noLessonToggle.checked));
 
-monthFilter.addEventListener('change', () => {
+monthFilter.addEventListener('change', async () => {
   selectedMonth = monthFilter.value;
+  // 対象月に応じた契約の列定義（適用期）を取り直してから再描画する（過去月の新規作成に対応）。
+  await loadContracts();
   renderCurrentList();
   resetReportForm(true);
   renderNoLessonToggle();

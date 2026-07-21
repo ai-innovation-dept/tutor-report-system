@@ -372,8 +372,7 @@
       const statuses = REQUEST_BALL_STATUSES[ACTIVE_ROLE] || [];
       if (!statuses.includes(report.status)) return false;
       if ((ACTIVE_ROLE === 'office' || ACTIVE_ROLE === 'sales') && staffLocked(report)) return false;
-      // 学校の操作は当月限定（承認・差戻しと同じ制約）
-      if (ACTIVE_ROLE === 'school' && report.target_month !== CURRENT_MONTH) return false;
+      // 学校も過去月の承認・差戻し（＝差戻し要求への対応）が可能（改修 202607211716・案B）。
       return true;
     }
     // ボール保持ロール向け：要求理由＋「許可して差戻す／却下」パネル（各操作エリアの先頭に差し込む）
@@ -454,13 +453,11 @@
     }
 
     // 学校の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
-    // 当月かつ学校確認待ち（awaiting_school）のときのみ操作可。差戻し中・過去月・それ以外は案内のみ。
+    // 学校確認待ち（awaiting_school）のとき操作可（月をまたいだ承認にも対応＝改修 202607211716・案B）。
+    // 差戻し中・それ以外は案内のみ。
     function schoolActionAreaHtml(report) {
       if (ACTIVE_ROLE !== 'school') return '';
       const wrap = (inner) => `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">${inner}</section>`;
-      if (report.target_month !== CURRENT_MONTH) {
-        return wrap('<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>');
-      }
       if (report.status === 'returned_to_tutor') {
         return wrap('<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し済みです。講師の修正をお待ちください。</div>');
       }

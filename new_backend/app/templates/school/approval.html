@@ -94,9 +94,7 @@ function operationHistory(report) {
 // 承認・差戻しの操作は「報告書を確認」で開く参照画面（report_view.html）へ集約した。
 // 学校が報告書の中身を確認したうえで操作する導線のため、一覧には状態案内のみを表示しボタンは置かない。
 function actionArea(report) {
-  if (report.target_month !== currentMonth) {
-    return '<div class="mt-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>';
-  }
+  // 過去月も承認・差戻し可（月をまたいだ承認に対応＝改修 202607211716・案B）。状態で判定する。
   if (report.status === 'returned_to_tutor') {
     return '<div class="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し済みです。講師の修正をお待ちください。</div>';
   }

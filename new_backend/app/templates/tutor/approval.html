@@ -405,12 +405,11 @@ const DELETABLE_STATUSES = ['draft', 'returned_to_tutor'];
 // サーバの遷移表（definitions.RETURN_REQUEST_BALL_HOLDERS）と同一セット。
 const REQUESTABLE_STATUSES = ['awaiting_office_precheck', 'awaiting_school', 'awaiting_office', 'awaiting_sales', 'approved', 'returned_to_office'];
 function requestableReports(group) {
-  // 学校確認待ちの過去月は学校側の承認・差戻し操作が当月限定のため要求できない（宛先が対応不能になる）
-  const pastMonth = group.target_month !== currentMonth();
+  // 過去月でも各承認担当（学校・運営）が対応できるようになったため、月に関わらず要求可能
+  // （改修 202607211716・案B。従来は学校が当月限定だったため awaiting_school の過去月を除外していた）。
   return group.reports.filter(r =>
     REQUESTABLE_STATUSES.includes(r.status)
-    && !r.return_request_pending
-    && !(pastMonth && r.status === 'awaiting_school'));
+    && !r.return_request_pending);
 }
 function pendingRequestReports(group) {
   return group.reports.filter(r => r.return_request_pending);
