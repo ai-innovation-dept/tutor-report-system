@@ -338,8 +338,16 @@
                 ${multilineBox(meta.note_schedule)}
               </div>
               <div class="mt-3">
-                <div class="text-slate-500">要望連絡事項</div>
+                <div class="text-slate-500">要望連絡事項（運営）</div>
                 ${multilineBox(meta.requests)}
+              </div>
+              <div class="mt-3">
+                <div class="text-slate-500">要望連絡事項（講師）</div>
+                ${multilineBox(meta.requests_tutor)}
+              </div>
+              <div class="mt-3">
+                <div class="text-slate-500">要望連絡事項（学校）</div>
+                ${schoolRequestsFieldHtml(report, meta)}
               </div>
             </div>
             <div>
@@ -355,9 +363,63 @@
       content.querySelectorAll('.note-view-btn').forEach(btn => {
         btn.addEventListener('click', () => openNoteView(btn.dataset.note || ''));
       });
-      if (ACTIVE_ROLE === 'school') wireSchoolActions();
+      if (ACTIVE_ROLE === 'school') { wireSchoolActions(); wireSchoolRequests(); }
       else if (ACTIVE_ROLE === 'office' || ACTIVE_ROLE === 'sales') wireStaffActions();
       wireRequestActions();
+    }
+
+    // ===== 要望連絡事項（学校）: 学校ロールのみが入力・編集する欄（改修依頼 202607211716-②） =====
+    // 運営欄（契約由来）・講師欄（業務連絡表で講師が入力）は本画面では読取専用。
+    // 学校がボールを持っている間（awaiting_school）だけ編集でき、対象月は問わない（案B＝月非依存）。
+    let schoolRequestsSaved = '';
+    function canEditSchoolRequests(report) {
+      return ACTIVE_ROLE === 'school' && report.status === 'awaiting_school';
+    }
+    function schoolRequestsFieldHtml(report, meta) {
+      const value = String(meta.requests_school ?? '');
+      if (!canEditSchoolRequests(report)) return multilineBox(value);
+      schoolRequestsSaved = value;
+      return `<textarea id="schoolRequestsInput" rows="4" maxlength="2000"
+          class="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-slate-800 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
+          placeholder="学校からの要望・連絡事項を入力してください">${escapeHtml(value)}</textarea>
+        <div class="mt-2 flex flex-wrap items-center gap-2">
+          <button id="schoolRequestsSaveBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">保存</button>
+          <span id="schoolRequestsMsg" class="text-xs text-slate-500">承認・差戻しのときにも自動で保存されます。</span>
+        </div>`;
+    }
+    function wireSchoolRequests() {
+      const btn = document.getElementById('schoolRequestsSaveBtn');
+      if (!btn) return; // 編集対象外（学校確認待ち以外）
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        const ok = await saveSchoolRequests();
+        btn.disabled = false;
+        showSchoolRequestsMsg(ok ? '要望連絡事項（学校）を保存しました。' : '要望連絡事項（学校）を保存できませんでした。', ok);
+      });
+    }
+    function showSchoolRequestsMsg(text, ok) {
+      const el = document.getElementById('schoolRequestsMsg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = `text-xs ${ok ? 'text-emerald-700' : 'text-rose-600'}`;
+    }
+    // 未保存の入力があれば保存する（保存ボタン・承認・差戻しから共用）。変更が無ければ何もしない。
+    async function saveSchoolRequests() {
+      const input = document.getElementById('schoolRequestsInput');
+      if (!input) return true;
+      if (input.value === schoolRequestsSaved) return true;
+      try {
+        const res = await fetch(`/api/w/reports/${reportId}/school-requests`, {
+          method: 'PATCH', credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({requests_school: input.value}),
+        });
+        if (!res.ok) return false;
+        schoolRequestsSaved = input.value;
+        return true;
+      } catch (_) {
+        return false;
+      }
     }
 
     // ===== 講師起点の差戻し要求（request_return）：ボールを持つロールが許可・却下する =====
@@ -430,6 +492,11 @@
     }
     async function requestApprove() {
       if (!confirm('講師の差戻し要求を許可し、報告書を講師へ差戻します。よろしいですか？')) return;
+      // 許可すると講師へ差戻る＝学校はボールを離すため、未保存の要望連絡事項（学校）を先に保存する
+      if (!await saveSchoolRequests()) {
+        showRequestActionMsg('要望連絡事項（学校）を保存できませんでした。もう一度お試しください。', false);
+        return;
+      }
       try {
         await postAction({action: 'approve_return_request', actor_role: ACTIVE_ROLE});
         notifyOpener();
@@ -529,6 +596,11 @@
     }
     async function schoolApprove() {
       if (!confirm('この報告書を承認します。よろしいですか？')) return;
+      // 承認すると学校はボールを離す＝要望連絡事項（学校）を編集できなくなるため、未保存の入力を先に保存する
+      if (!await saveSchoolRequests()) {
+        showActionMsg('要望連絡事項（学校）を保存できませんでした。もう一度お試しください。', false);
+        return;
+      }
       try {
         await postAction({action: 'approve'});
         notifyOpener();
@@ -541,6 +613,11 @@
     async function schoolReturn() {
       const comment = (document.getElementById('returnComment').value || '').trim();
       if (!comment) { showActionMsg('差戻しコメントを入力してください。', false); return; }
+      // 差戻しでも学校はボールを離すため、未保存の要望連絡事項（学校）を先に保存する
+      if (!await saveSchoolRequests()) {
+        showActionMsg('要望連絡事項（学校）を保存できませんでした。もう一度お試しください。', false);
+        return;
+      }
       try {
         await postAction({action: 'return', comment});
         notifyOpener();

@@ -28,6 +28,7 @@ from app.schemas.reports import (
     ReportEventOut,
     ReportOut,
     ReportPatch,
+    SchoolRequestsPatch,
     WorkflowAction,
 )
 from app.services.report_service import (
@@ -243,6 +244,8 @@ def create(
     if assignment.tutor_id != user.id:
         raise HTTPException(status_code=403, detail="not your assignment")
     _assert_no_duplicate_line_dates(payload.form_data)
+    # 要望連絡事項（学校）など他ロールが入力するメタ項目は講師の新規作成では持ち込ませない
+    _strip_other_role_meta(payload.form_data)
     # 契約（契約管理で登録した内容）が無い場合は業務連絡表を作成できない
     profile = db.scalar(
         select(WorkAssignmentProfile).where(
@@ -527,12 +530,18 @@ _CONTRACT_LOCKED_META_KEYS = (
     "note_schedule",
 )
 
+# 他ロールが入力するメタ項目（講師の保存で消さない・上書きさせない）。
+# requests_school（要望連絡事項（学校））は学校専用API（school-requests）だけが更新する。
+_OTHER_ROLE_META_KEYS = ("requests_school",)
+
 
 def _preserve_locked_meta(report: WorkReport, form_data: dict) -> None:
-    """講師による編集時、契約由来のメタ項目を保存済みの値に固定する。
+    """講師による編集時、契約由来・他ロール入力のメタ項目を保存済みの値に固定する。
 
     画面（UI）だけでなくサーバー側でも上書きを防ぎ、生JSON編集や細工した
-    リクエストからも契約内容を講師が変更できないようにする。
+    リクエストからも契約内容・学校の記入内容を講師が変更できないようにする。
+    講師フォームは meta を丸ごと組み立て直して送るため、この保持が無いと
+    学校が書いた要望連絡事項（学校）が講師の保存で消える。
     """
     if not isinstance(form_data, dict):
         return
@@ -543,6 +552,23 @@ def _preserve_locked_meta(report: WorkReport, form_data: dict) -> None:
     for key in _CONTRACT_LOCKED_META_KEYS:
         if key in old_meta:
             new_meta[key] = old_meta[key]
+    for key in _OTHER_ROLE_META_KEYS:
+        # 保存済みが無ければ講師の送信値も捨てる（講師が学校欄を新規に書き起こせないように）
+        if key in old_meta:
+            new_meta[key] = old_meta[key]
+        else:
+            new_meta.pop(key, None)
+
+
+def _strip_other_role_meta(form_data: dict) -> None:
+    """講師による新規作成時、他ロールが入力するメタ項目を落とす（学校欄のなりすまし防止）。"""
+    if not isinstance(form_data, dict):
+        return
+    meta = form_data.get("meta")
+    if not isinstance(meta, dict):
+        return
+    for key in _OTHER_ROLE_META_KEYS:
+        meta.pop(key, None)
 
 
 @router.patch("/{report_id}", response_model=ReportOut)
@@ -576,6 +602,40 @@ async def patch_report(
     db.refresh(report)
     if changes:
         await send_tutor_edit_notification(db, report, user, changes)
+    return report
+
+
+@router.patch("/{report_id}/school-requests", response_model=ReportOut)
+def patch_school_requests(
+    report_id: uuid.UUID,
+    payload: SchoolRequestsPatch,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_role("school")),
+):
+    """要望連絡事項（学校）の保存（改修依頼 202607211716-②）。
+
+    学校ロールが自校の報告書に対して meta.requests_school のみを更新する。
+    明細・他のメタ項目は受け取らないため、学校が講師の記入内容を書き換えることはできない。
+    編集できるのは学校確認待ち（＝学校がボールを持っている間）のみ。対象月は問わない（案B）。
+    通知メールは送らない（承認・差戻し時の既存メールに内容が載る）。
+    """
+    report = get_report_or_404(db, report_id)
+    assert_can_view_report(db, report, user, "school")
+    if report.status != WorkStatus.AWAITING_SCHOOL:
+        raise HTTPException(
+            status_code=409,
+            detail="要望連絡事項（学校）を入力できるのは学校確認待ちの業務連絡表のみです",
+        )
+    form_data = copy.deepcopy(report.form_data or {})
+    meta = form_data.get("meta")
+    if not isinstance(meta, dict):
+        meta = {}
+    meta["requests_school"] = payload.requests_school.strip()
+    form_data["meta"] = meta
+    report.form_data = form_data
+    report.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    db.refresh(report)
     return report
 
 

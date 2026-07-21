@@ -413,13 +413,16 @@ def _report_footer_values(report: WorkReport) -> list[tuple[str, str]]:
         ("弊社担当", str(meta.get("our_staff") or "-")),
         ("委託業務（契約より）", _task_reference_text(report) or "-"),
         ("スケジュール欄", str(meta.get("note_schedule") or "-")),
-        ("要望連絡事項", str(meta.get("requests") or "-")),
+        # 要望連絡事項は運営（契約由来の自動反映）・講師（業務連絡表で入力）・学校（報告書を確認で入力）の3欄
+        ("要望連絡事項（運営）", str(meta.get("requests") or "-")),
+        ("要望連絡事項（講師）", str(meta.get("requests_tutor") or "-")),
+        ("要望連絡事項（学校）", str(meta.get("requests_school") or "-")),
         ("定期代（購入時のみ記入）", _commuter_pass_text(meta)),
     ]
 
 
 def _report_footer_story(report: WorkReport, font_name: str, styles) -> list:
-    """明細下の項目（弊社担当・委託業務・スケジュール欄・要望連絡事項・定期代）をラベル｜値の表で出力する。"""
+    """明細下の項目（弊社担当・委託業務・スケジュール欄・要望連絡事項3欄・定期代）をラベル｜値の表で出力する。"""
     from xml.sax.saxutils import escape
 
     from reportlab.lib import colors

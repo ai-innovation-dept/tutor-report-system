@@ -164,10 +164,25 @@
           </label>
         </div>
 
-        <label class="block text-sm">
-          <span class="block mb-1 text-slate-700">要望連絡事項</span>
-          <textarea data-meta="requests" rows="4" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
-        </label>
+        <!-- 要望連絡事項は運営・講師・学校の3欄。入力できるのは担当ロールのみで、
+             運営（契約管理で設定）と学校（学校の「報告書を確認」で入力）は講師側では読取専用。 -->
+        <div class="rounded-lg border border-slate-200 p-3 text-sm">
+          <div class="mb-3 font-medium text-slate-800">要望連絡事項</div>
+          <div class="space-y-3">
+            <label class="block">
+              <span class="mb-1 block text-slate-700">要望連絡事項（運営）<span class="ml-2 text-xs font-normal text-slate-500">契約管理で設定されます</span></span>
+              <textarea data-meta="requests" rows="4" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-slate-700">要望連絡事項（講師）</span>
+              <textarea data-meta="requests_tutor" rows="3" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+            </label>
+            <label class="block">
+              <span class="mb-1 block text-slate-700">要望連絡事項（学校）<span class="ml-2 text-xs font-normal text-slate-500">学校が入力します</span></span>
+              <textarea data-meta="requests_school" rows="3" class="meta-input w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></textarea>
+            </label>
+          </div>
+        </div>
 
         <div data-fieldgroup="commuter_pass" class="rounded-lg border border-slate-200 p-3 text-sm">
           <div class="mb-3 font-medium text-slate-800">定期代セクション</div>
@@ -319,7 +334,11 @@ const DEFAULT_META = {
   work_content: DEFAULT_WORK_CONTENT,
   our_staff: '',
   tutor_no: '',
+  // 要望連絡事項3欄: requests=運営（契約由来・自動生成）／requests_tutor=講師（本画面で入力）／
+  // requests_school=学校（学校の「報告書を確認」で入力・講師側は読取専用）
   requests: '',
+  requests_tutor: '',
+  requests_school: '',
   // 委託業務（契約より）の表示テキスト（保存時に taskReferenceText() でスナップショット）
   task_reference: '',
   commuter_pass_months: '',
@@ -456,7 +475,7 @@ function formatDateJa(value) {
   const [y, m, d] = String(value).split('-');
   return `${y}年${m}月${d}日`;
 }
-// 要望連絡事項に表示する契約情報。前期・後期の期別設定（月時間（分）・週コマ・適用期間）と契約期間を
+// 要望連絡事項（運営）に表示する契約情報。前期・後期の期別設定（月時間（分）・週コマ・適用期間）と契約期間を
 // 「【前期】業務名：（月　3,000　分固定　：　週15コマ）[2026年04月01日　～　2026年08月31日]」形式で整形する。
 // 旧形式（適用期間なしのケース）は従来どおりラベルなしで表示する。
 function workloadRequestsText(contract) {
@@ -1966,16 +1985,23 @@ function renderFormAvailability() {
   if (!formMessage.textContent || formMessage.className.includes('rose')) clearFormMessage();
 }
 // 契約管理で登録された項目（契約由来）は講師側で変更不可（読取専用）にする。
-// 要望連絡事項(requests)は月時間・週コマのケースと契約期間を契約から自動反映するため読取専用。
+// 要望連絡事項（運営）(requests)は月時間・週コマのケースと契約期間を契約から自動反映するため読取専用。
 const LOCKED_META_KEYS = ['customer_id', 'our_staff', 'dispatch_place_address', 'work_location', 'classroom_name', 'requests', 'work_content', 'note_schedule'];
-function applyContractLocks() {
-  LOCKED_META_KEYS.forEach(key => {
+// 他ロールが入力する項目も講師側では読取専用。要望連絡事項（学校）は学校の「報告書を確認」でのみ入力できる
+// （サーバー側でも講師の保存では上書きされない＝api/reports.py の _OTHER_ROLE_META_KEYS）。
+const OTHER_ROLE_META_KEYS = ['requests_school'];
+function lockMetaInputs(keys, title) {
+  keys.forEach(key => {
     document.querySelectorAll(`.meta-input[data-meta="${key}"]`).forEach(el => {
       el.readOnly = true;
       el.classList.add('bg-slate-100', 'cursor-not-allowed', 'text-slate-600');
-      el.title = '契約管理で設定された内容のため、講師側では変更できません';
+      el.title = title;
     });
   });
+}
+function applyContractLocks() {
+  lockMetaInputs(LOCKED_META_KEYS, '契約管理で設定された内容のため、講師側では変更できません');
+  lockMetaInputs(OTHER_ROLE_META_KEYS, '学校が入力する項目のため、講師側では変更できません');
 }
 function editReport(id) {
   const report = allReports.find(item => item.id === id);

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class ReportCreate(BaseModel):
@@ -22,6 +22,15 @@ class ReportCreate(BaseModel):
 class ReportPatch(BaseModel):
     form_data: dict
     comment: str | None = None
+
+
+class SchoolRequestsPatch(BaseModel):
+    """要望連絡事項（学校）の保存。学校ロールが自校の報告書に対してのみ更新できる。
+
+    明細・他のメタ項目は一切受け取らない（学校が書き換えられるのはこの1項目だけ）。
+    """
+
+    requests_school: str = Field(default="", max_length=2000)
 
 
 class WorkflowAction(BaseModel):

@@ -237,6 +237,8 @@ def test_pdf_footer_includes_all_form_items():
     report.form_data["meta"].update({
         "note_schedule": "毎週 月・水",
         "requests": "数学指導：（月　1,200　分固定）\n契約期間：2026年04月01日　～　2027年03月31日",
+        "requests_tutor": "来月は試験期間のため時間割の調整をお願いします",
+        "requests_school": "職員室の入室は17時までにお願いします",
         "commuter_pass_months": "3",
         "commuter_pass_amount": "12000",
         "commuter_pass_route": "渋谷〜新宿",
@@ -251,7 +253,10 @@ def test_pdf_footer_includes_all_form_items():
     # 委託業務は列定義スナップショットから導出（担当→副→採点の順）
     assert fields["委託業務（契約より）"] == "【担当】数学指導（分）\n【副】英語補習（分）\n採点（回）"
     assert fields["スケジュール欄"] == "毎週 月・水"
-    assert "契約期間：2026年04月01日" in fields["要望連絡事項"]
+    # 要望連絡事項は運営・講師・学校の3欄（改修依頼 202607211716-②）
+    assert "契約期間：2026年04月01日" in fields["要望連絡事項（運営）"]
+    assert fields["要望連絡事項（講師）"] == "来月は試験期間のため時間割の調整をお願いします"
+    assert fields["要望連絡事項（学校）"] == "職員室の入室は17時までにお願いします"
     commuter = fields["定期代（購入時のみ記入）"]
     assert "期間選択・金額：3ヶ月 / 12,000円" in commuter
     assert "区間（経路）：渋谷〜新宿" in commuter
@@ -288,7 +293,9 @@ def test_pdf_footer_empty_commuter_pass_and_defaults():
 
     assert fields["定期代（購入時のみ記入）"] == "記入なし"
     assert fields["スケジュール欄"] == "-"
-    assert fields["要望連絡事項"] == "-"
+    assert fields["要望連絡事項（運営）"] == "-"
+    assert fields["要望連絡事項（講師）"] == "-"
+    assert fields["要望連絡事項（学校）"] == "-"
     # 旧データ（契約由来の列が無い）は委託業務も「-」
     assert fields["委託業務（契約より）"] == "-"
 
