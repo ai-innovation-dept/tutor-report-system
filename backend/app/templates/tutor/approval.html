@@ -14,10 +14,10 @@
 </style>
 <!-- # === Phase 9: フロントエンド ロール別画面 START === -->
 <section class="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-  <h2 class="font-semibold text-slate-800">エクスポート</h2>
+  <h2 class="font-semibold text-slate-800">対象月・エクスポート</h2>
   <div class="mt-3 flex flex-wrap items-end gap-3">
     <label class="text-sm">
-      <span class="mb-1 block text-slate-700">月</span>
+      <span class="mb-1 block text-slate-700">対象月</span>
       <select id="exportMonth" class="rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"></select>
     </label>
     <a id="bulkExportPdf" class="inline-flex items-center rounded-lg bg-green-600 px-3 py-2 text-sm text-white hover:bg-green-700" href="#">指導時間確認票PDF</a>
@@ -25,7 +25,7 @@
     <a id="bulkExportMonthlyPdf" class="hidden items-center rounded-lg bg-indigo-600 px-3 py-2 text-sm text-white hover:bg-indigo-700" href="#">指導月報PDF</a>
     <span id="exportWarning" class="text-sm text-rose-700"></span>
   </div>
-  <p class="mt-2 text-xs text-slate-500">最終承認済みの生徒のみダウンロード可能</p>
+  <p class="mt-2 text-xs text-slate-500">選択した月の承認状況を下に表示します（過去月も選べます）。PDFは最終承認済みの生徒のみダウンロード可能。</p>
 </section>
 <div id="approvalMonths" class="grid gap-4"></div>
 {% endblock %}
@@ -65,6 +65,8 @@ const STATUS_LABELS = {
 let allReports = [];
 let allAssignments = [];
 let groups = [];
+// 表示中の対象月（エクスポート欄の「対象月」と共通。過去月も切り替えられる＝差戻し要求の対象になる）
+let selectedApprovalMonth = currentMonth();
 // 指導月報の存在キー（`assignment_id|target_month`）。月報PDFボタンは作成済みの担当×月のみ表示する。
 let monthlyKeys = new Set();
 function hasMonthly(assignmentId, month) { return monthlyKeys.has(`${assignmentId}|${month}`); }
@@ -141,14 +143,18 @@ function buildGroup(assignment, reports) {
     if (dateCompare !== 0) return dateCompare;
     return timeText(a.start_time).localeCompare(timeText(b.start_time));
   });
+  const assignmentId = assignment?.id || sorted[0]?.assignment_id;
+  const targetMonth = sorted[0]?.target_month || selectedApprovalMonth || currentMonth();
   return {
-    assignment_id: assignment?.id || sorted[0]?.assignment_id,
+    assignment_id: assignmentId,
+    // 担当×対象月で1カード。操作（提出・差戻し要求など）はこのキーでカードを引く。
+    key: `${assignmentId}|${targetMonth}`,
     student_name: assignment?.student_name || '生徒未設定',
     parent_id: assignment?.parent_id || sorted[0]?.parent_id || null,
     parent_display_name: assignment?.parent_display_name || '',
     parent_no: assignment?.parent_no || '',
     skip_parent_approval: sorted.some(report => report.skip_parent_approval),
-    target_month: currentMonth(),
+    target_month: targetMonth,
     reports: sorted,
     phase: monthlyPhase(sorted),
     total_count: sorted.length,
@@ -216,10 +222,12 @@ function exportButtons(group) {
   </div>`;
 }
 function renderBulkExportArea() {
-  const months = [...new Set(allReports.map(report => report.target_month))].sort().reverse();
+  // 報告書のある月＋当月を選択肢にする（当月に報告書が無くても当月を選べるようにする）
+  const months = [...new Set([...allReports.map(report => report.target_month), currentMonth()])].sort().reverse();
+  if (!months.includes(selectedApprovalMonth)) selectedApprovalMonth = currentMonth();
   exportMonth.innerHTML = months.map(month => `<option value="${month}">${monthLabel(month)}</option>`).join('');
-  exportMonth.value = currentMonth();
-  exportMonth.disabled = !months.length;
+  exportMonth.value = selectedApprovalMonth;
+  exportMonth.disabled = months.length <= 1 && !allReports.length;
   renderBulkExportLinks();
 }
 function setBulkExportEnabled(enabled, message = '') {
@@ -231,15 +239,20 @@ function setBulkExportEnabled(enabled, message = '') {
   exportWarning.textContent = message;
 }
 function renderBulkExportLinks() {
-  const month = exportMonth.value || currentMonth();
-  let targetGroups = groups;
+  const month = exportMonth.value || selectedApprovalMonth || currentMonth();
+  // 一括PDFは選択中の月が対象。その月のカードが全て最終承認済みのときのみ有効化する。
+  const targetGroups = groups.filter(group => group.target_month === month);
   const params = new URLSearchParams({scope: 'all', target_month: month, format: 'pdf'});
   // 指導月報PDF（一括）は、その月に月報が1件でも作成済みの場合のみ表示する。
   const anyMonthly = [...monthlyKeys].some(key => key.endsWith(`|${month}`));
   bulkExportMonthlyPdf.classList.toggle('hidden', !anyMonthly);
   bulkExportMonthlyPdf.classList.toggle('inline-flex', anyMonthly);
-  const exportable = targetGroups.length > 0 && targetGroups.every(group => group.phase === 'completed');
-  if (!exportable) {
+  if (!targetGroups.length) {
+    // 月切替（202607211144 ③A）で報告書の無い月も選べるため、未承認とは区別して案内する
+    setBulkExportEnabled(false, 'この月の報告書はありません');
+    return;
+  }
+  if (!targetGroups.every(group => group.phase === 'completed')) {
     setBulkExportEnabled(false, '未承認の生徒が含まれています');
     return;
   }
@@ -248,9 +261,81 @@ function renderBulkExportLinks() {
   bulkExportDailyPdf.href = `/api/reports/export-daily?${new URLSearchParams({scope: 'all', target_month: month}).toString()}`;
   bulkExportMonthlyPdf.href = `/api/reports/export-monthly?${new URLSearchParams({scope: 'all', target_month: month}).toString()}`;
 }
+// ===== 講師起点の差戻し要求（改修依頼 202607211144・EMPS と同一仕様） =====
+// 講師は「差戻しを要求」（理由必須）するだけで、実行するのはその時点でボールを持つ承認担当。
+// 対象ステータス＝提出後にボールが保護者・運営側にある状態すべて。
+// サーバの対応表（workflow_service.RETURN_REQUEST_BALL_HOLDERS）と同一セット。変更時は両方を更新すること。
+const REQUESTABLE_STATUSES = ['awaiting_parent_approval', 'submitted_to_admin', 'returned_to_receiver', 'received', 're_reviewed', 'admin_approved'];
+function requestableReports(group) {
+  // 保護者の承認・差戻し操作は当月限定のため、過去月の「保護者承認待ち」は要求できない（宛先が対応不能）
+  const pastMonth = group.target_month !== currentMonth();
+  return group.reports.filter(r =>
+    REQUESTABLE_STATUSES.includes(r.status)
+    && !r.return_request_pending
+    && !(pastMonth && r.status === 'awaiting_parent_approval'));
+}
+function pendingRequestReports(group) {
+  return group.reports.filter(r => r.return_request_pending);
+}
+// 要求の宛先（現在ボールを持っている側）の表示ラベル
+function requestHolderLabel(status) {
+  if (status === 'awaiting_parent_approval') return '保護者';
+  if (['submitted_to_admin', 'returned_to_receiver'].includes(status)) return '運営（受付担当）';
+  return '運営（再鑑担当）';
+}
+// 差戻し要求エリア：要求中の案内 → 却下された通知 → 要求ボタン の優先順で表示する。
+function returnRequestArea(group) {
+  const pending = pendingRequestReports(group);
+  if (pending.length) {
+    const holder = requestHolderLabel(pending[0].status);
+    const reasons = [...new Set(pending.map(r => r.return_request_comment).filter(Boolean))]
+      .map(reason => `<div class="mt-1 whitespace-pre-wrap">要求理由：${escapeHtml(reason)}</div>`).join('');
+    return `<div class="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+      <div class="font-medium">差戻しを要求中です。${escapeHtml(holder)}が許可すると報告書が戻り、修正できるようになります。</div>
+      ${reasons}
+    </div>`;
+  }
+  const requestable = requestableReports(group);
+  const declined = group.reports.filter(r => r.return_request_declined_comment && REQUESTABLE_STATUSES.includes(r.status));
+  const declinedNotice = declined.length
+    ? `<div class="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+        <div class="font-medium">差戻し要求は許可されませんでした。</div>
+        ${[...new Set(declined.map(r => r.return_request_declined_comment))].map(reason => `<div class="mt-1 whitespace-pre-wrap">理由：${escapeHtml(reason)}</div>`).join('')}
+      </div>`
+    : '';
+  if (!requestable.length) return declinedNotice;
+  return `${declinedNotice}<div class="mt-3 flex flex-wrap items-center gap-3">
+    <button class="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50" onclick="requestReturnGroup('${group.key}')">差戻しを要求</button>
+    <span class="text-xs text-slate-500">提出済みの内容を修正したい場合、現在の承認担当へ差戻しを要求できます。</span>
+  </div>`;
+}
+async function requestReturnGroup(key) {
+  const group = groups.find(item => item.key === key);
+  if (!group) return;
+  const targets = requestableReports(group);
+  if (!targets.length) return;
+  const holder = requestHolderLabel(targets[0].status);
+  const comment = await showPromptModal({
+    title: '差戻しの要求',
+    message: `${group.student_name}　${monthLabel(group.target_month)}の指導実績について、${holder}へ差戻しを要求します。\n${holder}が許可すると報告書が戻り、修正できるようになります。\n\n差戻しを要求する理由を入力してください。`,
+    placeholder: '例）指導時間の入力誤りを修正したいため',
+    confirmLabel: '差戻しを要求する'
+  });
+  if (comment == null) return;
+  try {
+    await api('/api/reports/request-return-bulk', {
+      method: 'POST',
+      body: JSON.stringify({target_month: group.target_month, report_ids: targets.map(report => report.id), comment})
+    });
+    showToast('差戻しを要求しました。承認担当の許可をお待ちください', 'success');
+  } catch (error) {
+    showToast(error.message || '差戻しを要求できませんでした', 'error');
+  }
+  await loadApproval();
+}
 function actionArea(group) {
   if (group.phase === 'completed') {
-    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は運営へ差戻しを依頼してください。</div>${exportButtons(group)}`;
+    return `<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">最終承認済み（${timeLabel(group.admin_approved_at, '-')}）<br>追加修正が必要な場合は、下の「差戻しを要求」から運営（再鑑担当）へ依頼してください。</div>${exportButtons(group)}`;
   }
   if (['parent_approved', 'submitted_to_admin'].includes(group.phase)) {
     return '<div class="mt-5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">運営確認中</div>';
@@ -270,14 +355,14 @@ function actionArea(group) {
     }
     const label = group.skip_parent_approval ? '修正済みの報告書を運営へまとめて再提出' : '修正済みの報告書を保護者へまとめて再依頼';
     return `<div class="mt-5 flex flex-wrap items-center gap-3">
-      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="resendReturnedReports('${group.key}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
     </div>`;
   }
   if (group.can_submit_to_parent) {
     const label = group.skip_parent_approval ? '運営へ提出' : '保護者へまとめて承認依頼';
     return `<div class="mt-5">
-      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+      <button class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitToParentGroup('${group.key}')">${label}</button>
     </div>`;
   }
   if (group.phase === 'recording') {
@@ -325,12 +410,15 @@ function detailRows(group) {
   </div>`;
 }
 function renderApproval() {
-  if (!groups.length) {
-    approvalMonths.innerHTML = '<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">当月分の承認対象はありません。</div>';
+  // 表示は選択中の対象月のみ（過去月は「対象月」セレクトで切り替える）
+  const visibleGroups = groups.filter(group => group.target_month === selectedApprovalMonth);
+  if (!visibleGroups.length) {
+    approvalMonths.innerHTML = `<div class="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-600 shadow-sm">${escapeHtml(monthLabel(selectedApprovalMonth))}の承認対象はありません。</div>`;
     return;
   }
-  approvalMonths.innerHTML = groups.map(group => {
+  approvalMonths.innerHTML = visibleGroups.map(group => {
     const completeBadge = group.phase === 'completed' ? '<span class="rounded-full bg-emerald-100 px-2 py-0.5 text-xs text-emerald-700">完了</span>' : '';
+    const requestBadge = pendingRequestReports(group).length ? '<span class="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">差戻し要求中</span>' : '';
     const collapsedAttr = group.phase === 'completed' ? '' : 'open';
     const parentLabel = group.parent_display_name ? `保護者：${escapeHtml(nameWithNo(group.parent_display_name, group.parent_no))}` : '保護者：未設定';
     return `<details class="accordion-card rounded-xl border border-slate-200 bg-white p-5 shadow-sm overflow-hidden" ${collapsedAttr}>
@@ -340,6 +428,7 @@ function renderApproval() {
           <div class="mt-1 text-sm text-slate-500">${parentLabel}</div>
         </div>
         <div class="flex shrink-0 items-center gap-2">
+          ${requestBadge}
           ${completeBadge}
           ${ACCORDION_CHEVRON}
         </div>
@@ -347,18 +436,20 @@ function renderApproval() {
       ${renderStepper(group)}
       ${summaryGrid(group)}
       ${actionArea(group)}
-      <button class="mt-4 text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
-      <div id="detail-${group.assignment_id}"></div>
+      ${returnRequestArea(group)}
+      <button class="mt-4 text-sm font-medium text-blue-600 underline decoration-blue-300 underline-offset-4" onclick="toggleDetails('${group.key}')">対象報告書を表示</button>
+      <div id="detail-${group.assignment_id}-${group.target_month}"></div>
     </details>`;
   }).join('');
 }
-function toggleDetails(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
-  const area = document.getElementById(`detail-${assignmentId}`);
+function toggleDetails(key) {
+  const group = groups.find(item => item.key === key);
+  if (!group) return;
+  const area = document.getElementById(`detail-${group.assignment_id}-${group.target_month}`);
   area.innerHTML = area.innerHTML ? '' : detailRows(group);
 }
-async function submitToParentGroup(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+async function submitToParentGroup(key) {
+  const group = groups.find(item => item.key === key);
   // リマインドメール設定は運営（管理者ダッシュボード）で管理する。講師は承認依頼のみ行う。
   await api('/api/reports/submit-to-parent-bulk', {
     method: 'POST',
@@ -366,8 +457,8 @@ async function submitToParentGroup(assignmentId) {
   });
   await loadApproval();
 }
-async function resendReturnedReports(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+async function resendReturnedReports(key) {
+  const group = groups.find(item => item.key === key);
   const ids = returnedReportIds(group);
   for (const id of ids) {
     await api(`/api/reports/${id}/submit-to-parent`, {
@@ -378,8 +469,9 @@ async function resendReturnedReports(assignmentId) {
   await loadApproval();
 }
 async function loadApproval() {
+  // 過去月の差戻し要求（202607211144）にも対応するため全月を取得し、担当×対象月でカード化する。
   const [reports, assignments, monthlies] = await Promise.all([
-    api(`/api/reports?target_month=${currentMonth()}`),
+    api('/api/reports'),
     api('/api/assignments'),
     api('/api/monthly-reports').catch(() => [])
   ]);
@@ -388,16 +480,21 @@ async function loadApproval() {
   monthlyKeys = new Set((monthlies || []).map(m => `${m.assignment_id}|${m.target_month}`));
   const assignmentMap = new Map(allAssignments.map(assignment => [assignment.id, assignment]));
   const reportGroups = allReports.reduce((acc, report) => {
-    (acc[report.assignment_id] ||= []).push(report);
+    (acc[`${report.assignment_id}|${report.target_month}`] ||= []).push(report);
     return acc;
   }, {});
-  groups = Object.entries(reportGroups).map(([assignmentId, items]) => buildGroup(assignmentMap.get(assignmentId), items));
+  groups = Object.entries(reportGroups).map(([key, items]) => buildGroup(assignmentMap.get(key.split('|')[0]), items));
   renderBulkExportArea();
   renderApproval();
   // サイドバーの「差戻しあり」バッジを再計算（再承認依頼の直後に消えるように）
   window.refreshReturnComments?.();
 }
-exportMonth.addEventListener('change', renderBulkExportLinks);
+// 「対象月」は一覧カードとエクスポートの共通スイッチ
+exportMonth.addEventListener('change', () => {
+  selectedApprovalMonth = exportMonth.value || currentMonth();
+  renderBulkExportLinks();
+  renderApproval();
+});
 window.authReady.then(user => {
   if (!user) return;
   loadApproval();

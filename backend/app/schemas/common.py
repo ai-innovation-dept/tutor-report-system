@@ -333,6 +333,10 @@ class ReportOut(BaseModel):
     last_event: str | None = None
     last_return_comment: str | None = None
     last_return_at: datetime | None = None
+    # 講師起点の差戻し要求（202607211144）。イベント履歴からの導出値でDBカラムではない。
+    return_request_pending: bool = False          # 未解決の要求あり（ボール保持ロールの対応待ち）
+    return_request_comment: str | None = None     # 未解決の要求理由（講師が入力）
+    return_request_declined_comment: str | None = None  # 直近の要求が却下された場合の却下理由
     unread_count: int = 0
     events: list[ReportEventOut] = Field(default_factory=list)
 

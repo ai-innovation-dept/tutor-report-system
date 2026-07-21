@@ -49,6 +49,11 @@ class ReportAction(str, enum.Enum):
     admin_approve = "admin_approve"
     return_from_master = "return_from_master"
     receiver_edit = "receiver_edit"  # 受付担当による報告書修正
+    # 講師起点の差戻し要求（改修依頼 202607211144）。要求・却下はステータスを変えずイベントのみ記録し、
+    # 許可で講師へ差戻す。未解決かどうかは report_events から導出する（DBカラムは追加しない）。
+    request_return = "request_return"                    # 講師 → 現在のボール保持者へ差戻しを要求
+    approve_return_request = "approve_return_request"    # ボール保持者が許可（＝講師へ差戻し）
+    decline_return_request = "decline_return_request"    # ボール保持者が却下（理由必須）
 
 
 class User(Base):

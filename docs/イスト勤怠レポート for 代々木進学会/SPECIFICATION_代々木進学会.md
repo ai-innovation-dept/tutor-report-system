@@ -194,6 +194,29 @@ returned_to_receiver --> 受付担当が receive --> received
 
 > 完了（`admin_approved`）後の差戻しは、最終承認者である **再鑑者（admin_reviewer）** が `return_from_reviewer` で受付へ戻す。旧フローの管理者差戻し（`return_from_master`）は廃止されている。
 
+#### 講師起点の差戻し要求（改修依頼 202607211144）
+
+提出後の報告書を講師が修正したい場合、講師は「承認管理」から **差戻しを要求**（理由必須）できる。実行するのは
+その時点で**ボールを持つ承認担当**で、講師が勝手に取り戻すことはできない。新システム（EMPS）と同一仕様。
+
+| 現在のステータス | ボール（＝要求に対応するロール） |
+|---|---|
+| `awaiting_parent_approval` | 保護者（当月のみ。過去月は保護者が操作できないため要求ボタンも出さない） |
+| `submitted_to_admin` / `returned_to_receiver` | 受付担当 |
+| `received` / `re_reviewed` / `admin_approved` | 再鑑者 |
+
+- **要求**（`request_return`・講師）: ステータスは変えずイベントのみ記録。未解決の要求があるあいだは再要求できない（409）。
+- **許可**（`approve_return_request`・ボール保持ロール）: **完了後でも講師へ直接差戻す**（`returned_to_tutor`）。
+  要求理由は許可イベントのコメントへ自動転記され、講師画面の差戻し理由・チャットにそのまま表示される。
+- **却下**（`decline_return_request`・ボール保持ロール・理由必須）: ステータスは変えず要求のみ解消。却下理由は講師に表示され、講師は再要求できる。
+- 要求は**承認等でボールが移っても未解決のまま新しいボール保持ロールへ引き継がれる**。解決するのは「許可」「講師へ戻る差戻し」「クローズ」のみ。
+- 未解決かどうかは `report_events` から導出する（`workflow_service.return_request_state`）ため **DBカラム・マイグレーションは不要**。
+- 職務分掌（同一報告書で受付と再鑑の兼務不可）は許可・却下にも適用される。
+- **メール通知は要求・却下では送らない**（到達経路は講師カードのバッジ／運営ダッシュボードの「あなたのタスク」／保護者一覧の案内）。
+  許可は差戻しそのものなので、従来どおり講師へ差戻しメールが届く。
+- 対応表（どのステータスで誰がボールを持つか）は `workflow_service.RETURN_REQUEST_BALL_HOLDERS` を正とし、
+  `tutor/approval.html`・`report_view.html`・`admin/dashboard.html` に複製がある（`tests/test_return_request_ui.py` で同期を検証）。
+
 ### 3.3 ユーザー招待・登録フロー
 
 ```
@@ -319,8 +342,10 @@ returned_to_receiver --> 受付担当が receive --> received
 | `parent_return` | awaiting_parent_approval | returned_to_tutor |
 | `return_from_receiver` | submitted_to_admin / received / returned_to_receiver | returned_to_tutor |
 | `return_from_reviewer` | received / re_reviewed / admin_approved | returned_to_receiver |
+| `approve_return_request`（講師の差戻し要求を許可） | awaiting_parent_approval / submitted_to_admin / returned_to_receiver / received / re_reviewed / admin_approved | returned_to_tutor |
 
 `returned_to_receiver` 状態の報告書は、受付担当が `receive` アクションで再受付できる。旧フローの管理者差戻し（`return_from_master`）は廃止。
+講師起点の差戻し要求（`request_return` / `approve_return_request` / `decline_return_request`）は §3.2 を参照（要求・却下はステータスを変えない）。
 
 ### 各ステータスで可能なアクション
 
@@ -561,6 +586,9 @@ password: パスワード
 | POST | `/api/reports/admin-receive-bulk` | admin_receiver | 一括受付 |
 | POST | `/api/reports/admin-review-bulk` | admin_reviewer | 一括再鑑（＝最終承認） |
 | POST | `/api/reports/admin-return-bulk` | admin_receiver / admin_reviewer | 一括差戻し（from_role 指定必須） |
+| POST | `/api/reports/request-return-bulk` | tutor | 差戻しの要求（理由必須・§3.2「講師起点の差戻し要求」） |
+| POST | `/api/reports/approve-return-request-bulk` | ボール保持ロール（parent / admin_receiver / admin_reviewer） | 差戻し要求の許可（＝講師へ差戻し） |
+| POST | `/api/reports/decline-return-request-bulk` | ボール保持ロール（同上） | 差戻し要求の却下（理由必須・ステータスは変わらない） |
 
 **一括操作リクエスト（BulkSubmitIn）**
 ```json

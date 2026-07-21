@@ -133,9 +133,15 @@ const ACTION_LABELS = {
   admin_approve: '承認',
   return_from_master: '差戻し',
   receiver_edit: '受付修正',
-  tutor_edit: '講師修正'
+  tutor_edit: '講師修正',
+  // 講師起点の差戻し要求（202607211144）
+  request_return: '差戻し要求（講師）',
+  approve_return_request: '要求許可（講師へ差戻し）',
+  decline_return_request: '要求却下'
 };
-const RETURN_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master']);
+const RETURN_ACTIONS = new Set(['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master', 'approve_return_request']);
+// 差戻し要求そのもの（要求・却下）はアンバー系で表示し、差戻し（赤）と区別する
+const REQUEST_ACTIONS = new Set(['request_return', 'decline_return_request']);
 const APPROVAL_ACTIONS = new Set(['submit_to_parent', 'parent_approve', 'receive', 're_review', 'admin_approve']);
 const EDIT_ACTIONS = new Set(['receiver_edit', 'tutor_edit']);
 const PIPELINE_COLUMNS = [
@@ -280,6 +286,25 @@ function taskStatuses(config) {
   if (!config) return [];
   return config.statuses || [config.status];
 }
+// 講師起点の差戻し要求（202607211144）。要求は承認でボールが移っても引き継がれるため、
+// 「現在のステータスでボールを持つロール」が対応する。report_view / workflow_service と同一の対応表。
+const REQUEST_BALL_STATUSES = {
+  admin_receiver: ['submitted_to_admin', 'returned_to_receiver'],
+  admin_reviewer: ['received', 're_reviewed', 'admin_approved'],
+};
+function groupHasPendingRequest(reports) {
+  return reports.some(report => report.return_request_pending);
+}
+// 自ロールが対応すべき差戻し要求か（最終承認済みなど通常タスク外の状態も対象になる）
+function isRequestTask(reports) {
+  if (!groupHasPendingRequest(reports)) return false;
+  return (REQUEST_BALL_STATUSES[currentRole] || []).includes(currentGroupStatus(reports));
+}
+// あなたのタスク対象か：通常の承認待ちに加え、自ロールが対応する差戻し要求も含める
+function isTaskGroup(reports, statuses) {
+  return statuses.includes(currentGroupStatus(reports)) || isRequestTask(reports);
+}
+const REQUEST_BADGE = '<span class="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-800">差戻し要求</span>';
 function taskConfig() {
   // 管理者・管理責任者は承認フローから外れ、承認タスクは持たない（閲覧・PDFのみ）
   // 承認・差戻しの実操作は報告書（参照）画面に集約済み。ここはタスク表示（statuses/label/subtext）のみに使う。
@@ -354,7 +379,8 @@ function renderKpis() {
   const groups = Object.values(groupedByAssignment(monthReports));
   const config = taskConfig();
   const statuses = taskStatuses(config);
-  const approvalWaiting = config ? groups.filter(group => statuses.includes(currentGroupStatus(group))).length : 0;
+  // タスク一覧と同じ判定（承認待ち＋自ロール対応の差戻し要求）で件数を揃える
+  const approvalWaiting = config ? groups.filter(group => isTaskGroup(group, statuses)).length : 0;
   const approvalSubtext = config?.subtext || '対応が必要';
   const returnedTutor = groups.filter(group => group.some(report => report.status === 'returned_to_tutor') && !group.some(report => report.status === 'admin_approved')).length;
   const returnedReceiver = groups.filter(group => group.some(report => report.status === 'returned_to_receiver') && !group.some(report => report.status === 'admin_approved')).length;
@@ -402,7 +428,7 @@ function renderBulkExportLinks() {
 function renderTasks(groups) {
   const config = taskConfig();
   const statuses = taskStatuses(config);
-  const tasks = config ? groups.filter(group => statuses.includes(currentGroupStatus(group.reports))) : [];
+  const tasks = config ? groups.filter(group => isTaskGroup(group.reports, statuses)) : [];
   taskCountBadge.textContent = tasks.length;
   if (!tasks.length) {
     taskList.innerHTML = '<div class="px-4 py-4 text-sm text-slate-500">あなたの承認待ちはありません。</div>';
@@ -424,13 +450,16 @@ function renderTasks(groups) {
         const groupStatus = currentGroupStatus(group.reports);
         const meta = getTaskMeta(group, groupStatus);
         const lockReason = separationLockReason(group);
+        const pendingRequest = isRequestTask(group.reports);
         const cta = lockReason
           ? '<span class="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-700">確認のみ</span>'
-          : `<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700">確認して${escapeHtml(config.label)}<span aria-hidden="true">→</span></span>`;
+          : pendingRequest
+            ? '<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1.5 text-xs font-medium text-amber-800">差戻し要求に対応<span aria-hidden="true">→</span></span>'
+            : `<span class="inline-flex shrink-0 items-center gap-1 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-xs font-medium text-emerald-700">確認して${escapeHtml(config.label)}<span aria-hidden="true">→</span></span>`;
         return `<button type="button" class="flex w-full items-center justify-between gap-3 border-t border-slate-100 px-4 py-3 text-left transition hover:bg-slate-50" onclick="openReportWindow('${group.key}')">
           <div class="min-w-0">
-            <div class="font-medium text-slate-800">${escapeHtml(group.student_name)}<span class="px-1 text-slate-300">・</span>${escapeHtml(monthShortLabel(group.target_month))}</div>
-            <div class="mt-0.5 truncate text-xs text-slate-500">${escapeHtml(meta || config.subtext)}</div>
+            <div class="font-medium text-slate-800">${escapeHtml(group.student_name)}<span class="px-1 text-slate-300">・</span>${escapeHtml(monthShortLabel(group.target_month))}${pendingRequest ? REQUEST_BADGE : ''}</div>
+            <div class="mt-0.5 truncate text-xs text-slate-500">${escapeHtml(pendingRequest ? '講師から差戻し要求が届いています' : (meta || config.subtext))}</div>
             ${lockReason ? `<div class="mt-1 text-xs font-medium text-amber-600">⚠ ${escapeHtml(lockReason)}</div>` : ''}
           </div>
           ${cta}
@@ -475,6 +504,7 @@ function renderPipeline(groups) {
           return `<button type="button" class="block w-full cursor-pointer border-l-[3px] p-2 text-left transition hover:brightness-95 ${pipelineCardClass(status)} ${openCardKey === group.key ? 'ring-2 ring-blue-200' : ''}" onclick="toggleDetails('${group.key}')">
             <div class="text-[12px] font-medium text-slate-800">${escapeHtml(group.student_name)}</div>
             <div class="mt-1 text-[10px] text-slate-500">${escapeHtml(nameWithNo(group.tutor_name, group.tutor_no))} / ${escapeHtml(statusLabel(status))}</div>
+            ${groupHasPendingRequest(group.reports) ? '<div class="mt-1 inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">差戻し要求</div>' : ''}
           </button>`;
         }).join('') : '<div class="px-2 py-4 text-center text-xs text-slate-400">なし</div>'}
       </div>
@@ -498,6 +528,7 @@ function currentWaitLabel(status) {
 }
 function eventDotClass(action) {
   if (RETURN_ACTIONS.has(action)) return 'bg-[#DC2626]';
+  if (REQUEST_ACTIONS.has(action)) return 'bg-[#D97706]';
   if (APPROVAL_ACTIONS.has(action)) return 'bg-[#16A34A]';
   if (EDIT_ACTIONS.has(action)) return 'bg-[#2563EB]';
   return 'bg-slate-400';
@@ -505,6 +536,7 @@ function eventDotClass(action) {
 function actionBadge(action) {
   let cls = 'bg-[#DCFCE7] text-[#166534]';
   if (RETURN_ACTIONS.has(action)) cls = 'bg-[#FEE2E2] text-[#991B1B]';
+  else if (REQUEST_ACTIONS.has(action)) cls = 'bg-[#FEF3C7] text-[#92400E]';
   else if (EDIT_ACTIONS.has(action)) cls = 'bg-[#DBEAFE] text-[#1E40AF]';
   return `<span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}">${escapeHtml(actionLabel(action))}</span>`;
 }

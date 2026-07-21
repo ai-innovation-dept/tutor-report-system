@@ -2,6 +2,7 @@
 from uuid import UUID
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,7 +19,12 @@ from app.schemas import (
     ReportOut,
 )
 from app.services.monthly_report_service import apply_parent_note, assert_monthly_reports_ready
-from app.services.workflow_service import auto_submit_to_admin, send_transition_notifications, transition
+from app.services.workflow_service import (
+    RETURN_REQUEST_BALL_HOLDERS,
+    auto_submit_to_admin,
+    send_transition_notifications,
+    transition,
+)
 
 router = APIRouter(prefix="/api/reports", tags=["workflow"])
 
@@ -134,6 +140,69 @@ async def parent_return_bulk(payload: BulkReturnIn, db: Session = Depends(get_db
     db.commit()
     await send_transition_notifications(db, ReportAction.parent_return.value, reports, user, payload.comment)
     return {"updated": changed}
+
+
+# ---------------------------------------------------------------------------
+# 講師起点の差戻し要求（改修依頼 202607211144）
+# ---------------------------------------------------------------------------
+# 画面の操作単位（担当×対象月のまとまり）に合わせ、一括APIのみを用意する。
+# 対象ステータス・対応ロール・二重要求などのガードは workflow_service.transition が担う。
+
+@router.post("/request-return-bulk")
+async def request_return_bulk(payload: BulkReturnIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """講師が、現在ボールを持つ承認担当へ差戻しを要求する（理由必須・メール通知なし）。"""
+    reports = _bulk_reports(payload, db, user)
+    _validate_bulk_statuses(
+        reports,
+        user_id=user.id,
+        owner_attr="tutor_id",
+        statuses=set(RETURN_REQUEST_BALL_HOLDERS),
+    )
+    _validate_target_month(reports, payload.target_month)
+    changed = []
+    for report in reports:
+        transition(db, report, user, ReportAction.request_return.value, payload.comment)
+        changed.append(report.id)
+    db.commit()
+    return {"updated": changed}
+
+
+@router.post("/approve-return-request-bulk")
+async def approve_return_request_bulk(payload: BulkSubmitIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """ボールを持つ承認担当が差戻し要求を許可する（＝講師へ差戻し・要求理由は自動転記）。"""
+    reports = _bulk_reports(payload, db, user)
+    _validate_target_month(reports, payload.target_month)
+    action = ReportAction.approve_return_request.value
+    changed = []
+    for report in reports:
+        transition(db, report, user, action)
+        changed.append(report.id)
+    db.commit()
+    await send_transition_notifications(db, action, reports, user, _last_return_comment(db, reports[0]))
+    return {"updated": changed}
+
+
+@router.post("/decline-return-request-bulk")
+async def decline_return_request_bulk(payload: BulkReturnIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """ボールを持つ承認担当が差戻し要求を却下する（理由必須・ステータスは変わらない）。"""
+    reports = _bulk_reports(payload, db, user)
+    _validate_target_month(reports, payload.target_month)
+    changed = []
+    for report in reports:
+        transition(db, report, user, ReportAction.decline_return_request.value, payload.comment)
+        changed.append(report.id)
+    db.commit()
+    return {"updated": changed}
+
+
+def _last_return_comment(db: Session, report: LessonReport) -> str | None:
+    """許可時に記録された差戻しコメント（要求理由の転記込み）を通知メール本文へ渡すために取り出す。"""
+    event = db.scalars(
+        select(ReportEvent)
+        .where(ReportEvent.report_id == report.id, ReportEvent.action == ReportAction.approve_return_request.value)
+        .order_by(ReportEvent.created_at.desc())
+    ).first()
+    return event.comment if event else None
 
 
 @router.post("/admin-return-bulk")

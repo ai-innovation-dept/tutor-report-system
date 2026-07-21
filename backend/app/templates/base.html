@@ -164,6 +164,57 @@
       }, 3000);
     }
 
+    // 理由の入力を必須にする操作（差戻し要求など）で使う共通の入力モーダル。
+    // 入力値（trim済み）でresolve・キャンセル/背景クリックは null でresolve する。
+    // ※ 新システム（new_backend/app/templates/base.html）の showPromptModal と同一仕様（配色のみ blue）。
+    function showPromptModal({title = '確認', message = '', placeholder = '', confirmLabel = 'OK', cancelLabel = 'キャンセル', required = true} = {}) {
+      return new Promise(resolve => {
+        const overlay = document.createElement('div');
+        overlay.className = 'fixed inset-0 z-[1300] flex items-center justify-center bg-slate-900/50 p-4';
+        const panel = document.createElement('div');
+        panel.className = 'w-full max-w-md rounded-xl border border-slate-200 bg-white shadow-2xl';
+        const head = document.createElement('div');
+        head.className = 'border-b border-slate-200 px-5 py-4 font-semibold text-slate-800';
+        head.textContent = title;
+        const body = document.createElement('div');
+        body.className = 'px-5 py-4';
+        const desc = document.createElement('p');
+        desc.className = 'whitespace-pre-wrap text-sm leading-relaxed text-slate-700';
+        desc.textContent = message;
+        const input = document.createElement('textarea');
+        input.className = 'mt-3 min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20';
+        input.maxLength = 2000;
+        input.placeholder = placeholder;
+        const warn = document.createElement('p');
+        warn.className = 'mt-2 hidden text-xs font-medium text-rose-600';
+        warn.textContent = '入力してください。';
+        body.append(desc, input, warn);
+        const footer = document.createElement('div');
+        footer.className = 'flex justify-end gap-2 px-5 pb-5';
+        const close = result => { overlay.remove(); resolve(result); };
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button';
+        cancelBtn.className = 'rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50';
+        cancelBtn.textContent = cancelLabel;
+        cancelBtn.addEventListener('click', () => close(null));
+        const okBtn = document.createElement('button');
+        okBtn.type = 'button';
+        okBtn.className = 'rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700';
+        okBtn.textContent = confirmLabel;
+        okBtn.addEventListener('click', () => {
+          const value = input.value.trim();
+          if (required && !value) { warn.classList.remove('hidden'); input.focus(); return; }
+          close(value);
+        });
+        footer.append(cancelBtn, okBtn);
+        panel.append(head, body, footer);
+        overlay.appendChild(panel);
+        overlay.addEventListener('click', event => { if (event.target === overlay) close(null); });
+        document.body.appendChild(overlay);
+        input.focus();
+      });
+    }
+
     function roleDisplayName(role) {
       if (role === 'tutor') return '講師';
       if (role === 'parent') return '保護者';
@@ -320,9 +371,14 @@
       return new Date(a.last_return_at || a.updated_at || 0).getTime() - new Date(b.last_return_at || b.updated_at || 0).getTime();
     }
 
+    // 差戻し（＝講師へ戻す操作）。差戻し要求の許可も講師へ戻るため差戻し扱い（202607211144）。
+    const RETURN_EVENT_ACTIONS = ['parent_return', 'return_from_receiver', 'return_from_reviewer', 'return_from_master', 'approve_return_request'];
     function returnActorLabel(report) {
       const role = report.last_return_by || report.returned_by_role;
       if (role) return roleDisplayName(role);
+      // 直近の差戻しイベントの実行ロールから表示名を決める（許可による差戻しでも「保護者／受付担当」を正しく出す）
+      const last = [...(report.events || [])].reverse().find(event => RETURN_EVENT_ACTIONS.includes(event.action));
+      if (last?.actor_role) return roleDisplayName(last.actor_role);
       return report.last_event === 'parent_return' ? '保護者' : '運営';
     }
 

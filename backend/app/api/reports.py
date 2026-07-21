@@ -20,7 +20,12 @@ from app.services.lesson_time import teaching_minutes
 from app.services.monthly_report_pdf import build_monthly_reports_pdf
 from app.services.monthly_report_service import get_monthly_report
 from app.services.pdf_fonts import register_pdf_font
-from app.services.workflow_service import notify_report_modified, notify_tutor_report_edited, separation_locks
+from app.services.workflow_service import (
+    notify_report_modified,
+    notify_tutor_report_edited,
+    return_request_state,
+    separation_locks,
+)
 
 STATUS_RANK = {
     ReportStatus.draft.value: 0,
@@ -56,11 +61,20 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
             event
             for event in reversed(events)
             if event.comment
+            # 差戻し要求の許可も講師へ差戻る操作のため差戻し扱い（要求理由が転記済み・202607211144）
             and event.action
-            in {"parent_return", "return_from_receiver", "return_from_reviewer", "return_from_master"}
+            in {
+                "parent_return",
+                "return_from_receiver",
+                "return_from_reviewer",
+                "return_from_master",
+                "approve_return_request",
+            }
         ),
         None,
     )
+    # 講師起点の差戻し要求の現況（未解決の要求／直近の却下）はイベント履歴から導出する
+    pending_request, declined_request = return_request_state(events)
     unread = db.scalar(
         select(func.count(ChatMessage.id))
         .where(ChatMessage.report_id == report.id, ChatMessage.sender_id != user.id)
@@ -72,6 +86,9 @@ def _report_out(db: Session, report: LessonReport, user: User) -> ReportOut:
     if last_return_event:
         out.last_return_comment = last_return_event.comment
         out.last_return_at = last_return_event.created_at
+    out.return_request_pending = pending_request is not None
+    out.return_request_comment = pending_request.comment if pending_request else None
+    out.return_request_declined_comment = declined_request.comment if declined_request else None
     out.unread_count = unread
     out.student_name = report.assignment.student_name if report.assignment else None
     out.skip_parent_approval = bool(report.parent and report.parent.skip_parent_approval)
