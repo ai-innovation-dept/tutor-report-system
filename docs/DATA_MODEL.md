@@ -35,7 +35,7 @@
 | is_active | BOOLEAN | NOT NULL, default=True | 有効フラグ | legacy |
 | skip_parent_approval | BOOLEAN | NOT NULL, default=False | 承認スキップ（保護者ユーザー=保護者承認スキップ／学校ユーザー=学校承認スキップ）。ユーザー管理画面で設定 | legacy(0013) |
 | must_change_password | BOOLEAN | NOT NULL, default=False | 初回ログイン時にパスワード変更を必須化するフラグ（CSV一括作成ユーザー等の初期パスワード対策）。主に new / work 側で使用 | legacy(0015) |
-| deleted_at | TIMESTAMP WITH TZ | NULL | 論理削除日時（ソフトデリート） | legacy |
+| deleted_at | TIMESTAMP WITH TZ | NULL | 論理削除日時（ソフトデリート）。**削除時に email は `deleted-xxxxxxxxxxxx@deleted.invalid` へ書き換えて解放し、同じアドレスを別アカウントとして再登録できるようにする**（202607210807 ②・既存分は migration 0021 で一括解放。削除済みアカウントの復活は行わない） | legacy |
 | user_no | VARCHAR(20) | NULL | 新システムのユーザー番号（T/S/X 番号帯） | **new** |
 | allowed_systems | JSON | NULL | アクセス可能システムの配列 | **new** |
 | created_at | TIMESTAMP WITH TZ | NOT NULL | 作成日時 | legacy |

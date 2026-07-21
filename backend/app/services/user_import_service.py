@@ -9,7 +9,8 @@
 - No一致の既存ユーザー → 「メールアドレス」「氏名」のみ上書き更新（ロール・状態・No・採番帯は変更しない）。
 - No空欄の行 → 新規作成。「ロール」「メールアドレス」「氏名」が必須。user_no は自動採番し、
   初期パスワード(Passw0rd!)を設定して初回ログイン時のパスワード変更を必須にする（must_change_password）。
-  メールが削除済みユーザーのものなら、その同一アカウントを復活させる（履歴を引き継ぐ）。
+  削除済みユーザーのメールは解放済みのため、同じアドレスは新しいアカウントとして作成される
+  （202607210807 ②。削除済みアカウントの復活は行わない）。
 
 保護者(parent)もアカウントのみ作成できる。講師・生徒との紐づけ（担当）はCSVでは扱わず、
 担当管理またはアカウント作成後の招待フローで行う。
@@ -207,29 +208,4 @@ def create_initial_user(db: Session, role: str, email: str, display_name: str) -
         must_change_password=True,
     )
     db.add(user)
-    return user
-
-
-def revive_user(db: Session, user: User, role: str, email: str, display_name: str) -> User:
-    """ソフトデリート済みユーザーを同一アカウントのまま復活させる（CSV新規作成行でメール再利用時）。
-
-    email は一意制約のため別アカウントとして作り直せない。既存の招待再登録フローと同様に、
-    同一アカウントを復活させ、過去の報告書履歴を同一人物のものとして引き継ぐ。
-    ロール・氏名はCSVの内容で初期化し、初期パスワード(Passw0rd!)＋初回ログイン時の変更必須を設定する。
-    user_no は採番し直す。呼び出し側でメール・ロールを検証済みであること。
-    """
-    from app.core.security import hash_password
-
-    user_no = generate_user_no(db, role)
-    user.user_no = user_no
-    user.tutor_no = user_no if role == "tutor" else None
-    user.deleted_at = None
-    user.is_active = True
-    user.role = role
-    user.roles = [role]
-    user.allowed_systems = allowed_systems_for_role(role)
-    user.display_name = display_name
-    user.email = email.strip().lower()
-    user.password_hash = hash_password(INITIAL_PASSWORD)
-    user.must_change_password = True
     return user

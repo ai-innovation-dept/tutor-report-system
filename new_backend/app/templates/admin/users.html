@@ -79,6 +79,8 @@
       </label>
     </div>
   </div>
+  <!-- CSV一括操作（202607210807 ③）: ユーザー／学校の締め日を「対象」で切り替える1行のツールバー。
+       対象年は学校の締め日を選んだときだけ表示する（ユーザーCSVには対象年の概念がないため）。 -->
   <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
     <div class="flex items-center gap-2">
       <span class="text-sm font-medium text-slate-700">CSVで一括登録・編集</span>
@@ -86,25 +88,20 @@
         class="inline-flex h-6 w-6 items-center justify-center rounded-full border border-slate-300 bg-white text-xs font-bold leading-none text-slate-500 transition hover:border-emerald-400 hover:bg-emerald-50 hover:text-emerald-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/30">?</button>
     </div>
     <div class="flex shrink-0 flex-wrap items-center gap-2">
-      <a href="/api/w/users/export" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</a>
+      <label class="flex items-center gap-1 text-sm text-slate-600">
+        <span class="whitespace-nowrap">対象</span>
+        <select id="csvKind" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20">
+          <option value="users">ユーザー</option>
+          <option value="deadlines">学校の締め日</option>
+        </select>
+      </label>
+      <label id="deadlineCsvYearField" class="hidden items-center gap-1 text-sm text-slate-600">
+        <span class="whitespace-nowrap">対象年</span>
+        <select id="deadlineCsvYear" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"></select>
+      </label>
+      <button id="csvExportBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</button>
       <button id="csvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
       <input id="csvFileInput" type="file" accept=".csv,text/csv" class="hidden">
-    </div>
-  </div>
-  <!-- 学校の締め日設定CSV（202607161332）: 学校No×対象年の行・各月列は「日」・空欄=削除 -->
-  <div class="flex flex-col gap-2 border-b border-slate-200 px-4 py-2 sm:flex-row sm:items-center sm:justify-between">
-    <div class="flex items-center gap-2">
-      <span class="text-sm font-medium text-slate-700">学校の締め日設定CSV</span>
-      <span class="hidden text-xs text-slate-500 lg:inline">学校ごとの早期チェック・通知日数・各月の締め日を一括設定できます（詳しくは上の「?」）</span>
-    </div>
-    <div class="flex shrink-0 flex-wrap items-center gap-2">
-      <label class="flex items-center gap-1 text-sm text-slate-600">
-        <span>対象年</span>
-        <select id="deadlineCsvYear" class="rounded-lg border border-slate-300 px-2 py-1.5 text-sm focus:border-emerald-500 focus:outline-none"></select>
-      </label>
-      <button id="deadlineCsvExportBtn" type="button" class="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50">CSVエクスポート</button>
-      <button id="deadlineCsvImportBtn" type="button" class="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-sm font-medium text-emerald-700 transition hover:bg-emerald-100">CSVインポート</button>
-      <input id="deadlineCsvFileInput" type="file" accept=".csv,text/csv" class="hidden">
     </div>
   </div>
   <div class="overflow-x-auto">
@@ -164,7 +161,7 @@
           <input id="userCopyEmail" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/20" required>
         </label>
       </div>
-      <p class="mt-3 text-xs leading-relaxed text-slate-500">ロール・利用システム・学校設定はコピー元から引き継ぎます（Noは自動採番・初期パスワード <code class="rounded bg-slate-100 px-1 font-mono">Passw0rd!</code>・初回ログイン時に変更・招待メールなし）。</p>
+      <p class="mt-3 text-xs leading-relaxed text-slate-500">ロール・利用システム・学校設定（承認スキップ・締め日の年間設定）はコピー元から引き継ぎます（Noは自動採番・初期パスワード <code class="rounded bg-slate-100 px-1 font-mono">Passw0rd!</code>・初回ログイン時に変更・招待メールなし）。</p>
       <p id="userCopyError" class="mt-3 hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"></p>
       <div class="mt-5 flex justify-end gap-2">
         <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeUserCopy()">キャンセル</button>
@@ -230,7 +227,7 @@
             <p class="mt-1 text-xs leading-relaxed text-emerald-900/80"><strong>ロール必須</strong>／Noは自動で採番／初期パスワードは <code class="rounded bg-white px-1 font-mono">Passw0rd!</code>（初回ログイン時に変更必須）。</p>
           </div>
         </div>
-        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 過去に削除したユーザーと同じメールアドレスをNo空欄で登録すると、新しく作るのではなく、その削除済みアカウントが履歴を引き継いで復活します（取り込み結果の「復活」件数で分かります）。</p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 過去に削除したユーザーのメールアドレスは再利用できます（No空欄で登録すると、別の新しいアカウントとして作成されます）。</p>
         <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 text-slate-500">
@@ -262,7 +259,7 @@
 
       <section>
         <h3 class="mb-3 font-semibold text-slate-800">学校の締め日設定CSV</h3>
-        <p class="leading-relaxed">操作バー2段目の「学校の締め日設定CSV」から、学校ごとの<strong class="font-semibold text-slate-900">早期チェック・通知日数・各月の締め日</strong>を一括設定できます。使い方はユーザーCSVと同じ「書き出す→編集する→取り込む」の3ステップです。</p>
+        <p class="leading-relaxed">操作バーの「対象」を<strong class="font-semibold text-slate-900">「学校の締め日」</strong>に切り替えると（対象年もあわせて選びます）、学校ごとの<strong class="font-semibold text-slate-900">早期チェック・通知日数・各月の締め日</strong>を一括設定できます。使い方はユーザーCSVと同じ「書き出す→編集する→取り込む」の3ステップです。</p>
         <ul class="mt-2 space-y-1.5 text-xs leading-relaxed text-slate-600">
           <li>・行は<strong class="text-slate-800">学校No×対象年</strong>（同じ学校の複数年は行を分けます）。学校Noが先頭 <code class="rounded bg-slate-100 px-1 font-mono">#</code> の行はコメントとして読み飛ばされます。</li>
           <li>・1月〜12月の列には、その月の締め日を<strong class="text-slate-800">「日」（例: 25）</strong>で入力します（<code class="rounded bg-slate-100 px-1 font-mono">2026-01-25</code> のような対象月内の日付も可。<strong class="text-slate-800">対象月の外の日付はエラー</strong>になります）。</li>
@@ -959,8 +956,7 @@ async function importCsv(file) {
   let body = {};
   try { body = await res.json(); } catch (_) {}
   if (res.ok) {
-    const revivedText = body.revived ? `／復活${body.revived}` : '';
-    showToast(`${body.imported}件を取り込みました（新規${body.created}／更新${body.updated}${revivedText}）`, 'success');
+    showToast(`${body.imported}件を取り込みました（新規${body.created}／更新${body.updated}）`, 'success');
     await loadUsersPage();
     return;
   }
@@ -972,11 +968,33 @@ async function importCsv(file) {
     showImportResult('取り込みエラー', `<p class="text-rose-700">${escapeHtml(typeof detail === 'string' ? detail : '取り込みできませんでした。')}</p>`);
   }
 }
+// ---- CSVツールバー（202607210807 ③）: 「対象」の選択でユーザー／学校の締め日を出し分ける ----
+// エクスポート・インポートのボタンは1組だけ置き、ここで対象に応じた処理へ振り分ける。
+function csvKind() { return document.getElementById('csvKind').value; }
+function syncCsvKindFields() {
+  const yearField = document.getElementById('deadlineCsvYearField');
+  const isDeadline = csvKind() === 'deadlines';
+  yearField.classList.toggle('hidden', !isDeadline);
+  yearField.classList.toggle('flex', isDeadline);
+}
+document.getElementById('csvKind').addEventListener('change', syncCsvKindFields);
+syncCsvKindFields();
+
+document.getElementById('csvExportBtn').addEventListener('click', () => {
+  if (csvKind() === 'deadlines') {
+    const year = document.getElementById('deadlineCsvYear').value;
+    window.location.href = `/api/w/users/school-deadlines/export?year=${encodeURIComponent(year)}`;
+    return;
+  }
+  window.location.href = '/api/w/users/export';
+});
 csvImportBtn.addEventListener('click', () => csvFileInput.click());
 csvFileInput.addEventListener('change', async () => {
   const file = csvFileInput.files?.[0];
   csvFileInput.value = '';  // 同じファイルを連続選択しても change が発火するように
-  if (file) await importCsv(file);
+  if (!file) return;
+  if (csvKind() === 'deadlines') await importDeadlineCsv(file);
+  else await importCsv(file);
 });
 
 // ---- 学校の締め日設定CSV（202607161332）: エクスポート（対象年）／インポート（学校No×対象年の行） ----
@@ -989,10 +1007,6 @@ csvFileInput.addEventListener('change', async () => {
   }
   select.innerHTML = options.join('');
 })();
-document.getElementById('deadlineCsvExportBtn').addEventListener('click', () => {
-  const year = document.getElementById('deadlineCsvYear').value;
-  window.location.href = `/api/w/users/school-deadlines/export?year=${encodeURIComponent(year)}`;
-});
 async function importDeadlineCsv(file) {
   const form = new FormData();
   form.append('file', file);
@@ -1022,13 +1036,6 @@ async function importDeadlineCsv(file) {
     showImportResult('締め日設定CSVの取り込みエラー', `<p class="text-rose-700">${escapeHtml(typeof detail === 'string' ? detail : '取り込みできませんでした。')}</p>`);
   }
 }
-document.getElementById('deadlineCsvImportBtn').addEventListener('click', () => deadlineCsvFileInput.click());
-deadlineCsvFileInput.addEventListener('change', async () => {
-  const file = deadlineCsvFileInput.files?.[0];
-  deadlineCsvFileInput.value = '';
-  if (file) await importDeadlineCsv(file);
-});
-
 // === CSV一括取込のヘルプ（「?」アイコンで開く使い方ポップアップ） ===
 let csvHelpLastFocus = null;
 function openCsvHelp() {

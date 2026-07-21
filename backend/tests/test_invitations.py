@@ -188,28 +188,36 @@ def test_invite_conflicts_when_student_already_has_other_parent(client, db, monk
     assert res.status_code == 409, res.text
 
 
-def test_deleted_user_can_be_reinvited_and_revived(client, db, monkeypatch):
-    """削除済み（ソフトデリート）ユーザーは再招待でき、登録で同一アカウントが復活する。"""
+def _soft_delete(db, user):
+    """ユーザー削除APIと同じ状態にする（削除済み＋メールアドレス解放・202607210807 ②）。"""
     from datetime import datetime, timezone
 
+    from app.services.user_account_service import release_email_for_deletion
+
+    user.is_active = False
+    user.deleted_at = datetime.now(timezone.utc)
+    release_email_for_deletion(user)
+    db.commit()
+
+
+def test_deleted_user_email_can_be_reinvited_as_new_account(client, db, monkeypatch):
+    """削除したユーザーのメールは再招待でき、登録では別アカウントが作られる（復活しない）。"""
     async def fake_send(self, to, subject, body):
         pass
 
     monkeypatch.setattr("app.api.invitations.EmailChannel.send", fake_send)
     master_token = token(client, "master@example.com")
 
-    # 講師を削除（ソフトデリート）
+    # 講師を削除（メールアドレスは解放される）
     tutor = db.query(User).filter(User.email == "tutor@example.com").one()
     old_id = tutor.id
-    tutor.is_active = False
-    tutor.deleted_at = datetime.now(timezone.utc)
-    db.commit()
+    _soft_delete(db, tutor)
 
-    # 在籍中なら409だが、削除済みは再招待できる
+    # 同じメールアドレスで再度招待できる
     res = client.post(
         "/api/invitations",
         headers={"Authorization": f"Bearer {master_token}"},
-        json={"email": "tutor@example.com", "role": "tutor", "display_name": "復職講師"},
+        json={"email": "tutor@example.com", "role": "tutor", "display_name": "新任講師"},
     )
     assert res.status_code == 200, res.text
 
@@ -218,32 +226,28 @@ def test_deleted_user_can_be_reinvited_and_revived(client, db, monkeypatch):
     ).one()
     registered = client.post("/api/auth/register", json={
         "token": invitation.token,
-        "display_name": "復職講師",
+        "display_name": "新任講師",
         "password": "NewPass!!",
     })
     assert registered.status_code == 200, registered.text
 
     db.expire_all()
     user = db.query(User).filter(User.email == "tutor@example.com").one()
-    assert user.id == old_id              # 同一アカウント（履歴は引き継がれる）
+    assert user.id != old_id              # 復活ではなく新しいアカウント
     assert user.deleted_at is None
     assert user.is_active is True
     assert user.roles == ["tutor"]
-    assert user.tutor_no == invitation.tutor_no  # 新しい招待のNoを採用
+    assert user.tutor_no == invitation.tutor_no
+    # 旧アカウントは削除済みのまま残る（過去の報告書の参照整合性）
+    old = db.get(User, old_id)
+    assert old.deleted_at is not None and old.email.endswith("@deleted.invalid")
 
-    # 新しいパスワードでログインできる
     login = client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "NewPass!!"})
     assert login.status_code == 200
 
-    # 旧パスワードは使えない
-    bad = client.post("/api/auth/login", data={"username": "tutor@example.com", "password": "Passw0rd!"})
-    assert bad.status_code == 401
 
-
-def test_deleted_parent_can_be_reinvited_and_revived(client, db, monkeypatch):
-    """削除済みの保護者も再招待→登録で復活し、担当・報告書に再紐付けされる。"""
-    from datetime import datetime, timezone
-
+def test_deleted_parent_email_can_be_reinvited_as_new_account(client, db, monkeypatch):
+    """削除した保護者のメールも再招待でき、登録では別アカウントが担当に紐づく。"""
     async def fake_send(self, to, subject, body):
         pass
 
@@ -252,15 +256,13 @@ def test_deleted_parent_can_be_reinvited_and_revived(client, db, monkeypatch):
 
     parent = db.query(User).filter(User.email == "parent@example.com").one()
     old_id = parent.id
-    parent.is_active = False
-    parent.deleted_at = datetime.now(timezone.utc)
-    db.commit()
+    _soft_delete(db, parent)
 
     tutor = db.query(User).filter(User.role == "tutor").first()
     res = client.post(
         "/api/invitations",
         headers={"Authorization": f"Bearer {master_token}"},
-        json={"email": "parent@example.com", "tutor_id": str(tutor.id), "student_name": "復活生徒"},
+        json={"email": "parent@example.com", "tutor_id": str(tutor.id), "student_name": "新規生徒"},
     )
     assert res.status_code == 200, res.text
     # 削除済みは「既存アカウントへ自動紐付け」ではなく通常の招待メール送付になる
@@ -277,9 +279,9 @@ def test_deleted_parent_can_be_reinvited_and_revived(client, db, monkeypatch):
 
     db.expire_all()
     user = db.query(User).filter(User.email == "parent@example.com").one()
-    assert user.id == old_id
+    assert user.id != old_id
     assert user.deleted_at is None
     assert user.is_active is True
     assert user.roles == ["parent"]
-    assignment = db.query(Assignment).filter(Assignment.student_name == "復活生徒").one()
+    assignment = db.query(Assignment).filter(Assignment.student_name == "新規生徒").one()
     assert assignment.parent_id == user.id

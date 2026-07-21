@@ -2,7 +2,7 @@
 
 照合キー=No(user_no)。No一致の既存ユーザーはメール・氏名のみ更新、No空欄は新規作成
 （ロール必須・user_no自動採番・初期パスワードPassw0rd!・must_change_password=True）。
-削除済みメールの新規作成行は同一アカウントを復活させる。1件でもエラーなら全件中止。
+削除済みユーザーのメールは解放済みのため、同じアドレスは新規アカウントとして作成される（202607210807 ②）。1件でもエラーなら全件中止。
 """
 import csv
 import io
@@ -229,20 +229,32 @@ def test_import_all_or_nothing(client):
     assert _get_user("ok@x.com") is None  # 有効な行も登録されない
 
 
-# --- 削除済みメールの復活 ---
+# --- 削除済みメールの再利用（削除でメールを解放＝別アカウントとして作り直す・202607210807 ②）---
 
-def test_import_revives_deleted_email(client):
-    deleted_id = _make_user("revive@x.com", "30007", name="旧", roles=("admin_receiver",), deleted=True)
+def test_import_reuses_released_email_as_new_account(client):
+    """削除したユーザーのメールは解放され、CSV新規作成行で別アカウントとして登録できる。"""
+    old_id = _make_user("reuse@x.com", "30007", name="旧", roles=("admin_receiver",))
+    res = client.delete(f"/api/users/{old_id}", headers=_headers(client, "master@example.com"))
+    assert res.status_code == 200, res.text
+
     res = _upload(client, "master@example.com", [
-        {uis.EMAIL: "revive@x.com", uis.NAME: "復活太郎", uis.ROLE: "tutor"},
+        {uis.EMAIL: "reuse@x.com", uis.NAME: "再登録太郎", uis.ROLE: "tutor"},
     ])
     assert res.status_code == 200, res.text
-    assert res.json()["revived"] == 1
-    user = _get_user("revive@x.com")
-    assert user.id == deleted_id  # 同一アカウントを復活（履歴引き継ぎ）
+    assert res.json()["created"] == 1
+    user = _get_user("reuse@x.com")
+    assert user.id != old_id  # 復活ではなく別アカウント
     assert user.deleted_at is None
     assert user.role == "tutor"
     assert user.must_change_password is True
+
+    db = SessionLocal()
+    try:
+        old = db.get(User, old_id)
+        assert old.deleted_at is not None      # 旧アカウントは削除済みのまま残る（履歴保持）
+        assert old.email.endswith("@deleted.invalid")  # メールは解放済み
+    finally:
+        db.close()
 
 
 # --- スキップ・テンプレート ---

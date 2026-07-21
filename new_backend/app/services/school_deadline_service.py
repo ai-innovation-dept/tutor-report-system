@@ -84,6 +84,38 @@ def deadlines_for_year(db: Session, school_id, year: int) -> list[WorkSchoolDead
     )
 
 
+def copy_school_settings(db: Session, source_school_id, target_school_id) -> int:
+    """学校の締め日通知設定を別の学校ユーザーへ複製する（改修依頼 202607210807 ①）。
+
+    複製するのは早期チェックON/OFF・通知日数と、登録済みの締め日（年を問わず全件）。
+    送信済みガード（notice_sent_at）は引き継がず未送信として作る（コピー先は新しい学校で、
+    これから確認メールの対象になるため）。戻り値は複製した締め日の件数。
+    コピー先に既存の設定がある場合は上書きしない前提（新規作成直後の呼び出しのみを想定）。
+    """
+    source_setting = get_school_setting(db, source_school_id)
+    if source_setting is not None:
+        db.add(
+            WorkSchoolSetting(
+                school_id=target_school_id,
+                early_check_enabled=source_setting.early_check_enabled,
+                notice_days_before=source_setting.notice_days_before,
+            )
+        )
+    rows = db.scalars(
+        select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == source_school_id)
+    ).all()
+    for row in rows:
+        db.add(
+            WorkSchoolDeadline(
+                school_id=target_school_id,
+                target_month=row.target_month,
+                deadline_date=row.deadline_date,
+            )
+        )
+    db.flush()
+    return len(rows)
+
+
 def save_school_settings(
     db: Session,
     school: User,

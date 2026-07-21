@@ -88,7 +88,8 @@ async def create_invitation(
         raise HTTPException(status_code=422, detail="display_name is required")
 
     existing_user = get_user_by_email(db, email)
-    # 削除済み（ソフトデリート）ユーザーは再招待を許可する（登録時に同一アカウントを復活させる）
+    # 削除済み（ソフトデリート）ユーザーは重複扱いにしない。削除時にメールアドレスは解放済みのため
+    # 通常はここに現れず、同じアドレスの招待は新しいアカウントとして登録される（202607210807 ②）。
     if existing_user and not existing_user.deleted_at and "new" in (existing_user.allowed_systems or []):
         raise HTTPException(status_code=409, detail="このメールアドレスは登録済みです")
 

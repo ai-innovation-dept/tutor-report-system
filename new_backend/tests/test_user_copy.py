@@ -4,6 +4,7 @@
 本テストは実メールを送出しない（MAIL_BACKEND=console 既定＋送信キューが空であることを確認）。
 """
 import uuid
+from datetime import date
 
 import pytest
 from fastapi.testclient import TestClient
@@ -12,7 +13,8 @@ from sqlalchemy import select
 from app.core.security import hash_password, verify_password
 from app.main import app
 from app.models.shared import User
-from app.models.work import WorkMailOutbox
+from app.models.work import WorkMailOutbox, WorkSchoolDeadline, WorkSchoolSetting
+from app.services import school_deadline_service
 from tests.conftest import TestSession
 
 
@@ -104,6 +106,52 @@ class TestUserCopy:
         assert res.json()["skip_parent_approval"] is True
         created = db.scalar(select(User).where(User.email == "school-copy@c.example.com"))
         assert created.user_no and created.user_no.startswith("4")  # 学校は4万台
+
+    def test_copy_school_replicates_deadline_settings(self, db, client):
+        """学校の締め日（年間設定）と早期チェック・通知日数もコピーする（202607210807 ①）。"""
+        _add_user(db, "master-dl@c.example.com", "admin_master")
+        source = _add_user(db, "school-dl@c.example.com", "school", display_name="締め日あり校")
+        client_headers = _auth(client, "master-dl@c.example.com")
+        # 締め日設定は保存APIと同じ経路（サービス）で作る＝実運用と同じ状態
+        school_deadline_service.save_school_settings(
+            db, source,
+            early_check_enabled=True,
+            notice_days_before=5,
+            deadlines={"2026-06": date(2026, 6, 25), "2026-07": date(2026, 7, 24)},
+        )
+        db.commit()
+
+        res = _copy(client, client_headers, source, display_name="締め日コピー校", email="school-dl2@c.example.com")
+        assert res.status_code == 201, res.text
+        created = db.scalar(select(User).where(User.email == "school-dl2@c.example.com"))
+
+        setting = db.scalar(select(WorkSchoolSetting).where(WorkSchoolSetting.school_id == created.id))
+        assert setting is not None
+        assert setting.early_check_enabled is True
+        assert setting.notice_days_before == 5
+        copied = db.scalars(
+            select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == created.id)
+            .order_by(WorkSchoolDeadline.target_month)
+        ).all()
+        assert [(d.target_month, d.deadline_date) for d in copied] == [
+            ("2026-06", date(2026, 6, 25)), ("2026-07", date(2026, 7, 24)),
+        ]
+        # 送信済みガードは引き継がない（コピー先はこれから通知対象）
+        assert all(d.notice_sent_at is None for d in copied)
+        # コピー元の設定は変わらない
+        assert db.scalars(
+            select(WorkSchoolDeadline).where(WorkSchoolDeadline.school_id == source.id)
+        ).all().__len__() == 2
+
+    def test_copy_non_school_creates_no_deadline_settings(self, db, client):
+        """学校以外のロールでは締め日設定を作らない（不要な行を増やさない）。"""
+        _add_user(db, "master-dl2@c.example.com", "admin_master")
+        source = _add_user(db, "office-dl@c.example.com", "office", display_name="事務コピー元DL")
+        res = _copy(client, _auth(client, "master-dl2@c.example.com"), source,
+                    display_name="事務コピー先DL", email="office-dl2@c.example.com")
+        assert res.status_code == 201, res.text
+        created = db.scalar(select(User).where(User.email == "office-dl2@c.example.com"))
+        assert db.scalar(select(WorkSchoolSetting).where(WorkSchoolSetting.school_id == created.id)) is None
 
     def test_copy_tutor_assigns_tutor_no(self, db, client):
         _add_user(db, "master4@c.example.com", "admin_master")

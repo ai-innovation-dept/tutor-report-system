@@ -2,6 +2,8 @@
 招待・登録・パスワードリセット・ユーザー管理の統合テスト。
 メール送信は monkeypatch でスタブ化する。
 """
+import uuid
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -243,14 +245,16 @@ class TestRegistration:
 
 
 # ---------------------------------------------------------------------------
-# 削除済みユーザーの再登録（同一アカウント復活）
+# 削除済みユーザーのメール再利用（202607210807 ②: 削除でメールを解放＝別アカウントを作る）
 # ---------------------------------------------------------------------------
 
 class TestDeletedUserReRegistration:
     EMAIL = "rejoin@x.example.com"
 
     def _add_deleted_user(self, role="office"):
+        """ユーザー削除APIと同じ状態（削除済み＋メールアドレス解放）の旧ユーザーを作る。"""
         from datetime import datetime, timezone
+        from app.services.user_service import release_email_for_deletion
         db = TestSession()
         u = User(
             email=self.EMAIL, role=role, roles=[role], display_name="退職済み",
@@ -258,6 +262,7 @@ class TestDeletedUserReRegistration:
             user_no="50090", is_active=False,
             deleted_at=datetime.now(timezone.utc),
         )
+        release_email_for_deletion(u)
         db.add(u); db.commit()
         user_id = str(u.id); db.close()
         return user_id
@@ -279,7 +284,7 @@ class TestDeletedUserReRegistration:
                           headers=_auth(client))
         assert res.status_code == 201, res.text
 
-    def test_deleted_user_register_revives_account(self, client, master_user):
+    def test_deleted_user_register_creates_new_account(self, client, master_user):
         from sqlalchemy import select as sa_select
         old_id = self._add_deleted_user(role="office")
 
@@ -299,14 +304,16 @@ class TestDeletedUserReRegistration:
                           json={"token": token, "password": "NewPass!!", "display_name": "再入社"})
         assert res.status_code == 200, res.text
 
-        # 同一アカウントが復活し、招待内容で初期化されている
+        # 復活ではなく、招待内容で新しいアカウントが作られる（旧アカウントは削除済みのまま）
         db = TestSession()
         user = db.scalar(sa_select(User).where(User.email == self.EMAIL))
-        assert str(user.id) == old_id          # 同一アカウント（履歴は引き継がれる）
+        assert str(user.id) != old_id
         assert user.deleted_at is None
         assert user.is_active is True
-        assert user.roles == ["sales"]         # 旧ロールは引き継がない
+        assert user.roles == ["sales"]
         assert user.user_no == new_user_no     # 新しい招待のNoを採用
+        old = db.get(User, uuid.UUID(old_id))
+        assert old.deleted_at is not None and old.email.endswith("@deleted.invalid")
         db.close()
 
         # 新しいパスワードでログインでき、旧パスワードは使えない

@@ -144,6 +144,35 @@
   </div>
 </div>
 
+<!-- ユーザーをコピーして新規登録（202607210807 既存システム①・EMPS 202607171557 と同仕様）:
+     氏名・メールのみ新規入力・重複はエラー・招待メールなし直接作成 -->
+<div id="userCopyOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/50 p-4" onclick="closeUserCopy()">
+  <div class="w-full max-w-lg rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="border-b border-slate-200 px-5 py-4">
+      <h2 class="font-semibold text-slate-800">ユーザーをコピーして新規登録</h2>
+      <p id="userCopySource" class="mt-1 text-sm text-slate-500"></p>
+    </div>
+    <form id="userCopyForm" class="p-5">
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">氏名 <span class="text-red-600">*</span></span>
+          <input id="userCopyName" maxlength="100" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+        </label>
+        <label class="block text-sm">
+          <span class="mb-1 block text-slate-700">メール <span class="text-red-600">*</span></span>
+          <input id="userCopyEmail" type="email" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
+        </label>
+      </div>
+      <p class="mt-3 text-xs leading-relaxed text-slate-500">ロール・利用システム・保護者承認スキップ設定はコピー元から引き継ぎます（担当（生徒）は引き継ぎません／Noは自動採番・初期パスワード <code class="rounded bg-slate-100 px-1 font-mono">Passw0rd!</code>・初回ログイン時に変更・招待メールなし）。</p>
+      <p id="userCopyError" class="mt-3 hidden rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700"></p>
+      <div class="mt-5 flex justify-end gap-2">
+        <button type="button" class="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50" onclick="closeUserCopy()">キャンセル</button>
+        <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">コピーして登録</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <div id="importOverlay" class="fixed inset-0 z-[1100] hidden items-center justify-center bg-slate-900/40 p-4" onclick="closeImportResult()">
   <div class="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
     <div class="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -200,7 +229,7 @@
             <p class="mt-1 text-xs leading-relaxed text-emerald-900/80"><strong>ロール必須</strong>／Noは自動で採番／初期パスワードは <code class="rounded bg-white px-1 font-mono">Passw0rd!</code>（初回ログイン時に変更）。</p>
           </div>
         </div>
-        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 過去に削除したユーザーと同じメールアドレスをNo空欄で登録すると、新しく作るのではなく、その削除済みアカウントが履歴を引き継いで復活します（取り込み結果の「復活」件数で分かります）。</p>
+        <p class="mt-2 text-xs leading-relaxed text-slate-500">※ 過去に削除したユーザーのメールアドレスは再利用できます（No空欄で登録すると、別の新しいアカウントとして作成されます）。</p>
         <div class="mt-3 overflow-x-auto rounded-lg border border-slate-200">
           <table class="w-full text-left text-xs">
             <thead class="bg-slate-50 text-slate-500">
@@ -515,6 +544,7 @@ function userRow(user) {
     <td class="px-3 py-2" data-label="操作">
       <div class="row-actions flex flex-nowrap gap-1.5">
         <button class="whitespace-nowrap rounded-md bg-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-300" onclick="openDetailDrawer('${user.id}')">詳細</button>
+        <button class="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100" onclick="openUserCopy('${user.id}')">コピー</button>
       </div>
     </td>
   </tr>`;
@@ -736,6 +766,52 @@ async function deleteSelectedUser() {
     showToast(error.message || 'ユーザーを削除できませんでした', 'error');
   }
 }
+// ---- ユーザーをコピーして新規登録（202607210807 ①）: 招待メールを送らず直接作成 ----
+// 新システム（new_backend/app/templates/admin/users.html）と同一のUI・同一のフロー。
+let userCopySourceId = null;
+function openUserCopy(id) {
+  const user = users.find(item => item.id === id);
+  if (!user) return;
+  userCopySourceId = id;
+  const roles = userRoles(user).map(roleLabel).join('・');
+  document.getElementById('userCopySource').textContent = `コピー元：${user.display_name}（${roles}）`;
+  document.getElementById('userCopyName').value = '';
+  document.getElementById('userCopyEmail').value = '';
+  const err = document.getElementById('userCopyError');
+  err.textContent = '';
+  err.classList.add('hidden');
+  const overlay = document.getElementById('userCopyOverlay');
+  overlay.classList.remove('hidden');
+  overlay.classList.add('flex');
+  document.getElementById('userCopyName').focus();
+}
+function closeUserCopy() {
+  const overlay = document.getElementById('userCopyOverlay');
+  overlay.classList.add('hidden');
+  overlay.classList.remove('flex');
+  userCopySourceId = null;
+}
+document.getElementById('userCopyForm').addEventListener('submit', async event => {
+  event.preventDefault();
+  const err = document.getElementById('userCopyError');
+  err.classList.add('hidden');
+  const display_name = document.getElementById('userCopyName').value.trim();
+  const email = document.getElementById('userCopyEmail').value.trim();
+  if (!display_name || !email) {
+    err.textContent = '氏名とメールを入力してください';
+    err.classList.remove('hidden');
+    return;
+  }
+  try {
+    await api('/api/users/copy', {method: 'POST', body: JSON.stringify({source_user_id: userCopySourceId, display_name, email})});
+    showToast('ユーザーをコピーして登録しました', 'success');
+    closeUserCopy();
+    await loadUsersPage(1);
+  } catch (error) {
+    err.textContent = error.message || 'コピーできませんでした';
+    err.classList.remove('hidden');
+  }
+});
 inviteForm.addEventListener('submit', async event => {
   event.preventDefault();
   const data = Object.fromEntries(new FormData(inviteForm));
@@ -818,7 +894,7 @@ async function importCsv(file) {
   try { body = await res.json(); } catch (_) { body = null; }
   if (res.ok) {
     const r = body || {};
-    showToast(`${r.imported ?? 0}件を取り込みました（新規${r.created ?? 0}／更新${r.updated ?? 0}／復活${r.revived ?? 0}）`, 'success');
+    showToast(`${r.imported ?? 0}件を取り込みました（新規${r.created ?? 0}／更新${r.updated ?? 0}）`, 'success');
     await loadUsersPage(1);
     return;
   }

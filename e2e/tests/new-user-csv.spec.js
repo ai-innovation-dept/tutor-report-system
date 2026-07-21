@@ -23,9 +23,16 @@ test.describe('新システム ユーザー管理 CSV', () => {
       await login(page, NEW, role.email, '/admin/users');
       await page.waitForSelector('#csvImportBtn', { state: 'visible' });
 
-      // (1) ボタン/リンクの存在
-      await expect(page.locator('a[href="/api/w/users/export"]')).toBeVisible();
+      // (1) ボタンの存在（202607210807 ③: 1行のツールバー＝対象セレクト＋エクスポート/インポート）
+      await expect(page.locator('#csvKind')).toBeVisible();
+      await expect(page.locator('#csvExportBtn')).toBeVisible();
       await expect(page.locator('#csvImportBtn')).toBeVisible();
+      // 既定は「ユーザー」＝対象年は隠れている（学校の締め日を選ぶと表示）
+      await expect(page.locator('#deadlineCsvYearField')).toBeHidden();
+      await page.selectOption('#csvKind', 'deadlines');
+      await expect(page.locator('#deadlineCsvYearField')).toBeVisible();
+      await page.selectOption('#csvKind', 'users');
+      await expect(page.locator('#deadlineCsvYearField')).toBeHidden();
 
       // (2) エクスポート（ページのセッションCookieで取得）
       const res = await page.request.get(`${NEW}/api/w/users/export`);

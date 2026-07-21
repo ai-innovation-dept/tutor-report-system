@@ -404,8 +404,23 @@ password: パスワード
 | GET | `/api/users` | admin_* | ユーザー一覧（`?role=tutor` 等で絞り込み可） |
 | GET | `/api/users/{user_id}` | admin_* | ユーザー取得 |
 | PATCH | `/api/users/{user_id}` | admin_master | ユーザー情報更新（保護者の `skip_parent_approval`＝保護者承認スキップを含む） |
+| POST | `/api/users/copy` | admin_receiver, admin_reviewer, admin_master, admin_chief | 既存ユーザーをコピーして新規作成（202607210807 ①・下記） |
+| DELETE | `/api/users/{user_id}` | admin_receiver, admin_reviewer, admin_master, admin_chief | ユーザー削除（論理削除＋メールアドレス解放・202607210807 ②・下記） |
 | POST | `/api/users/me/password` | ログイン済み | 自分のパスワード変更 |
 | POST | `/api/users/{user_id}/reset-password` | admin_master | パスワードリセット（新パスワードを返却） |
+
+#### コピーして新規登録（改修依頼 202607210807 ①）
+
+登録済みユーザー一覧の各行の**「コピー」ボタン**から、既存ユーザーを土台に新規登録できる（EMPS の `POST /api/w/users/copy` と同一仕様）。
+
+- 入力は `source_user_id`・`display_name`・`email` のみ。**氏名・メールはどちらも重複エラー**（氏名＝未削除ユーザー内で一致、メール＝一意制約で既存と一致すると 409。削除済みユーザーのアドレスは解放済みのため再利用できる）。
+- ロール（複数ロール含む `roles`）・利用システム（`allowed_systems`）・保護者承認スキップ（`skip_parent_approval`）を**コピー元から複製**し、**担当（assignments・生徒）は引き継がない**。
+- **招待メールは送らず直接作成**（初期パスワード `Passw0rd!`・`must_change_password=True`・`user_no` はコピー元の主ロール帯で自動採番）。電話番号など個人情報は複製しない。
+- 管理責任者（`admin_chief`）を含むユーザーのコピーは管理責任者のみ（403）。実装は `services/user_account_service.copy_user`。
+
+#### ユーザー削除とメールアドレスの解放（改修依頼 202607210807 ②）
+
+削除は論理削除（`deleted_at`・`is_active=False`）で**行は残す**（報告書・監査ログ・コメントの参照整合性のため）。一方で `users.email` は両システム共有の一意カラムのため、削除時に **`deleted-xxxxxxxxxxxx@deleted.invalid` へ書き換えて解放**する（`services/user_account_service.release_email_for_deletion`）。これにより削除したアドレスで**招待・コピー・CSV新規作成行のいずれでも新しいアカウントを作成できる**。**削除済みアカウントの復活（revive）は行わない**（同じアドレスでも常に別アカウント）。承認フロー進行中のユーザーは従来どおり削除できない。既存の削除済みユーザーのアドレスは migration `0021_release_deleted_user_emails` で一括解放済み。
 
 ### 担当紐付け API
 

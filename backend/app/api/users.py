@@ -14,9 +14,10 @@ from app.database import get_db
 from app.deps import get_current_user
 from app.models import Assignment, Invitation, LessonReport, ReportStatus, User
 from app.api.invitations import _send_invitation_email, prepare_parent_invitation_for_assignment
-from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, StudentOption, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
+from app.schemas import AssignmentCreate, AssignmentOut, AssignmentPatch, PasswordChange, StudentOption, UserCopyIn, UserCreate, UserListOut, UserOut, UserPatch, UserRolesPatch
 from app.services import assignment_import_service, user_import_service
-from app.services.user_import_service import create_initial_user, revive_user
+from app.services.user_account_service import copy_user, release_email_for_deletion
+from app.services.user_import_service import create_initial_user
 
 router = APIRouter(prefix="/api", tags=["users"])
 
@@ -70,7 +71,7 @@ def import_users(
 
     No一致の既存ユーザー → メール・氏名のみ上書き更新。
     No空欄の行 → 新規作成（ロール必須、user_no自動採番、初期パスワード Passw0rd!、初回ログイン時変更必須）。
-    　ただしメールが削除済みユーザーのものなら、その同一アカウントを復活させる（履歴を引き継ぐ）。
+    　削除済みユーザーのメールは解放済みのため、同じアドレスは新規ユーザーとして作成される（202607210807 ②）。
     メールは他の有効ユーザー／同一CSV内で重複しないことを検証する。
     """
     try:
@@ -117,7 +118,8 @@ def import_users(
             email_line[key] = item["line"]
     targets = [*updates, *creates]
     if targets:
-        # email は一意制約のため、1メールにつき最大1ユーザー（削除済みを含む）しか保持しない。
+        # email は一意制約のため、1メールにつき最大1ユーザーしか保持しない。
+        # 削除済みユーザーはメールを解放済み（202607210807 ②）＝ここで衝突するのは現役ユーザーのみ。
         lowered = list({item["email"].lower() for item in targets})
         existing = db.scalars(select(User).where(func.lower(User.email).in_(lowered))).all()
         holder_by_email: dict[str, User] = {u.email.lower(): u for u in existing}
@@ -128,17 +130,7 @@ def import_users(
             self_id = item["user"].id if "user" in item else None  # 更新行は自分自身を許容
             if holder.id == self_id:
                 continue
-            if holder.deleted_at is None:
-                errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
-            elif "user" in item:
-                # 更新行が削除済みユーザーのメールを要求：復活は新規作成行（No空欄）でのみ対応する。
-                errors.append(
-                    f"{item['line']}行目: メールアドレス「{item['email']}」は削除済みユーザーが使用しています。"
-                    "再利用するにはNo欄を空にして新規作成行として取り込んでください"
-                )
-            else:
-                # 新規作成行のメールが削除済みユーザーのもの：同一アカウントを復活させる。
-                item["revive"] = holder
+            errors.append(f"{item['line']}行目: メールアドレス「{item['email']}」は既に他のユーザーが使用しています")
 
     if errors:
         raise HTTPException(status_code=400, detail={
@@ -155,18 +147,53 @@ def import_users(
         item["user"].email = item["email"]
         item["user"].display_name = item["name"]
     created = 0
-    revived = 0
     for item in creates:
-        holder = item.get("revive")
-        if holder is not None:
-            revive_user(db, holder, item["role"], item["email"], item["name"])
-            revived += 1
-        else:
-            create_initial_user(db, item["role"], item["email"], item["name"])
-            created += 1
+        create_initial_user(db, item["role"], item["email"], item["name"])
+        created += 1
         db.flush()  # 連続採番が直前に確定したNoを未使用判定に反映できるようにする
     db.commit()
-    return {"imported": len(targets), "created": created, "revived": revived, "updated": len(updates)}
+    return {"imported": len(targets), "created": created, "updated": len(updates)}
+
+
+@router.post("/users/copy", response_model=UserOut, status_code=201)
+def copy_user_endpoint(
+    payload: UserCopyIn,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role(*_CSV_ROLES)),
+):
+    """既存ユーザーをコピーして新規作成する（改修依頼 202607210807 既存システム①）。
+
+    新システムのコピー機能（POST /api/w/users/copy）と同一仕様。
+    氏名・メールは新規入力で、どちらも重複はエラー（氏名＝未削除ユーザー内・メール＝一意制約）。
+    ロール（複数ロール含む）・利用システム・保護者承認スキップ設定はコピー元から複製し、
+    担当（assignments）は引き継がない。招待メールは送らず直接作成する
+    （初期パスワード Passw0rd!・初回ログイン時に変更必須）。
+    注意: `/users/{user_id}` より前に定義すること（copy が user_id として解釈されるのを避けるため）。
+    """
+    source = db.get(User, payload.source_user_id)
+    if not source or source.deleted_at or "legacy" not in (source.allowed_systems or []):
+        raise HTTPException(status_code=404, detail="コピー元のユーザーが見つかりません")
+    # 管理責任者の複製は管理責任者のみ（招待・削除と同じ職務分掌）
+    if has_role(source, "admin_chief") and not has_role(current_user, "admin_chief"):
+        raise HTTPException(status_code=403, detail="管理責任者のコピーは管理責任者のみ可能です")
+
+    display_name = (payload.display_name or "").strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="氏名を入力してください")
+    email = str(payload.email).strip().lower()
+
+    # 氏名の重複（未削除ユーザー内）を禁止。メールは一意制約のため全ユーザーで重複を弾く。
+    if db.scalar(
+        select(User).where(func.lower(User.display_name) == display_name.lower(), User.deleted_at.is_(None))
+    ):
+        raise HTTPException(status_code=409, detail="この氏名は既に登録されています")
+    if db.scalar(select(User).where(func.lower(User.email) == email)):
+        raise HTTPException(status_code=409, detail="このメールアドレスは既に使われています")
+
+    user = copy_user(db, source, email=email, display_name=display_name)
+    db.commit()
+    db.refresh(user)
+    return user
 
 
 def _parse_roles(roles: str | None, role: str | None) -> set[str]:
@@ -355,8 +382,11 @@ def delete_user(user_id: UUID, db: Session = Depends(get_db), current_user: User
         raise HTTPException(status_code=403, detail="管理責任者の削除は管理責任者のみ可能です")
     _ensure_not_last_admin_master(user, db)
     _ensure_no_active_approval_flow(user, db)
+    # 行は残す（報告書・監査ログの参照整合性）が、メールアドレスは解放して
+    # 同じアドレスで新規作成・コピー作成ができるようにする（202607210807 ②）。
     user.deleted_at = datetime.now(timezone.utc)
     user.is_active = False
+    release_email_for_deletion(user)
     db.commit()
     return {"status": "deleted"}
 

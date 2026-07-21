@@ -157,7 +157,8 @@ def prepare_parent_invitation_for_assignment(
     email = email.lower()
     now = datetime.now(timezone.utc)
     existing_user = db.scalar(select(User).where(User.email == email))
-    # 削除済み（ソフトデリート）ユーザーは通常の招待として扱い、登録時に同一アカウントを復活させる
+    # 削除済み（ソフトデリート）ユーザーは重複扱いにせず通常の招待にする。削除時にメールアドレスは
+    # 解放済みのため通常はここに現れず、登録時は新しいアカウントになる（202607210807 ②）。
     if existing_user and existing_user.deleted_at:
         existing_user = None
     # 担当に削除済み保護者が紐付いたままの場合は解除して再招待を可能にする
@@ -228,7 +229,8 @@ async def create_invitation(
     existing_user = db.scalar(select(User).where(User.email == email))
     # 所属の基準は allowed_systems。既に当(legacy)システムに登録済みの場合のみ重複扱い。
     # 他システムのみ登録済みのユーザーは招待を許可し、登録時に同一ユーザーへ統合する。
-    # 削除済み（ソフトデリート）ユーザーも招待を許可し、登録時に同一アカウントを復活させる。
+    # 削除済み（ソフトデリート）ユーザーも招待を許可する（メールアドレスは削除時に解放済みで、
+    # 登録時は新しいアカウントになる・202607210807 ②）。
     existing_in_legacy = bool(
         existing_user and not existing_user.deleted_at and "legacy" in (existing_user.allowed_systems or [])
     )

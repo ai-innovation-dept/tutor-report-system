@@ -51,6 +51,18 @@ class UserCreate(BaseModel):
     password: str | None = None
 
 
+class UserCopyIn(BaseModel):
+    """既存ユーザーをコピーして新規作成する入力（改修依頼 202607210807 既存システム①）。
+
+    氏名・メールのみ新規指定（両方とも重複はエラー）。ロール・利用システム・保護者承認スキップ設定は
+    コピー元から複製する。招待メールは送らず直接作成（初期パスワード Passw0rd!・初回変更必須）。
+    ※ 新システムの UserCopyIn（new_backend/app/schemas/users.py）と同一仕様。
+    """
+    source_user_id: UUID
+    display_name: str
+    email: EmailStr
+
+
 class UserPatch(BaseModel):
     display_name: str | None = None
     tutor_no: str | None = None

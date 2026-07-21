@@ -124,7 +124,7 @@ class TestImportUpdate:
         uid = _make_user("old@new.example.com", "50010", name="旧名")
         res = _import(client, [{uis.NO: "50010", uis.EMAIL: "new@new.example.com", uis.NAME: "新名"}], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 1, "created": 0, "revived": 0, "updated": 1}
+        assert res.json() == {"imported": 1, "created": 0, "updated": 1}
         db = TestSession()
         u = db.get(User, uid)
         assert u.email == "new@new.example.com"
@@ -224,7 +224,7 @@ class TestImportCreate:
         from app.core.security import verify_password
         res = _import(client, [{uis.NO: "", uis.ROLE: "office", uis.EMAIL: "newoffice@new.example.com", uis.NAME: "新人事務"}], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 1, "created": 1, "revived": 0, "updated": 0}
+        assert res.json() == {"imported": 1, "created": 1, "updated": 0}
         db = TestSession()
         u = db.scalar(select(User).where(User.email == "newoffice@new.example.com"))
         assert u is not None
@@ -264,7 +264,7 @@ class TestImportCreate:
             {uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "brandnew@new.example.com", uis.NAME: "新営業"},  # 新規
         ], _auth(client))
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 2, "created": 1, "revived": 0, "updated": 1}
+        assert res.json() == {"imported": 2, "created": 1, "updated": 1}
         db = TestSession()
         assert db.get(User, uid).email == "upd2@new.example.com"
         assert db.scalar(select(User).where(User.email == "brandnew@new.example.com")) is not None
@@ -279,32 +279,33 @@ class TestImportCreate:
 
 
 # --------------------------------------------------------------------------- #
-# ① 削除済みメールの再利用（同一アカウントの復活）
+# ① 削除済みメールの再利用（削除でメールを解放＝別アカウントとして作り直す・202607210807 ②）
 # --------------------------------------------------------------------------- #
 class TestDeletedEmailReuse:
-    def test_new_row_with_deleted_email_revives_account(self, client, master_user):
-        """削除済みユーザーのメールを新規作成行(No空欄)で取り込むと同一アカウントを復活させる。"""
+    def test_new_row_with_released_email_creates_new_account(self, client, master_user):
+        """削除でメールが解放され、同じアドレスを新規作成行で別アカウントとして登録できる。"""
         from app.core.security import verify_password
-        uid = _make_user("gone@new.example.com", "50005", name="旧人", roles=("office",), deleted=True)
+        old_id = _make_user("gone@new.example.com", "50005", name="旧人", roles=("office",))
+        _make_user("keep@new.example.com", "50006", name="残る事務", roles=("office",))  # 最後の1人ガード回避
+        headers = _auth(client)
+        assert client.delete(f"/api/w/users/{old_id}", headers=headers).status_code == 200
+
         res = _import(client, [{
-            uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "gone@new.example.com", uis.NAME: "復活太郎",
-        }], _auth(client))
+            uis.NO: "", uis.ROLE: "sales", uis.EMAIL: "gone@new.example.com", uis.NAME: "再登録太郎",
+        }], headers)
         assert res.status_code == 200, res.text
-        assert res.json() == {"imported": 1, "created": 0, "revived": 1, "updated": 0}
+        assert res.json() == {"imported": 1, "created": 1, "updated": 0}
         db = TestSession()
-        # 同一アカウント(id不変)が復活し、ロール・氏名はCSVの内容に更新される。
-        u = db.get(User, uid)
-        assert u.deleted_at is None
-        assert u.is_active is True
-        assert u.roles == ["sales"] and u.role == "sales"
-        assert u.display_name == "復活太郎"
-        assert u.must_change_password is True
-        assert verify_password("Passw0rd!", u.password_hash)
-        assert "new" in (u.allowed_systems or [])
-        assert u.user_no and 50001 <= int(u.user_no) <= 59999
-        # メールアドレスの行は重複せず1件のまま（別行を作らない）。
-        holders = db.scalars(select(User).where(User.email == "gone@new.example.com")).all()
-        assert len(holders) == 1 and holders[0].id == uid
+        # 旧アカウントは削除済みのまま（履歴は残る）でメールだけ解放されている。
+        old = db.get(User, old_id)
+        assert old.deleted_at is not None
+        assert old.email.endswith("@deleted.invalid")
+        # 同じアドレスは新しいアカウントとして作られる（idが異なる）。
+        created = db.scalar(select(User).where(User.email == "gone@new.example.com"))
+        assert created is not None and created.id != old_id
+        assert created.roles == ["sales"] and created.display_name == "再登録太郎"
+        assert created.must_change_password is True
+        assert verify_password("Passw0rd!", created.password_hash)
         db.close()
 
     def test_new_row_with_active_email_still_errors(self, client, master_user):
@@ -315,15 +316,6 @@ class TestDeletedEmailReuse:
         }], _auth(client))
         assert res.status_code == 400
         assert "live@new.example.com" in " ".join(res.json()["detail"]["errors"])
-
-    def test_update_row_to_deleted_email_is_guided_error(self, client, master_user):
-        """更新行が削除済みメールを要求した場合は、新規作成行での再利用を案内するエラー。"""
-        _make_user("dgone@new.example.com", "50006", name="削除済み", roles=("office",), deleted=True)
-        _make_user("u@new.example.com", "50007", name="現役U", roles=("office",))
-        res = _import(client, [{uis.NO: "50007", uis.EMAIL: "dgone@new.example.com", uis.NAME: "現役U"}], _auth(client))
-        assert res.status_code == 400
-        joined = " ".join(res.json()["detail"]["errors"])
-        assert "削除済み" in joined and "新規作成行" in joined
 
 
 # --------------------------------------------------------------------------- #
