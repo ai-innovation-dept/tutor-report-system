@@ -85,7 +85,7 @@
 
 | 操作 | tutor | parent | admin_receiver | admin_reviewer | admin_master | admin_chief |
 |------|:-----:|:------:|:--------------:|:--------------:|:------------:|:-----------:|
-| 報告書作成（当月のみ） | O | X | X | X | X | X |
+| 報告書作成（当月・過去月／未来月は不可） | O | X | X | X | X | X |
 | 報告書編集（下書き・差戻し） | O | X | X | X | X | X |
 | 報告書削除（下書きのみ） | O | X | X | X | X | X |
 | 報告書閲覧（自分の担当分） | O | O | X | X | X | X |
@@ -114,7 +114,7 @@
 - **職務分掌（受付/再鑑の兼務禁止）**: ある「報告書」で受付（receive）を判断（承認・差戻し）したスタッフは、その同じ報告書の再鑑（re_review）を判断できない（逆も同様）。スコープは報告書単位で、別生徒・別月の報告書には影響しない。admin_master / admin_chief はこの制約の対象外
 - `tutor` は自分が担当する assignment に紐づく報告書のみ操作可能
 - `parent` は自分の子どもの assignment に紐づく報告書のみ閲覧・承認可能
-- 報告書の作成は **当月分のみ** に限定される
+- 報告書の作成は **当月・過去月** で可能（**未来の月は不可**）。承認依頼前（下書き）なら月をまたいだ入力ができる（改修 202607211716・案B。旧仕様は当月のみ）
 - 同一 assignment 同一月に既に `admin_approved` の報告書がある場合は追加不可
 - 同一 assignment 同一月に `awaiting_parent_approval` 以降（進行中）の報告書がある場合は追加不可
 - `draft`・`returned_to_tutor`・`closed` のみの場合は追加作成可能（`closed` は終端だが同月への新規作成はブロックしない）
@@ -201,7 +201,7 @@ returned_to_receiver --> 受付担当が receive --> received
 
 | 現在のステータス | ボール（＝要求に対応するロール） |
 |---|---|
-| `awaiting_parent_approval` | 保護者（当月のみ。過去月は保護者が操作できないため要求ボタンも出さない） |
+| `awaiting_parent_approval` | 保護者（当月・過去月とも対応可＝改修 202607211716・案B。旧仕様は当月のみ） |
 | `submitted_to_admin` / `returned_to_receiver` | 受付担当 |
 | `received` / `re_reviewed` / `admin_approved` | 再鑑者 |
 
@@ -480,13 +480,13 @@ password: パスワード
 
 | メソッド | URL | 認可 | 概要 |
 |---------|-----|------|------|
-| POST | `/api/reports` | tutor | 報告書作成（当月のみ、最終承認済み月は追加不可） |
+| POST | `/api/reports` | tutor | 報告書作成（当月・過去月。未来月・最終承認済み月・進行中月は追加不可） |
 | GET | `/api/reports` | ログイン済み（ロール別フィルタ） | 報告書一覧 |
 | GET | `/api/reports/monthly-summary` | tutor, admin_* | 月次サマリー（フェーズ・合計時間等） |
 | GET | `/api/reports/export` | tutor（担当のみ）, parent（自分の子のみ）, admin_*（全件） | 指導時間確認票PDF。`assignment_id` 未指定時は複数生徒の一括出力 |
 | GET | `/api/reports/export-daily` | `/export` と同一 | 指導日報PDF（原本様式・1ページ5日分・会員認め印つき）。対象選定も `/export` と共通 |
 | GET | `/api/reports/{report_id}` | ロール別権限チェック | 報告書取得 |
-| PATCH | `/api/reports/{report_id}` | tutor（下書き・差戻しのみ、当月のみ） | 報告書更新 |
+| PATCH | `/api/reports/{report_id}` | tutor（下書き・差戻しのみ。当月・過去月） | 報告書更新 |
 | POST | `/api/reports/admin-edit-bulk` | admin_receiver 等（受付による明細修正） | 受付担当による報告書の一括編集 |
 | DELETE | `/api/reports/{report_id}` | tutor（下書きのみ） | 報告書削除 |
 

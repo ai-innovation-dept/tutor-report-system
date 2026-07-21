@@ -64,8 +64,8 @@ def test_tutor_approval_supports_past_months(client):
     assert "api('/api/reports')" in res.text          # 当月固定の取得をやめている
     assert "selectedApprovalMonth" in res.text
     assert "group.target_month === selectedApprovalMonth" in res.text
-    # 保護者は当月しか操作できないため、過去月の保護者承認待ちは要求対象外
-    assert "pastMonth && r.status === 'awaiting_parent_approval'" in res.text
+    # 改修 202607211716・案B: 保護者も過去月を対応できるため、過去月の除外（pastMonth）は撤廃した
+    assert "pastMonth" not in res.text
 
 
 # --- 参照画面（対応する側） ---

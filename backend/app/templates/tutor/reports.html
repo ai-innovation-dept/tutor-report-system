@@ -270,7 +270,7 @@ function closeInfo(r, showActor = false) {
 }
 // compact=true はテーブル用の小型ボタン（列幅節約）。スマホのカード表示は従来サイズ＝タップしやすさを維持
 function rowAction(r, compact = false) {
-  if (selectedMonth !== currentMonth) return '';
+  // 過去月でも編集・削除できる（改修 202607211716・案B＝月ではなくステータスで判定）。
   if (r.status !== 'draft' && r.status !== 'returned_to_tutor') return '';
   const size = compact ? 'px-2.5 py-1.5 text-xs' : 'px-3 py-2 text-sm';
   // 編集・削除は折り返さない内側グループに固定（列が狭くてもボタンが縦積みにならない）。
@@ -287,7 +287,7 @@ function selectedAssignment() {
 }
 function selectedAssignmentApproved() {
   if (!selectedAssignmentId) return false;
-  return allReports.some(r => r.target_month === currentMonth && r.assignment_id === selectedAssignmentId && r.status === 'admin_approved');
+  return allReports.some(r => r.target_month === selectedMonth && r.assignment_id === selectedAssignmentId && r.status === 'admin_approved');
 }
 function selectedAssignmentInProgress() {
   if (!selectedAssignmentId) return false;
@@ -299,7 +299,7 @@ function selectedAssignmentInProgress() {
     'returned_to_receiver'
   ];
   return allReports.some(r =>
-    r.target_month === currentMonth &&
+    r.target_month === selectedMonth &&
     r.assignment_id === selectedAssignmentId &&
     inProgressStatuses.includes(r.status)
   );
@@ -341,12 +341,11 @@ function renderFormAvailability() {
     return;
   }
   let message = '';
-  if (selectedMonth !== currentMonth) {
-    message = '過去月は参照のみです';
-  } else if (selectedAssignmentApproved()) {
-    message = '当月分は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
+  // 過去月でも編集可否はステータスで判定する（改修 202607211716・案B）。
+  if (selectedAssignmentApproved()) {
+    message = '対象月は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
   } else if (selectedAssignmentInProgress()) {
-    message = '当月分の報告書がすでに進行中です。';
+    message = '対象月の報告書がすでに進行中です。';
   }
   formPanel.classList.remove('hidden');
   formUnavailablePanel.classList.add('hidden');
@@ -437,18 +436,18 @@ function renderBulkSubmit(reports) {
     bulkSubmitPanel.classList.add('hidden');
     return;
   }
-  const eligible = reports.filter(r => r.target_month === currentMonth && r.status === 'parent_approved');
+  const eligible = reports.filter(r => r.target_month === selectedMonth && r.status === 'parent_approved');
   const groups = eligible.reduce((acc, r) => ((acc[r.assignment_id] ||= []).push(r), acc), {});
   bulkSubmitPanel.classList.remove('hidden');
   bulkSubmitPanel.innerHTML = Object.keys(groups).length
     ? Object.entries(groups).map(([assignmentId, items]) => {
         const assignmentName = allAssignments.find(a => a.id === assignmentId)?.student_name || '生徒未設定';
         return `<div class="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4 md:flex-row md:items-center md:justify-between">
-        <div class="font-medium text-slate-800">${escapeHtml(assignmentName)} <span class="text-sm text-slate-500">${monthLabel(currentMonth)} ${items.length}件</span></div>
+        <div class="font-medium text-slate-800">${escapeHtml(assignmentName)} <span class="text-sm text-slate-500">${monthLabel(selectedMonth)} ${items.length}件</span></div>
         <button class="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-blue-700" onclick="submitAssignment('${assignmentId}')">まとめて提出</button>
       </div>`;
       }).join('')
-    : '<div class="text-sm text-slate-600">当月分で運営へ提出できる報告書はありません。</div>';
+    : '<div class="text-sm text-slate-600">運営へ提出できる報告書はありません。</div>';
 }
 async function loadTutor() {
   const [reports, assignments] = await Promise.all([api('/api/reports'), api('/api/assignments')]);
@@ -591,7 +590,7 @@ function updateCopyLastButton() {
     copyLastHint.textContent = `前回：${reportSummary(source)}`;
   }
 }
-// 指導日はコピーしない（当月分のみ作成可のため）。コピー後は指導日の入力へ誘導する。
+// 指導日はコピーしない（新しい指導日は個別に入力してもらうため）。コピー後は指導日の入力へ誘導する。
 function copyLastReport() {
   const source = lastReportForAssignment(assignment.value);
   if (!source || copyLastButton.disabled) return;
@@ -668,8 +667,8 @@ async function submitToAdmin(id) {
   await loadTutor();
 }
 async function submitAssignment(assignmentId) {
-  const ids = allReports.filter(r => r.target_month === currentMonth && r.assignment_id === assignmentId && r.status === 'parent_approved').map(r => r.id);
-  await api('/api/reports/submit-to-admin-bulk', {method:'POST', body:JSON.stringify({report_ids: ids, target_month: currentMonth})});
+  const ids = allReports.filter(r => r.target_month === selectedMonth && r.assignment_id === assignmentId && r.status === 'parent_approved').map(r => r.id);
+  await api('/api/reports/submit-to-admin-bulk', {method:'POST', body:JSON.stringify({report_ids: ids, target_month: selectedMonth})});
   await loadTutor();
 }
 reportForm.addEventListener('submit', async e => {

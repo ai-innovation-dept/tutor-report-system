@@ -267,12 +267,11 @@ function renderBulkExportLinks() {
 // サーバの対応表（workflow_service.RETURN_REQUEST_BALL_HOLDERS）と同一セット。変更時は両方を更新すること。
 const REQUESTABLE_STATUSES = ['awaiting_parent_approval', 'submitted_to_admin', 'returned_to_receiver', 'received', 're_reviewed', 'admin_approved'];
 function requestableReports(group) {
-  // 保護者の承認・差戻し操作は当月限定のため、過去月の「保護者承認待ち」は要求できない（宛先が対応不能）
-  const pastMonth = group.target_month !== currentMonth();
+  // 過去月でも各承認担当（保護者・運営）が対応できるようになったため、月に関わらず要求可能
+  // （改修 202607211716・案B。従来は保護者が当月限定だったため awaiting_parent_approval の過去月を除外していた）。
   return group.reports.filter(r =>
     REQUESTABLE_STATUSES.includes(r.status)
-    && !r.return_request_pending
-    && !(pastMonth && r.status === 'awaiting_parent_approval'));
+    && !r.return_request_pending);
 }
 function pendingRequestReports(group) {
   return group.reports.filter(r => r.return_request_pending);

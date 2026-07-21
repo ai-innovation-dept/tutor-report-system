@@ -162,24 +162,25 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     if not assignment or assignment.tutor_id != user.id or not assignment.is_active:
         raise HTTPException(status_code=403, detail="assignment access denied")
     target_month = month_string(payload.lesson_date)
-    current_month = _current_month()
-    if target_month != current_month:
-        raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
+    # 過去月・当月は作成できる（改修 202607211716・案B＝月ではなく対象月ごとのステータスで判定）。
+    # 未来の月は作成不可（UIの対象月も当月以前のみ。未実施の指導日を先取り入力させないため）。
+    if target_month > _current_month():
+        raise HTTPException(status_code=400, detail="未来の月の報告書は作成できません")
     existing_approved = db.scalar(
         select(func.count(LessonReport.id)).where(
             LessonReport.tutor_id == user.id,
             LessonReport.assignment_id == payload.assignment_id,
-            LessonReport.target_month == current_month,
+            LessonReport.target_month == target_month,
             LessonReport.status == ReportStatus.admin_approved.value,
         )
     ) or 0
     if existing_approved > 0:
-        raise HTTPException(status_code=409, detail="当月分はすでに最終承認済みです。追加修正が必要な場合は運営に差戻しを依頼してください")
+        raise HTTPException(status_code=409, detail="対象月はすでに最終承認済みです。追加修正が必要な場合は運営に差戻しを依頼してください")
     existing_in_progress = db.scalar(
         select(func.count(LessonReport.id)).where(
             LessonReport.tutor_id == user.id,
             LessonReport.assignment_id == payload.assignment_id,
-            LessonReport.target_month == current_month,
+            LessonReport.target_month == target_month,
             LessonReport.status.notin_([
                 ReportStatus.draft.value,
                 ReportStatus.returned_to_tutor.value,
@@ -189,7 +190,7 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
         )
     ) or 0
     if existing_in_progress > 0:
-        raise HTTPException(status_code=409, detail="当月分の報告書がすでに進行中です")
+        raise HTTPException(status_code=409, detail="対象月の報告書がすでに進行中です")
     # 月単位の状態チェックを通過した後に、同一生徒×同一指導日の重複を確認する
     # （最終承認済み・進行中の場合はより具体的な上記メッセージを優先する）
     if _duplicate_lesson_date_exists(db, user.id, payload.assignment_id, payload.lesson_date):
@@ -779,8 +780,7 @@ async def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depe
     report = get_report_for_user(report_id, user, db)
     if user.role != "tutor" or report.tutor_id != user.id:
         raise HTTPException(status_code=403, detail="report cannot be edited")
-    if report.target_month != _current_month():
-        raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
+    # 過去月でも編集できる（改修 202607211716・案B＝月ではなくステータスで判定）。
     if report.status not in {ReportStatus.draft.value, ReportStatus.returned_to_tutor.value}:
         raise HTTPException(status_code=409, detail="only draft or returned reports can be edited")
     data = payload.model_dump(exclude_unset=True)
@@ -793,8 +793,9 @@ async def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depe
         raise HTTPException(status_code=422, detail="終了時刻は開始時刻より後の時刻を指定してください")
     if "lesson_date" in data:
         report.target_month = month_string(report.lesson_date)
-        if report.target_month != _current_month():
-            raise HTTPException(status_code=400, detail="当月分の報告書のみ作成できます")
+        # 指導日を変えると対象月も追従する（過去月への変更も可・未来月は不可＝改修 202607211716・案B）。
+        if report.target_month > _current_month():
+            raise HTTPException(status_code=400, detail="未来の月の報告書は作成できません")
         if _duplicate_lesson_date_exists(db, report.tutor_id, report.assignment_id, report.lesson_date, exclude_report_id=report.id):
             raise HTTPException(status_code=409, detail="同じ指導日の報告書がすでに登録されています")
     # 差戻し中の修正は「何を何に変えたか」を監査履歴(comment)として保存する（action=tutor_edit）。

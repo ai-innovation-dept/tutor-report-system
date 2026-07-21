@@ -656,19 +656,20 @@ def test_tutor_reports_page_shows_return_comment_badge(client, db):
     assert "差戻し理由:" not in page.text
 
 
-def test_report_create_rejects_non_current_month(client, db):
+def test_report_create_allows_past_month(client, db):
+    # 改修 202607211716・案B: 過去月の報告書も作成できる（承認依頼前なら月をまたいで入力可）。
     tutor_token = token(client, "tutor@example.com")
     assignment = db.query(Assignment).first()
-    non_current = date(date.today().year - 1, 1, 1)
+    past = date(date.today().year - 1, 1, 1)
     res = client.post("/api/reports", headers={"Authorization": f"Bearer {tutor_token}"}, json={
         "assignment_id": str(assignment.id),
-        "lesson_date": str(non_current),
+        "lesson_date": str(past),
         "start_time": "18:00",
         "end_time": "19:00",
         "content": "lesson",
     })
-    assert res.status_code == 400
-    assert res.json()["detail"] == "当月分の報告書のみ作成できます"
+    assert res.status_code == 200, res.text
+    assert res.json()["target_month"] == past.strftime("%Y-%m")
 
 
 def test_report_create_allows_current_jst_month_at_utc_month_boundary(client, db, monkeypatch):
@@ -713,11 +714,12 @@ def test_report_create_rejects_next_jst_month(client, db, monkeypatch):
         "content": "lesson",
     })
 
+    # 改修 202607211716・案B: 未来の月は引き続き作成不可（メッセージのみ変更）。
     assert res.status_code == 400
-    assert res.json()["detail"] == "当月分の報告書のみ作成できます"
+    assert res.json()["detail"] == "未来の月の報告書は作成できません"
 
 
-def test_report_create_rejects_previous_jst_month(client, db, monkeypatch):
+def test_report_create_allows_previous_jst_month(client, db, monkeypatch):
     class FrozenDateTime(datetime):
         @classmethod
         def now(cls, tz=None):
@@ -736,8 +738,9 @@ def test_report_create_rejects_previous_jst_month(client, db, monkeypatch):
         "content": "lesson",
     })
 
-    assert res.status_code == 400
-    assert res.json()["detail"] == "当月分の報告書のみ作成できます"
+    # 改修 202607211716・案B: 過去月（前月）も作成できるようになった。
+    assert res.status_code == 200, res.text
+    assert res.json()["target_month"] == "2026-05"
 
 
 def test_report_create_rejects_after_admin_approved(client, db):
@@ -798,7 +801,7 @@ def test_create_report_rejects_duplicate_in_progress(client, db):
     })
 
     assert res.status_code == 409
-    assert res.json()["detail"] == "当月分の報告書がすでに進行中です"
+    assert res.json()["detail"] == "対象月の報告書がすでに進行中です"
 
 
 def test_admin_reviewer_can_return_admin_approved_bulk(client, db):

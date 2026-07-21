@@ -314,9 +314,7 @@
     function actionAreaHtml(filtered) {
       if (!PARENT_CAN_ACT) return '';
       const wrap = (inner) => `<section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">${inner}</section>`;
-      if (targetMonth !== CURRENT_MONTH) {
-        return wrap('<div class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-600">過去月のため承認・差戻しはできません。</div>');
-      }
+      // 過去月でも承認・差戻し可（改修 202607211716・案B＝月ではなくステータスで判定）。
       if (filtered.some(report => report.status === 'returned_to_tutor')) {
         return wrap('<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">差戻し中の報告書があります。講師の修正をお待ちください。</div>');
       }
@@ -368,8 +366,8 @@
     function canActOnRequest(report) {
       const statuses = REQUEST_BALL_STATUSES[ACTIVE_ROLE] || [];
       if (!statuses.includes(report.status)) return false;
-      // 保護者の操作は当月限定（承認・差戻しと同じ制約）
-      if (ACTIVE_ROLE === 'parent') return targetMonth === CURRENT_MONTH;
+      // 保護者も過去月の要求対応が可能（改修 202607211716・案B）。
+      if (ACTIVE_ROLE === 'parent') return true;
       // 受付／再鑑は職務分掌のロック（同一報告書での兼務不可）に従う
       return !adminLocked([report]);
     }
