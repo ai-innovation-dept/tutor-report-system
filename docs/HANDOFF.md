@@ -251,3 +251,19 @@ docker compose exec backend python -m app.scripts.seed_production --yes
   - メールテンプレ: `templates/email/notify_school_all_approved.txt`（`notify_school_monthly_progress.txt` は廃止・削除済み）。
   - テスト: `new_backend/tests/test_school_progress.py`（MAIL_BACKEND=console のため実送信ゼロ）。
 - **本番反映の注意**: デプロイ後、学校承認で全員が揃うと事務・営業へ実メールが飛ぶ（意図どおりの動作）。`.env` の `NEW_SCHOOL_PROGRESS_DAYS_AFTER_MONTH_END` は不要になった（残っていても無害・読まれない）。
+
+### 【改修 202607211716-② 残作業／別アカウントへの引継ぎ】EMPS 要望連絡事項の3欄化（運営／講師／学校）
+
+- **状態**: ⏭ 未着手。**同依頼の EMPS①・legacy①（過去月編集・案B）は完了・push 済み**（§5 の 202607211716 各項＝commit `1f7161a`／`d60a15b`）。**この②のみが残作業**。引継ぎ時は「202607211716 の残＝EMPS②」として扱うこと（①・legacy① を重複実装しない）。個人メモリは引き継がれないため、確定事項と計画を本節に集約する。
+- **依頼内容**（原文）: 講師画面の業務連絡表の「要望連絡事項」を、次の3項目に増やし、その担当ロールのみ入力・編集できるようにする。
+  - 要望連絡事項（運営）← 契約管理で入力編集（**既存の扱い＝下記の確認①参照**）
+  - 要望連絡事項（講師）← 業務連絡表で講師が入力編集
+  - 要望連絡事項（学校）← 学校画面の承認管理「報告書を確認」で学校のみ入力編集
+- **確認済みの決定（依頼者回答・重要）＝案A**: 現行の「要望連絡事項」は、契約の担当業務設定（前期/後期の月時間・週コマ・適用期間＋契約期間）から**自動生成される文章**（`form_data.meta.requests`・講師読取専用・`report_view`／PDF に出力）であり、運営が自由記述する欄は存在しない。依頼者は「要望連絡事項（運営）」として**この現行の自動生成テキストをそのまま流用**する方針を選択（＝**新規の自由記述欄は作らない**）。
+- **やること（実装計画）**:
+  1. **運営欄**: 現行「要望連絡事項」の表示ラベルを「要望連絡事項（運営）」へ改称するのみ（`new_backend/app/templates/tutor/reports.html`・`report_view.html`・PDF `new_backend/app/services/export_service.py` の `_report_footer_values`）。値・生成ロジック（`workloadRequestsText`）は不変。
+  2. **講師欄（新規）**: 「要望連絡事項（講師）」＝`form_data.meta` の新キー（例 `requests_tutor`）。講師が業務連絡表で入力・編集可（`reports.html` の `LOCKED_META_KEYS` に**入れない**＝ロックしない）。`report_view`／PDF にも表示。保存は既存の講師 PATCH（`PATCH /api/w/reports/{id}`）でそのまま通る（meta 追加のみ）。
+  3. **学校欄（新規）**: 「要望連絡事項（学校）」＝`form_data.meta` の新キー（例 `requests_school`）。学校の「報告書を確認」（`report_view.html`・`ACTIVE_ROLE==='school'`）で**学校ロールのみ**入力・編集。**学校用の保存 API を新設**が必要（現状 school は reports への編集権限なし＝tutor と office-edit のみ。school が自分の学校の当該 meta 欄だけ更新できる専用エンドポイントを追加し、他 meta・明細は書き換えさせない）。`report_view`／PDF にも表示。過去月でも編集できるようにするか（案B と整合）は着手時に依頼者へ確認（既定は当月の awaiting_school 時のみ編集で可）。
+  4. CSV は現状 requests を出力していないため追随不要。**meta 追加のみで DB マイグレーションは不要**。
+- **テスト方針**: `MAIL_BACKEND=console`（conftest 強制）で実メールゼロ。運営欄の改称・講師欄の保存往復・学校欄の学校限定保存（他ロール拒否）・`report_view`／PDF 反映を pytest で検証。
+- **参考**: 学校の入力欄の設置場所は `report_view.html` の `schoolActionAreaHtml`（`awaiting_school`）周辺が候補。EMPS① で同ファイルの学校操作エリアの当月ゲートを撤廃済み（§5 参照）。
