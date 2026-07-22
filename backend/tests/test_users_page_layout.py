@@ -29,3 +29,11 @@ def test_users_table_matches_emps_layout(client):
     # ロール変更は詳細ドロワーへ集約（行内更新ボタン廃止の受け皿を維持）
     assert "roleCheckboxes(user, 'drawer')" in body
     assert "{keepDrawer: true}" in body
+
+
+def test_users_page_has_page_title(client):
+    """改修依頼 202607221522 ②: 「担当管理」と同様にユーザー管理にもページ見出しを表示する。"""
+    token(client, "master@example.com")
+    res = client.get("/admin/users")
+    assert res.status_code == 200
+    assert '<h1 class="text-xl font-bold text-slate-800">ユーザー管理</h1>' in res.text

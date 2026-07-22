@@ -175,6 +175,13 @@ class TestPhase2Pages:
         assert 'id="roleHint"' in res.text
         assert "Noは自動で割り当てられます。" in res.text
 
+    def test_users_page_has_page_title(self, client, users):
+        """改修依頼 202607221522 ②(parity): 「契約管理」と同様にユーザー管理にもページ見出しを表示する。"""
+        _login(client, "p2-office@example.com")
+        res = client.get("/admin/users")
+        assert res.status_code == 200
+        assert '<h1 class="text-xl font-bold text-slate-800">ユーザー管理</h1>' in res.text
+
     def test_contracts_action_column_right_aligned(self, client, users):
         """契約管理（202607201825）: ＋新規登録の右端ラインと操作列（削除ボタン）の右端ラインを揃える。"""
         _login(client, "p2-office@example.com")
