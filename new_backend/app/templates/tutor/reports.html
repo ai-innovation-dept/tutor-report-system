@@ -872,7 +872,15 @@ function buildLineRows(lines) {
       });
     }
     if (input.dataset.field === 'date') {
-      input.addEventListener('change', () => validateLineDateUnique(input));
+      input.addEventListener('change', () => {
+        validateLineDateUnique(input);
+        // 契約期間外の指導日は確認ポップアップで警告する（改修 2026072120937 ②）
+        confirmLineDateWithinContract(input.value, () => {
+          input.value = '';
+          input.closest('tr').querySelector('[data-weekday]').textContent = '';
+          updateLineSummary();
+        });
+      });
       // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
       input.addEventListener('click', () => {
         if (typeof input.showPicker === 'function') { try { input.showPicker(); } catch (_) {} }
@@ -969,6 +977,31 @@ function validateLineDateUnique(input) {
   input.closest('tr').querySelector('[data-weekday]').textContent = '';
   showTimePopup(input.closest('td'), `同じ日付の行がすでにあります（${dateLabel(value)}）`);
   updateLineSummary();
+}
+// 契約期間外の指導日を入力したときの確認ポップアップ（改修 2026072120937 ②）。
+// 契約（要望連絡事項（運営）に「契約期間：…」として表示）の contract_start〜contract_end の外側の
+// 日付を入力したら「契約期間外ですが問題ないですか？」を表示する。契約期間が未設定の契約は判定しない。
+// 明細行・スマホの詳細シートの両方で共用する。
+// Q2=b: 現状は「いいえ」を押しても日付は取り消さない（警告のみ）。将来 Q2=a（取り消し）へ切り替える
+// 場合は CLEAR_DATE_WHEN_OUTSIDE_CONTRACT を true にするだけでよい（呼び出し側の revert が実行される）。
+const CLEAR_DATE_WHEN_OUTSIDE_CONTRACT = false;
+async function confirmLineDateWithinContract(dateValue, revert) {
+  if (!dateValue) return;
+  const contract = contractForSchool(selectedSchoolId);
+  if (!contract) return;
+  const start = contract.contract_start || '';
+  const end = contract.contract_end || '';
+  if (!start && !end) return;  // 契約期間が未設定なら判定しない
+  // 日付は 'YYYY-MM-DD'（ISO）同士のため文字列比較で前後判定できる
+  const outside = (start && dateValue < start) || (end && dateValue > end);
+  if (!outside) return;
+  const ok = await showConfirmModal({
+    title: '契約期間の確認',
+    message: '契約期間外ですが問題ないですか？',
+    confirmLabel: 'はい',
+    cancelLabel: 'いいえ',
+  });
+  if (!ok && CLEAR_DATE_WHEN_OUTSIDE_CONTRACT && typeof revert === 'function') revert();
 }
 // 前回の記入分をコピー: 最後に記入済みの行と同じ内容（日付列を除く）を、その次の空行に追加する。
 // 列構成は契約により可変のため、type==='date' の列だけを除外して全列をコピーする。
@@ -1636,6 +1669,14 @@ function bindSheetEvents(body) {
       const span = body.querySelector('[data-sheet-weekday]');
       if (span) span.textContent = weekdayParen(dateInput.value);
       hideSheetError();
+    });
+    // 契約期間外の指導日は確認ポップアップで警告する（改修 2026072120937 ②・明細行と同一ルール）
+    dateInput.addEventListener('change', () => {
+      confirmLineDateWithinContract(dateInput.value, () => {
+        dateInput.value = '';
+        const span = body.querySelector('[data-sheet-weekday]');
+        if (span) span.textContent = '';
+      });
     });
     // カレンダーアイコンを非表示にしている代わりに、ボックスのクリックでピッカーを開く
     dateInput.addEventListener('click', () => {
