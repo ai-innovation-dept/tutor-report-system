@@ -350,6 +350,11 @@ def _total_minutes(reports: list[LessonReport]) -> int:
 async def _send_email(db: Session, to_user: User | None, subject: str, template_name: str, context: dict) -> None:
     if not to_user:
         return
+    # 無効化・削除済みユーザーには通知メールを送らない（無効化＝削除と同等に「宛先から外す」。
+    # 行・メールアドレスは保持し、有効化で元に戻せる）。EMPS の _send_email と同じ扱い（宛先解決の唯一の関門）。
+    if not to_user.is_active or to_user.deleted_at:
+        logger.info("mail skipped: recipient inactive/deleted email=%s subject=%s", to_user.email, subject)
+        return
     try:
         await send_email_notification(to_user.email, subject, template_name, context)
     except Exception:

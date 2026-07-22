@@ -270,7 +270,15 @@ async def forgot_password(
     db: Session = Depends(get_db),
 ):
     email = str(payload.email).strip().lower()
-    user = db.scalar(select(User).where(func.lower(User.email) == email))
+    # 無効化・削除済みユーザーにはリセットメールを送らない（無効化＝削除と同等の扱い。
+    # ログイン自体も authenticate で不可）。応答文言は同一でメール存在を明かさない。
+    user = db.scalar(
+        select(User).where(
+            func.lower(User.email) == email,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+    )
     # メール存在を明かさない
     if not user:
         return {"message": "パスワードリセットメールを送信しました"}

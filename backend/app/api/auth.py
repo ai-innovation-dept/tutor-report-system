@@ -173,7 +173,15 @@ def logout():
 @router.post("/forgot-password")
 async def forgot_password(payload: ForgotPasswordIn, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
     email = str(payload.email).strip().lower()
-    user = db.scalar(select(User).where(func.lower(User.email) == email))
+    # 無効化・削除済みユーザーにはリセットメールを送らない（無効化＝削除と同等。ログイン自体も
+    # authenticate_user で不可のため、リセットしても入れない）。応答文言は同一で存在を明かさない。
+    user = db.scalar(
+        select(User).where(
+            func.lower(User.email) == email,
+            User.is_active.is_(True),
+            User.deleted_at.is_(None),
+        )
+    )
     message = {"message": "パスワードリセットメールを送信しました"}
     if not user:
         return message

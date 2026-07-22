@@ -84,6 +84,10 @@ def enqueue_approval_reminders(db: Session, today: date | None = None) -> int:
             continue
         if not report.parent_id:
             continue
+        # 無効化・削除済みの保護者にはリマインドを作らない（無効化＝削除と同等の扱い）
+        parent = db.get(User, report.parent_id)
+        if not parent or not parent.is_active or parent.deleted_at:
+            continue
         interval_days = max(1, assignment.reminder_days_after)
         elapsed_days = (today - report.submitted_to_parent_at.date()).days
         due_count = elapsed_days // interval_days
@@ -123,6 +127,9 @@ def _send_pending_approval_emails(db: Session) -> int:
     for notification in pending:
         user = db.get(User, notification.user_id)
         if not user or not user.email:
+            continue
+        # 無効化・削除済みユーザーには送らない（無効化＝削除と同等に宛先から外す）
+        if not user.is_active or user.deleted_at:
             continue
         try:
             asyncio.run(EmailChannel().send(user.email, notification.subject, notification.body))
