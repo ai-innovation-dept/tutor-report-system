@@ -367,7 +367,7 @@ function actionArea(group) {
     const label = group.skip_school_approval ? '修正済みの報告書を管理へ再提出'
       : (group.precheck_route ? '修正済みの報告書を再提出' : '修正済みの報告書を学校へ再依頼');
     return `${returnedNotice(group)}<div class="mt-3 flex flex-wrap items-center gap-3">
-      <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}')">${label}</button>
+      <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="resendReturnedReports('${group.assignment_id}', '${group.target_month}')">${label}</button>
       <a class="text-sm text-rose-700 underline" href="/tutor/reports?month=${group.target_month}">報告書を修正する</a>
       ${deleteButton(group)}
     </div>`;
@@ -381,7 +381,7 @@ function actionArea(group) {
     return `<div class="mt-5 grid gap-3">
       ${precheckNote}
       <div class="flex flex-wrap items-center gap-3">
-        <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}')">${label}</button>
+        <button class="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-700" onclick="submitToParentGroup('${group.assignment_id}', '${group.target_month}')">${label}</button>
         ${deleteButton(group)}
       </div>
     </div>`;
@@ -443,12 +443,18 @@ function returnRequestArea(group) {
     : '';
   if (!requestable.length) return declinedNotice;
   return `${declinedNotice}<div class="mt-3 flex flex-wrap items-center gap-3">
-    <button class="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50" onclick="requestReturnGroup('${group.assignment_id}')">差戻しを要求</button>
+    <button class="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-50" onclick="requestReturnGroup('${group.assignment_id}', '${group.target_month}')">差戻しを要求</button>
     <span class="text-xs text-slate-500">提出済みの内容を修正したい場合、現在の承認担当へ差戻しを要求できます。</span>
   </div>`;
 }
-async function requestReturnGroup(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+// 同じ担当（assignment）でも対象月ごとに別グループ（キーは assignment_id:target_month）。
+// assignment_id だけで探すと、複数月に下書き／差戻しがあるとき別の月のグループを掴んでしまうため、
+// 画面操作は必ず (assignment_id, target_month) の両方で解決する（改修 2026072120937 ①）。
+function findGroup(assignmentId, targetMonth) {
+  return groups.find(item => item.assignment_id === assignmentId && item.target_month === targetMonth);
+}
+async function requestReturnGroup(assignmentId, targetMonth) {
+  const group = findGroup(assignmentId, targetMonth);
   if (!group) return;
   const targets = requestableReports(group);
   if (!targets.length) return;
@@ -479,7 +485,7 @@ function deletableReportIds(group) {
 function deleteButton(group) {
   // 学校へ依頼する前（下書き）または講師へ差戻された報告のみ削除できる
   if (!group.reports.length || !group.reports.every(r => DELETABLE_STATUSES.includes(r.status))) return '';
-  return `<button class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteDraftReports('${group.assignment_id}')">報告を削除</button>`;
+  return `<button class="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100" onclick="deleteDraftReports('${group.assignment_id}', '${group.target_month}')">報告を削除</button>`;
 }
 function returnSourceLabel(group) {
   const roles = new Set(group.reports
@@ -501,8 +507,8 @@ function returnedNotice(group) {
     ${reasons}
   </div>`;
 }
-async function deleteDraftReports(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+async function deleteDraftReports(assignmentId, targetMonth) {
+  const group = findGroup(assignmentId, targetMonth);
   if (!group) return;
   const ids = deletableReportIds(group);
   if (!ids.length) return;
@@ -582,13 +588,13 @@ function renderApproval() {
       ${summaryGrid(group)}
       ${actionArea(group)}
       ${returnRequestArea(group)}
-      <button class="mt-4 text-sm font-medium text-emerald-600 underline decoration-emerald-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}')">対象報告書を表示</button>
+      <button class="mt-4 text-sm font-medium text-emerald-600 underline decoration-emerald-300 underline-offset-4" onclick="toggleDetails('${group.assignment_id}', '${group.target_month}')">対象報告書を表示</button>
       <div id="detail-${group.assignment_id}"></div>
     </details>`;
   }).join('');
 }
-function toggleDetails(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+function toggleDetails(assignmentId, targetMonth) {
+  const group = findGroup(assignmentId, targetMonth);
   const area = document.getElementById(`detail-${assignmentId}`);
   area.innerHTML = area.innerHTML ? '' : detailRows(group);
 }
@@ -615,8 +621,8 @@ async function confirmSubmitGroup(group, ids) {
     cancelLabel: 'キャンセル'
   });
 }
-async function submitToParentGroup(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+async function submitToParentGroup(assignmentId, targetMonth) {
+  const group = findGroup(assignmentId, targetMonth);
   // リマインド設定は講師では行わない（運営の進捗パイプラインで設定する）
   const ids = reportIdsForParentSubmit(group);
   if (!(await confirmSubmitGroup(group, ids))) return;
@@ -633,8 +639,8 @@ async function submitToParentGroup(assignmentId) {
   }
   await loadApproval();
 }
-async function resendReturnedReports(assignmentId) {
-  const group = groups.find(item => item.assignment_id === assignmentId);
+async function resendReturnedReports(assignmentId, targetMonth) {
+  const group = findGroup(assignmentId, targetMonth);
   const ids = returnedReportIds(group);
   if (!(await confirmSubmitGroup(group, ids))) return;
   try {
