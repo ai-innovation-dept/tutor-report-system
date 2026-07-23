@@ -1,9 +1,10 @@
 # === 提出締切通知（改修依頼 202607161428） START ===
-"""指導報告の提出締切（翌月第一営業日）の計算と、講師向け締切通知。
+"""指導報告の提出締切（翌月1日）の計算と、講師向け締切通知。
 
 締切ルール:
-- 対象月Mの提出締切 = Mの翌月の「第一営業日」。
-- 営業日 = 土日・日本の祝日(jpholiday)・BUSINESS_CLOSED_DAYS(年末年始等の休業日)を除く日。
+- 対象月Mの提出締切 = Mの翌月の1日（年間を通じて固定・改修 202607231903）。
+  土日・祝日でも繰り延べない（例: 2026年7月分→8月1日（土）、2026年8月分→9月1日（火））。
+  ※ 旧仕様（〜202607231903）は「翌月第一営業日」（jpholiday＋年末年始休業で繰り延べ）だった。
 - 通知は2段階: 1回目=月中（既定15日）/ 2回目=締切前日（前日〜締切当日は「至急」扱い）。
 
 画面バナー（①）は active_notice() を base.html（講師ロールのみ）から参照する。
@@ -19,7 +20,6 @@ from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from logging import getLogger
 
-import jpholiday
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -49,34 +49,14 @@ _UNSUBMITTED_STATUSES = {ReportStatus.draft.value, ReportStatus.returned_to_tuto
 _WEEKDAY_LABELS = "月火水木金土日"
 
 
-def _closed_month_days() -> set[str]:
-    """毎年休業扱いにする日（MM-DD）の集合。既定は年末年始休業。"""
-    return {token.strip() for token in (settings.business_closed_days or "").split(",") if token.strip()}
-
-
-def is_business_day(day: date) -> bool:
-    if day.weekday() >= 5:  # 土日
-        return False
-    if jpholiday.is_holiday(day):  # 日本の祝日（振替休日含む）
-        return False
-    return day.strftime("%m-%d") not in _closed_month_days()
-
-
-def first_business_day(year: int, month: int) -> date:
-    day = date(year, month, 1)
-    while not is_business_day(day):
-        day += timedelta(days=1)
-    return day
-
-
 def submission_deadline(target_month: str) -> date:
-    """対象月(YYYY-MM)の提出締切 = 翌月の第一営業日。"""
+    """対象月(YYYY-MM)の提出締切 = 翌月の1日（固定・土日祝でも繰り延べない。改修 202607231903）。"""
     year, month = (int(part) for part in target_month.split("-"))
     if month == 12:
         year, month = year + 1, 1
     else:
         month += 1
-    return first_business_day(year, month)
+    return date(year, month, 1)
 
 
 def _midmonth_start(month_first: date) -> date:

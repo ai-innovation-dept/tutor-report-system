@@ -1,5 +1,5 @@
-# === 提出締切通知（改修依頼 202607161428） START ===
-"""提出締切（翌月第一営業日）計算・講師向け締切バナー・締切メール通知のテスト。
+# === 提出締切通知（改修依頼 202607161428・締切は翌月1日固定＝改修 202607231903） START ===
+"""提出締切（翌月1日固定）計算・講師向け締切バナー・締切メール通知のテスト。
 
 メールは実送信しない（conftest で MAIL_BACKEND=console）。送信キュー(mail_outbox)への
 投函とアプリ内通知ログ(notifications)・送信済みガード(deadline_notice_sends)を検証する。
@@ -24,7 +24,6 @@ from app.services.deadline_service import (
     active_notice,
     due_email_notices,
     enqueue_deadline_notices,
-    first_business_day,
     submission_deadline,
     unsubmitted_tutors,
 )
@@ -32,28 +31,13 @@ from app.services.deadline_service import (
 FIXED_CREATED_AT = datetime(2026, 7, 1, tzinfo=timezone.utc)
 
 
-# --- 締切（第一営業日）計算 ---
+# --- 締切（翌月1日固定）計算 ---
 
-def test_first_business_day_skips_weekend():
-    # 2026-08-01(土)・02(日) → 8/3(月)
-    assert first_business_day(2026, 8) == date(2026, 8, 3)
-    # 2026-09-01 は平日（火）
-    assert first_business_day(2026, 9) == date(2026, 9, 1)
-
-
-def test_first_business_day_respects_year_end_closure():
-    # 年末年始休業（既定 12/29〜1/3）: 2027-01-01(金)〜03(日)休み → 1/4(月)
-    assert first_business_day(2027, 1) == date(2027, 1, 4)
-
-
-def test_first_business_day_skips_national_holidays():
-    # 2027-05: 1(土) 2(日) 3(憲法記念日) 4(みどりの日) 5(こどもの日) → 5/6(木)
-    assert first_business_day(2027, 5) == date(2027, 5, 6)
-
-
-def test_submission_deadline_is_first_business_day_of_next_month():
-    assert submission_deadline("2026-07") == date(2026, 8, 3)
-    assert submission_deadline("2026-12") == date(2027, 1, 4)  # 年跨ぎ
+def test_submission_deadline_is_first_day_of_next_month():
+    # 年間を通じて翌月1日固定＝土日・祝日でも繰り延べない（改修 202607231903）
+    assert submission_deadline("2026-07") == date(2026, 8, 1)  # 8/1 は土曜でも繰り延べない
+    assert submission_deadline("2026-08") == date(2026, 9, 1)  # 9/1（火）
+    assert submission_deadline("2026-12") == date(2027, 1, 1)  # 年跨ぎ・元日でも1日
 
 
 # --- 画面バナーの表示期間（active_notice） ---
@@ -63,11 +47,11 @@ def test_active_notice_windows():
     info = active_notice(date(2026, 7, 15))
     assert info["phase"] == "info"
     assert info["target_month"] == "2026-07"
-    assert info["deadline_label"] == "8月3日（月）"
-    assert active_notice(date(2026, 8, 1))["phase"] == "info"  # 翌月頭でも締切前々日までは通常表示
-    assert active_notice(date(2026, 8, 2))["phase"] == "urgent"  # 締切前日
-    assert active_notice(date(2026, 8, 3))["phase"] == "urgent"  # 締切当日
-    assert active_notice(date(2026, 8, 4)) is None  # 締切終了後
+    assert info["deadline_label"] == "8月1日（土）"
+    assert active_notice(date(2026, 7, 30))["phase"] == "info"  # 締切前々日までは通常表示
+    assert active_notice(date(2026, 7, 31))["phase"] == "urgent"  # 締切前日
+    assert active_notice(date(2026, 8, 1))["phase"] == "urgent"  # 締切当日（翌月1日）
+    assert active_notice(date(2026, 8, 2)) is None  # 締切終了後
 
 
 def test_active_notice_urgent_within_same_month():
@@ -83,10 +67,10 @@ def test_active_notice_urgent_within_same_month():
 def test_due_email_notices_windows():
     assert due_email_notices(date(2026, 7, 14)) == []
     assert due_email_notices(date(2026, 7, 15)) == [(DEADLINE_FIRST_TYPE, "2026-07")]
-    assert due_email_notices(date(2026, 8, 1)) == [(DEADLINE_FIRST_TYPE, "2026-07")]  # 追い送り窓の最終日
-    assert due_email_notices(date(2026, 8, 2)) == [(DEADLINE_EVE_TYPE, "2026-07")]  # 締切前日
-    assert due_email_notices(date(2026, 8, 3)) == [(DEADLINE_EVE_TYPE, "2026-07")]  # 停止時の追い送り
-    assert due_email_notices(date(2026, 8, 4)) == []
+    assert due_email_notices(date(2026, 7, 30)) == [(DEADLINE_FIRST_TYPE, "2026-07")]  # 1回目窓の最終日（締切2日前）
+    assert due_email_notices(date(2026, 7, 31)) == [(DEADLINE_EVE_TYPE, "2026-07")]  # 締切前日
+    assert due_email_notices(date(2026, 8, 1)) == [(DEADLINE_EVE_TYPE, "2026-07")]  # 停止時の追い送り（締切当日）
+    assert due_email_notices(date(2026, 8, 2)) == []
 
 
 # --- 対象講師の抽出とメール投函 ---
@@ -149,7 +133,7 @@ def test_deadline_mail_first_notice_queued_once(client, db, monkeypatch):
     assert [mail.to_email for mail in outbox] == ["tutor@example.com"]
     assert outbox[0].subject == "【重要】指導報告提出締切のお知らせ"
     assert "7月分の勤務時間、日報、月報" in outbox[0].body
-    assert "提出締切：8月3日（月）" in outbox[0].body
+    assert "提出締切：8月1日（土）" in outbox[0].body
     notification = db.query(Notification).filter(Notification.type == DEADLINE_FIRST_TYPE).one()
     assert notification.sent_at is not None
     guard = db.query(DeadlineNoticeSend).one()
@@ -168,14 +152,14 @@ def test_deadline_mail_eve_notice_content_and_series(client, db, monkeypatch):
 
     # 1回目（月中）→ 2回目（締切前日）は別種別として月1回ずつ送られる
     assert enqueue_deadline_notices(db, date(2026, 7, 15)) == 1
-    assert enqueue_deadline_notices(db, date(2026, 8, 2)) == 1
+    assert enqueue_deadline_notices(db, date(2026, 7, 31)) == 1
     db.commit()
 
     eve_mail = db.query(MailOutbox).filter(MailOutbox.subject == "【至急確認依頼】指導報告提出締切のお知らせ").one()
     assert "7月分の指導報告について、提出締切が近づいております" in eve_mail.body
-    assert "提出締切：8月3日（月）" in eve_mail.body
+    assert "提出締切：8月1日（土）" in eve_mail.body
     assert db.query(DeadlineNoticeSend).count() == 2
-    assert enqueue_deadline_notices(db, date(2026, 8, 3)) == 0  # 前日送信済みなら締切当日は再送しない
+    assert enqueue_deadline_notices(db, date(2026, 8, 1)) == 0  # 前日送信済みなら締切当日は再送しない
 
 
 def test_deadline_mail_skips_submitted_tutor(client, db, monkeypatch):
@@ -216,17 +200,17 @@ def test_banner_shown_for_tutor_in_window(client):
         html = client.get("/tutor/reports").text
     assert "deadlineBanner" in html
     assert "7月分の指導報告の提出締切は、" in html
-    assert "8月3日（月）" in html
+    assert "8月1日（土）" in html
     assert "提出締切が近づいています" not in html
 
 
 def test_banner_switches_to_urgent_on_deadline_eve(client):
-    with freeze_time("2026-08-02 03:00:00"):  # 締切(8/3)前日
+    with freeze_time("2026-07-31 03:00:00"):  # 締切(8/1)前日
         _login(client, "tutor@example.com")
         html = client.get("/tutor/reports").text
     assert "deadlineBanner" in html
     assert "【提出締切が近づいています】" in html
-    assert "8月3日（月）" in html
+    assert "8月1日（土）" in html
 
 
 def test_banner_hidden_outside_window(client):
