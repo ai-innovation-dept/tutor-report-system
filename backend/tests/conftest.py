@@ -19,7 +19,7 @@ from app.core.time import get_current_jst_month
 from app.database import Base, SessionLocal, engine, get_db
 from app.main import app
 from app.models import Assignment, MonthlyReport, User
-from app.api import auth, chat, invitations, monthly_reports, reports, stale, users, workflow
+from app.api import auth, chat, invitations, monthly_reports, parent_surveys, reports, stale, users, workflow
 
 def override_get_db():
     Base.metadata.create_all(bind=engine)
@@ -30,7 +30,7 @@ def override_get_db():
         db.close()
 
 
-for dependency in {get_db, auth.get_db, chat.get_db, invitations.get_db, monthly_reports.get_db, reports.get_db, stale.get_db, users.get_db, workflow.get_db}:
+for dependency in {get_db, auth.get_db, chat.get_db, invitations.get_db, monthly_reports.get_db, parent_surveys.get_db, reports.get_db, stale.get_db, users.get_db, workflow.get_db}:
     app.dependency_overrides[dependency] = override_get_db
 
 
@@ -48,9 +48,9 @@ def db():
 def seed_monthly_report(db, assignment, target_month: str | None = None, parent_note: str | None = "（テスト）よろしくお願いします。"):
     """作成済み（承認依頼の必須項目入力済み・保護者記入欄も記入済み）の指導月報を用意する。
 
-    承認依頼は指導月報（学年＋問題点と対策）の作成が、保護者承認は保護者記入欄の入力が
-    必須のため、月報機能自体を対象としない既存フローのテストはこのヘルパーで前提を満たす。
-    同一 担当×対象月 は1件（unique制約）のため冪等。
+    承認依頼は指導月報（問題点と対策。学年ほか他項目は任意＝改修 202607231755 ④）の作成が、
+    保護者承認は保護者記入欄の入力が必須のため、月報機能自体を対象としない既存フローのテストは
+    このヘルパーで前提を満たす。同一 担当×対象月 は1件（unique制約）のため冪等。
     """
     month = target_month or get_current_jst_month()
     existing = (

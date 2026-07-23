@@ -62,6 +62,21 @@ def monthly_report_overview(
         reports = month_reports(db, assignment.id, target_month)
         editable, lock_reason = editable_state(reports)
         monthly = get_monthly_report(db, assignment.id, target_month)
+        # 志望校の引継ぎ（改修 202607231755 ①）: この月の月報が未作成なら、直近の過去月の月報から
+        # 「現時点での志望校」をデフォルト表示用に引き継ぐ（YYYY-MM はゼロ埋めのため文字列比較で時系列順）。
+        previous_target_schools = None
+        if monthly is None:
+            previous = db.scalar(
+                select(MonthlyReport)
+                .where(
+                    MonthlyReport.assignment_id == assignment.id,
+                    MonthlyReport.target_month < target_month,
+                )
+                .order_by(MonthlyReport.target_month.desc())
+                .limit(1)
+            )
+            if previous:
+                previous_target_schools = (previous.form_data or {}).get("target_schools") or []
         lesson_days = sorted({r.lesson_date.day for r in reports})
         total_minutes = sum(teaching_minutes(r) for r in reports)
         items.append(
@@ -77,6 +92,7 @@ def monthly_report_overview(
                 lesson_days=lesson_days,
                 total_minutes=total_minutes,
                 report=MonthlyReportOut.model_validate(monthly) if monthly else None,
+                previous_target_schools=previous_target_schools,
             )
         )
     return MonthlyReportOverviewOut(

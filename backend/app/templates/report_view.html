@@ -28,6 +28,7 @@
     const CURRENT_MONTH = new Date().toISOString().slice(0, 7);
     let currentFiltered = [];
     let monthlyReport = null;   // 指導月報（担当×対象月で1件。未作成なら null）
+    let parentSurvey = null;    // 保護者アンケート（自分の回答。未回答なら null。保護者のみ取得）
     let flashMsg = null;
 
     function escapeHtml(value) {
@@ -147,6 +148,16 @@
         } catch (_) {}
       }
 
+      // 保護者アンケート（講師評価・改修 202607231755 ③）: 保護者本人の回答を取得（未回答なら null）。
+      // 取得失敗時はアンケート欄なしで続行する（承認・差戻しは妨げない）。
+      parentSurvey = null;
+      if (PARENT_CAN_ACT && monthlyReport) {
+        try {
+          const sres = await fetch(`/api/parent-surveys/${encodeURIComponent(monthlyReport.id)}`, {credentials: 'same-origin'});
+          if (sres.ok) parentSurvey = await sres.json();
+        } catch (_) {}
+      }
+
       const bodyRows = filtered.length ? filtered.map((report, index) => `<tr class="${report.status === 'returned_to_tutor' ? 'bg-red-50/70' : ''}">
         <td class="border border-slate-200 px-2 py-1 text-center text-slate-500">${index + 1}</td>
         <td class="border border-slate-200 px-2 py-1">${dateLabel(report.lesson_date)}</td>
@@ -190,9 +201,11 @@
             <div>合計指導時間：<span class="font-semibold">${durationLabel(totalMinutes)}</span></div>
           </div>
         </section>` + detailCardsHtml(filtered) + monthlyReportHtml()
+        // 保護者アンケート（202607231755 ③）は月報の直後・承認エリアの前（承認前に回答を促す位置）
+        + parentSurveyHtml()
         // 差戻し要求（202607211144）は承認・差戻しエリアの前に出す（対応が必要なことを先に伝える）
         + requestSectionHtml(filtered) + actionAreaHtml(filtered) + adminActionAreaHtml(filtered);
-      if (PARENT_CAN_ACT) wireParentActions();
+      if (PARENT_CAN_ACT) { wireParentActions(); wireSurveyActions(); }
       if (ADMIN_CAN_ACT) wireAdminActions();
       wireRequestActions();
     }
@@ -307,6 +320,153 @@
           </div>
         </div>
       </section>`;
+    }
+
+    // ===== 保護者アンケート（講師評価・改修 202607231755 ③） =====
+    // 回答は任意（未回答でも承認できる）。回答内容は運営スタッフのみが閲覧し、講師には一切表示されない。
+    // 設問キー・選択肢はサーバ（models.ParentSurvey / schemas.ParentSurveyIn）および
+    // 集計画面（admin/surveys.html）の定義と同一にすること（変更時は3箇所を同時更新）。
+    const SURVEY_SCALE_QUESTIONS = [
+      {key: 'q_satisfaction', label: '講師への総合的な満足度', low: '不満', high: '満足'},
+      {key: 'q_clarity', label: '指導のわかりやすさ', low: 'わかりにくい', high: 'わかりやすい'},
+      {key: 'q_communication', label: '報告・連絡・相談などの対応', low: '不満', high: '満足'},
+      {key: 'q_motivation', label: 'お子さまの学習意欲の変化', low: '下がった', high: '高まった'},
+      {key: 'q_punctuality', label: '時間厳守・礼儀・マナー', low: '不満', high: '満足'},
+    ];
+    const SURVEY_CONTINUATION_OPTIONS = [
+      ['continue', '続けたい'],
+      ['neutral', 'どちらともいえない'],
+      ['change', '変更を検討したい'],
+    ];
+    function surveyPill(name, value, label, checked) {
+      return `<label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition ${checked ? 'border-blue-500 bg-blue-50 font-medium text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'}">
+        <input type="radio" name="${name}" value="${escapeHtml(String(value))}" ${checked ? 'checked' : ''} class="h-4 w-4 border-slate-300 text-blue-600 focus:ring-blue-500" onchange="syncSurveyPills()">
+        <span>${escapeHtml(label)}</span>
+      </label>`;
+    }
+    function syncSurveyPills() {
+      // 選択中ラジオのラベル強調を選択の変更に追従させる（tutor/monthly_report.html と同じ意匠）
+      document.querySelectorAll('#surveyCard input[type="radio"]').forEach(input => {
+        const label = input.closest('label');
+        if (!label) return;
+        for (const cls of ['border-blue-500', 'bg-blue-50', 'font-medium', 'text-blue-800']) label.classList.toggle(cls, input.checked);
+        for (const cls of ['border-slate-200', 'bg-white', 'text-slate-700', 'hover:bg-slate-50']) label.classList.toggle(cls, !input.checked);
+      });
+    }
+    function surveyScaleRow(question, index, selected) {
+      const pills = [1, 2, 3, 4, 5].map(v => {
+        const text = v === 1 ? `1 ${question.low}` : (v === 5 ? `5 ${question.high}` : String(v));
+        return surveyPill(`survey_${question.key}`, v, text, Number(selected) === v);
+      }).join('');
+      return `<div class="grid gap-1.5">
+        <span class="text-sm font-medium text-slate-700">Q${index + 1}. ${escapeHtml(question.label)}</span>
+        <div class="flex flex-wrap items-center gap-1.5">${pills}</div>
+      </div>`;
+    }
+    function parentSurveyHtml() {
+      if (!PARENT_CAN_ACT || !monthlyReport) return '';
+      const saved = parentSurvey || {};
+      const answered = Boolean(parentSurvey);
+      const badge = answered
+        ? '<span class="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-medium text-emerald-700">回答済み</span>'
+        : '<span class="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-medium text-amber-800">未回答（任意）</span>';
+      const scaleRows = SURVEY_SCALE_QUESTIONS.map((q, i) => surveyScaleRow(q, i, saved[q.key])).join('');
+      const contPills = SURVEY_CONTINUATION_OPTIONS
+        .map(([value, label]) => surveyPill('survey_q_continuation', value, label, saved.q_continuation === value)).join('');
+      return `<section id="surveyCard" class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div class="flex flex-wrap items-center gap-2">
+          <h2 class="font-semibold text-slate-800">講師評価アンケート</h2>
+          ${badge}
+          <span class="text-xs text-slate-500">所要3分程度</span>
+        </div>
+        <p class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">回答内容は<span class="font-medium">運営スタッフのみ</span>が確認し、<span class="font-medium">講師には表示されません</span>。率直なご意見をお聞かせください。回答は任意のため、未回答のままでも承認できます。</p>
+        <div class="mt-4 grid gap-4">
+          ${scaleRows}
+          <div class="grid gap-1.5 border-t border-slate-100 pt-4">
+            <span class="text-sm font-medium text-slate-700">Q6. 今後もこの講師による指導を続けたいと思いますか</span>
+            <div class="flex flex-wrap items-center gap-1.5">${contPills}</div>
+          </div>
+          <div class="grid gap-1.5 border-t border-slate-100 pt-4">
+            <label class="text-sm font-medium text-slate-700" for="surveyComment">ご意見・ご要望（任意）</label>
+            <textarea id="surveyComment" maxlength="2000" class="min-h-20 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="講師や指導についてのご意見があればご記入ください（運営のみ確認します）">${escapeHtml(saved.comment || '')}</textarea>
+          </div>
+        </div>
+        <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button id="surveySubmitBtn" type="button" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">${answered ? '回答を更新する' : 'アンケートを送信する'}</button>
+          <button id="surveyResetBtn" type="button" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto">${answered ? '入力を元に戻す' : '選択をクリア'}</button>
+        </div>
+        <div id="surveyMsg" class="mt-3 hidden rounded-lg px-3 py-2 text-sm"></div>
+      </section>`;
+    }
+    function collectSurvey() {
+      const radio = name => document.querySelector(`input[name="${name}"]:checked`)?.value || '';
+      const values = {};
+      for (const question of SURVEY_SCALE_QUESTIONS) values[question.key] = Number(radio(`survey_${question.key}`)) || null;
+      values.q_continuation = radio('survey_q_continuation') || null;
+      values.comment = (document.getElementById('surveyComment')?.value || '').trim();
+      return values;
+    }
+    function surveyAnsweredCount(values) {
+      return SURVEY_SCALE_QUESTIONS.filter(question => values[question.key]).length + (values.q_continuation ? 1 : 0);
+    }
+    function surveyDirty(values) {
+      // 保存済みの回答（未回答なら空）と比べて画面の入力に変更があるか
+      if (!parentSurvey) return surveyAnsweredCount(values) > 0 || Boolean(values.comment);
+      return SURVEY_SCALE_QUESTIONS.some(question => values[question.key] !== parentSurvey[question.key])
+        || values.q_continuation !== parentSurvey.q_continuation
+        || values.comment !== (parentSurvey.comment || '');
+    }
+    function showSurveyMsg(text, ok) {
+      const el = document.getElementById('surveyMsg');
+      if (!el) return;
+      el.textContent = text;
+      el.className = `mt-3 rounded-lg px-3 py-2 text-sm ${ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-rose-200 bg-rose-50 text-rose-700'}`;
+    }
+    // silent=true は承認と同時の自動送信用（メッセージ表示は呼び出し元が行う）
+    async function submitSurvey({silent = false} = {}) {
+      if (!monthlyReport) return false;
+      const values = collectSurvey();
+      if (surveyAnsweredCount(values) < 6) {
+        if (!silent) showSurveyMsg('未回答の設問があります。Q1〜Q6のすべてに回答してから送信してください。', false);
+        return false;
+      }
+      try {
+        const res = await fetch(`/api/parent-surveys/${encodeURIComponent(monthlyReport.id)}`, {
+          method: 'PUT',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({...values, comment: values.comment || null}),
+        });
+        if (!res.ok) throw new Error(String(res.status));
+        parentSurvey = await res.json();
+        return true;
+      } catch (_) {
+        if (!silent) showSurveyMsg('アンケートを送信できませんでした。通信環境をご確認のうえ、もう一度お試しください。', false);
+        return false;
+      }
+    }
+    function resetSurveyCard() {
+      // 保存済みの回答（未回答なら空欄）へ入力を戻す
+      const card = document.getElementById('surveyCard');
+      if (!card) return;
+      card.outerHTML = parentSurveyHtml();
+      wireSurveyActions();
+    }
+    function wireSurveyActions() {
+      const submitBtn = document.getElementById('surveySubmitBtn');
+      if (!submitBtn) return; // アンケート欄なし（月報なし・保護者以外）
+      submitBtn.addEventListener('click', async () => {
+        submitBtn.disabled = true;
+        try {
+          if (await submitSurvey()) {
+            flashMsg = '講師評価アンケートを送信しました。ご協力ありがとうございました。';
+            await load();
+          }
+        } finally {
+          submitBtn.disabled = false;
+        }
+      });
+      document.getElementById('surveyResetBtn').addEventListener('click', resetSurveyCard);
     }
 
     // 保護者の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
@@ -533,6 +693,22 @@
         showActionMsg('指導月報の「保護者記入欄（ご要望／連絡事項）」を入力してから承認してください。', false);
         document.getElementById('parentNoteInput')?.focus();
         return;
+      }
+      // 講師評価アンケート（任意・202607231755 ③）: 全問回答済みで未送信なら承認と同時に自動送信する
+      // （入力の取りこぼし防止）。入力が途中なら、完了か未回答へ戻すかを選んでもらってから承認する。
+      if (document.getElementById('surveyCard')) {
+        const surveyValues = collectSurvey();
+        if (surveyDirty(surveyValues)) {
+          if (surveyAnsweredCount(surveyValues) === 6) {
+            if (!(await submitSurvey({silent: true}))) {
+              showActionMsg('講師評価アンケートを送信できませんでした。通信環境をご確認のうえ、もう一度お試しください。', false);
+              return;
+            }
+          } else {
+            showActionMsg('講師評価アンケートの入力が途中です。Q1〜Q6のすべてに回答するか、アンケート欄の「入力を元に戻す／選択をクリア」で未回答に戻してから承認してください。', false);
+            return;
+          }
+        }
       }
       try {
         await postJson('/api/reports/parent-approve-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth, parent_note: parentNote || null});

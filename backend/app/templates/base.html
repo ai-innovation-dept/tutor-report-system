@@ -296,7 +296,8 @@
       const items = [];
       if (user.role === 'tutor') {
         navHome.href = '/tutor/reports';
-        items.push(navLink('/tutor/reports', '報告書一覧'));
+        // メニュー名は「指導報告・日報」（改修 202607231755 ②・旧称「報告書一覧」）
+        items.push(navLink('/tutor/reports', '指導報告・日報'));
         items.push(navLink('/tutor/monthly-report', '月報作成'));
         items.push(navLink('/tutor/approval', '承認管理'));
         // 生徒管理機能は将来リリース予定のため一時非表示
@@ -309,21 +310,25 @@
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '担当管理'));
+        items.push(navLink('/admin/surveys', '保護者アンケート'));
       } else if (user.role === 'admin_reviewer') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '担当管理'));
+        items.push(navLink('/admin/surveys', '保護者アンケート'));
       } else if (user.role === 'admin_master') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '担当管理'));
+        items.push(navLink('/admin/surveys', '保護者アンケート'));
       } else if (user.role === 'admin_chief') {
         navHome.href = '/admin/dashboard';
         items.push(navLink('/admin/dashboard', 'ダッシュボード'));
         items.push(navLink('/admin/users', 'ユーザー管理'));
         items.push(navLink('/admin/assignments', '担当管理'));
+        items.push(navLink('/admin/surveys', '保護者アンケート'));
       }
       navItems.innerHTML = items.join('');
 

@@ -327,12 +327,16 @@ function renderForm() {
   const mock = data.test_mock || {};
   const school = data.test_school || {};
   const issues = data.issues || [];
-  const targets = data.target_schools || [];
+  // 志望校の引継ぎ（改修 202607231755 ①）: この月の月報が未作成（＝編集して新規作成する状態）なら、
+  // 直近の過去月報の「現時点での志望校」をデフォルト表示する（「月報を保存」で今月分として確定する）。
+  const inheritedTargets = (!report && !disabled && item.previous_target_schools) ? item.previous_target_schools : null;
+  const inheriting = Boolean(inheritedTargets && inheritedTargets.some(v => (v || '').trim()));
+  const targets = data.target_schools || inheritedTargets || [];
   const nextMonth = nextMonthOf(selectedMonth);
 
   const lockNotice = disabled
     ? `<div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">この月の指導月報は${escapeHtml(item.lock_reason || '編集できません')}。内容の参照のみ可能です。</div>`
-    : `<div class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">承認依頼の前に月報を作成してください（承認依頼までは何度でも更新できます）。<span class="font-medium">学年</span>と<span class="font-medium">次月に向けての問題点と対策（1件以上）</span>は承認依頼に必須です。</div>`;
+    : `<div class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">承認依頼の前に月報を作成してください（承認依頼までは何度でも更新できます）。承認依頼に必須なのは<span class="font-medium">次月に向けての問題点と対策（1件以上）</span>のみで、学年ほか他の項目は任意です。</div>`;
 
   // 基本情報（会員名・会員No・生徒名・講師名・講師Noは自動入力）
   const basicInfo = sectionCard('基本情報', `
@@ -343,7 +347,7 @@ function renderForm() {
       <div><dt class="text-xs text-slate-500">講師名（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.tutor_name || '-')}</dd></div>
       <div><dt class="text-xs text-slate-500">講師No（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.tutor_no || '-')}</dd></div>
       <div>
-        <dt class="text-xs text-slate-500">学年 <span class="font-medium text-amber-600">※必須</span></dt>
+        <dt class="text-xs text-slate-500">学年 <span class="font-medium">※任意</span></dt>
         <dd class="mt-0.5">${gradeControl(report ? report.grade : '', disabled)}</dd>
       </div>
     </dl>`);
@@ -360,7 +364,8 @@ function renderForm() {
       <span class="w-6 shrink-0 text-center text-sm font-semibold text-slate-500">${i + 1}</span>
       ${textInput(`target_${i}`, targets[i], {disabled})}
     </div>`).join('');
-  const targetsCard = sectionCard('現時点での志望校', `<div class="grid gap-2 sm:grid-cols-2 sm:gap-x-6">${targetRows}</div>`, '※任意');
+  const targetsCard = sectionCard('現時点での志望校', `<div class="grid gap-2 sm:grid-cols-2 sm:gap-x-6">${targetRows}</div>`,
+    inheriting ? '※任意（前回の月報の内容を引継ぎ表示しています。変更がなければそのまま保存してください）' : '※任意');
 
   const testsCard = sectionCard('最近のテスト結果', `
     <div class="grid gap-5 lg:grid-cols-2">
@@ -474,15 +479,15 @@ function renderForm() {
   renderMakeupPlans(disabled);
   saveBar.classList.toggle('hidden', disabled);
   updateRequiredNotice();
-  // 学年（自由入力欄）と問題点1件目の入力で必須充足の注記を更新（プルダウンの変更は onGradeSelectChange 側で更新）
-  ['gradeFreeInput', 'issue_0'].forEach(id => document.getElementById(id)?.addEventListener('input', updateRequiredNotice));
+  // 問題点1件目の入力で必須充足の注記を更新（学年は任意になったため対象外＝改修 202607231755 ④）
+  ['issue_0'].forEach(id => document.getElementById(id)?.addEventListener('input', updateRequiredNotice));
 }
 
 function updateRequiredNotice() {
   const notice = document.getElementById('requiredNotice');
   if (!notice) return;
+  // 承認依頼の必須は「次月に向けての問題点と対策（1件以上）」のみ（学年ほか他の項目は任意＝改修 202607231755 ④）
   const missing = [];
-  if (!currentGradeValue()) missing.push('学年');
   const hasIssue = Array.from({length: 5}, (_, i) => document.getElementById(`issue_${i}`)?.value || '').some(v => v.trim());
   if (!hasIssue) missing.push('次月に向けての問題点と対策（1件以上）');
   notice.textContent = missing.length ? `承認依頼には ${missing.join('・')} の入力が必要です` : '';

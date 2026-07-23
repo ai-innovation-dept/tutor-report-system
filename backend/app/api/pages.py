@@ -435,6 +435,7 @@ def admin_stale_reports_page(request: Request, db: Session = Depends(get_db)):
 @router.get("/admin/reports/{report_id}", response_class=HTMLResponse)
 @router.get("/admin/users", response_class=HTMLResponse)
 @router.get("/admin/assignments", response_class=HTMLResponse)
+@router.get("/admin/surveys", response_class=HTMLResponse)
 def admin_pages(request: Request, db: Session = Depends(get_db)):
     user = get_current_user_from_cookie(request, db)
     if not user or not user.role.startswith("admin_"):
@@ -444,18 +445,21 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
     path = request.url.path
     # 受付・再鑑はユーザ管理・担当管理を管理者と同等に利用可。
     # 管理者・管理責任者は承認フロー外（承認キューなし、ダッシュボードは閲覧用）。
+    # 保護者アンケート（202607231755 ③）は運営4ロール共通（講師・保護者はページ自体に到達不可）。
     allowed_paths = {
-        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive", "/admin/users", "/admin/assignments"},
-        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review", "/admin/users", "/admin/assignments"},
+        "admin_receiver": {"/admin/dashboard", "/admin/queue/receive", "/admin/users", "/admin/assignments", "/admin/surveys"},
+        "admin_reviewer": {"/admin/dashboard", "/admin/queue/review", "/admin/users", "/admin/assignments", "/admin/surveys"},
         "admin_master": {
             "/admin/dashboard",
             "/admin/users",
             "/admin/assignments",
+            "/admin/surveys",
         },
         "admin_chief": {
             "/admin/dashboard",
             "/admin/users",
             "/admin/assignments",
+            "/admin/surveys",
         },
     }
     if not (path.startswith("/admin/reports/") or path in allowed_paths.get(user.role, set())):
@@ -465,5 +469,7 @@ def admin_pages(request: Request, db: Session = Depends(get_db)):
         return templates.TemplateResponse(request, "admin/users.html", context=context)
     if path == "/admin/assignments":
         return templates.TemplateResponse(request, "admin/assignments.html", context=context)
+    if path == "/admin/surveys":
+        return templates.TemplateResponse(request, "admin/surveys.html", context=context)
     return templates.TemplateResponse(request, "admin/dashboard.html", context=context)
 # === Phase 9 END ===

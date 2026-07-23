@@ -188,7 +188,7 @@
 {% block scripts %}
 <script src="/static/js/chat.js"></script>
 <script>
-setBreadcrumb('講師ポータル', '報告書一覧');
+setBreadcrumb('講師ポータル', '指導報告・日報');
 const STATUS_LABELS = {
   draft: '下書き',
   awaiting_parent_approval: '保護者承認待ち',
@@ -470,7 +470,7 @@ async function loadTutor() {
   renderAssignmentOptions();
   renderMonthFilter();
   updateStudentBadge();
-  setBreadcrumb('講師ポータル', isSubmitPage ? '運営へ提出' : '報告書一覧');
+  setBreadcrumb('講師ポータル', isSubmitPage ? '運営へ提出' : '指導報告・日報');
   renderCurrentList();
   renderBulkSubmit(allReports);
   renderFormAvailability();

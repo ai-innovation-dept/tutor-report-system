@@ -2,7 +2,8 @@
 """指導月報（原本: docs/イスト勤怠レポート for 代々木進学会/原本_月報.pdf）のサービス層。
 
 - 担当（assignment）×対象月で1件。講師が承認依頼前に作成・更新する。
-- 承認依頼（保護者への提出）時に月報の存在＋必須項目（学年・次月に向けての問題点と対策）を強制する。
+- 承認依頼（保護者への提出）時に月報の存在＋必須項目（次月に向けての問題点と対策のみ。
+  学年ほか他の項目は任意＝改修 202607231755 ④）を強制する。
 - 保護者は承認時に保護者記入欄（parent_note）を記入する（月報が存在する月は必須。講師は記入不可）。
 - form_data の構造・教科の並びは本ファイルの定数が唯一の定義源（画面・PDFもこれに従う）。
 """
@@ -162,12 +163,11 @@ def editable_state(reports: list[LessonReport]) -> tuple[bool, str | None]:
 def missing_required_reason(monthly: MonthlyReport | None) -> str | None:
     """承認依頼を止める理由（月報の未作成・必須項目の未入力）。問題なければ None。
 
-    必須項目 = 学年、次月に向けての問題点と対策（1件以上）。
+    必須項目 = 次月に向けての問題点と対策（1件以上）のみ。学年ほか他の項目は任意
+    （改修 202607231755 ④）。
     """
     if monthly is None:
         return "指導月報が未作成です"
-    if not _text(monthly.grade):
-        return "指導月報の「学年」が未入力です"
     issues = (monthly.form_data or {}).get("issues") or []
     if not any(_text(issue) for issue in issues):
         return "指導月報の「次月に向けての問題点と対策」が未入力です"
@@ -177,7 +177,7 @@ def missing_required_reason(monthly: MonthlyReport | None) -> str | None:
 def assert_monthly_reports_ready(db: Session, reports: list[LessonReport]) -> None:
     """承認依頼（保護者への提出）前ガード。対象の担当×月ごとに月報の完成を検証する。
 
-    月報が未作成、または必須項目（学年・問題点と対策）が未入力の場合は 422 で提出をブロックする。
+    月報が未作成、または必須項目（問題点と対策）が未入力の場合は 422 で提出をブロックする。
     """
     for assignment_id, target_month in sorted(
         {(r.assignment_id, r.target_month) for r in reports}, key=lambda key: str(key)

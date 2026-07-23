@@ -400,6 +400,9 @@ class MonthlyReportAssignmentOut(BaseModel):
     lesson_days: list[int] = Field(default_factory=list)
     total_minutes: int = 0
     report: MonthlyReportOut | None = None
+    # 志望校の引継ぎ（改修 202607231755 ①）: この月の月報が未作成のとき、直近の過去月報の
+    # 「現時点での志望校」をデフォルト表示するための値（過去月報なし・月報作成済みは None）
+    previous_target_schools: list[str] | None = None
 
 
 class MonthlyReportOverviewOut(BaseModel):
@@ -407,6 +410,43 @@ class MonthlyReportOverviewOut(BaseModel):
     mock_subjects: list[str]
     school_subjects: list[str]
     assignments: list[MonthlyReportAssignmentOut]
+
+
+# === 保護者アンケート（parent_surveys・改修 202607231755 ③） ===
+class ParentSurveyIn(BaseModel):
+    """保護者アンケートの回答（全設問必須・自由記述のみ任意）。"""
+    q_satisfaction: int = Field(ge=1, le=5)
+    q_clarity: int = Field(ge=1, le=5)
+    q_communication: int = Field(ge=1, le=5)
+    q_motivation: int = Field(ge=1, le=5)
+    q_punctuality: int = Field(ge=1, le=5)
+    q_continuation: Literal["continue", "neutral", "change"]
+    comment: str | None = None
+
+
+class ParentSurveyOut(BaseModel):
+    """保護者本人向けの回答内容（自分の回答の再表示・更新用）。"""
+    model_config = ConfigDict(from_attributes=True)
+    monthly_report_id: UUID
+    target_month: str
+    q_satisfaction: int
+    q_clarity: int
+    q_communication: int
+    q_motivation: int
+    q_punctuality: int
+    q_continuation: str
+    comment: str | None = None
+    updated_at: datetime
+
+
+class ParentSurveyAdminOut(ParentSurveyOut):
+    """運営スタッフ向けの一覧行（集計画面 /admin/surveys 用）。講師には公開しない。"""
+    id: UUID
+    tutor_id: UUID
+    tutor_name: str = ""
+    tutor_no: str | None = None
+    parent_name: str = ""
+    student_name: str = ""
 
 
 class BulkReturnIn(BaseModel):

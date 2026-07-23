@@ -1,0 +1,355 @@
+{% extends "base.html" %}
+{% block content %}
+<!-- === 保護者アンケート集計（運営のみ・改修 202607231755 ③） START === -->
+<style>
+@media (max-width: 767px) {
+  .mobile-cards thead { display: none; }
+  .mobile-cards tbody tr {
+    display: block;
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid #e2e8f0 !important;
+    overflow: hidden;
+    background: #fff;
+  }
+  .mobile-cards tbody td {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 10px 12px;
+    min-height: 44px;
+    min-width: 0;
+    border-top: 1px solid #f1f5f9;
+  }
+  .mobile-cards tbody td:first-child { border-top: none; }
+  .mobile-cards tbody td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: #64748b;
+    font-size: 12px;
+    flex-shrink: 0;
+    min-width: 70px;
+    margin-right: 8px;
+  }
+}
+</style>
+<section class="mb-4">
+  <h1 class="text-xl font-bold text-slate-800">保護者アンケート（講師評価）</h1>
+  <p class="mt-1 text-sm text-slate-500">保護者が月報承認時に回答した講師への満足度・評価の集計です。回答内容は運営スタッフのみが閲覧でき、講師・保護者には表示されません。</p>
+</section>
+
+<!-- 絞り込み（講師・期間・検索）。集計・一覧の両方に適用される。 -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+  <div class="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_150px_150px_minmax(0,1fr)]">
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">講師</span>
+      <select id="tutorFilter" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        <option value="">すべての講師</option>
+      </select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">対象月（から）</span>
+      <select id="monthFrom" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        <option value="">指定なし</option>
+      </select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">対象月（まで）</span>
+      <select id="monthTo" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
+        <option value="">指定なし</option>
+      </select>
+    </label>
+    <label class="block text-sm">
+      <span class="mb-1 block text-slate-700">検索</span>
+      <input id="surveySearch" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="生徒名・保護者名・講師名">
+    </label>
+  </div>
+</section>
+
+<div id="surveyEmpty" class="hidden rounded-xl border border-slate-200 bg-white p-6 text-sm text-slate-500 shadow-sm">
+  条件に一致する回答がありません。保護者が月報承認時にアンケートへ回答すると、ここに集計が表示されます。
+</div>
+
+<div id="surveyContent" class="hidden space-y-4">
+  <!-- サマリー（回答数・総合満足度・継続意向） -->
+  <section class="grid gap-3 sm:grid-cols-3">
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="text-xs text-slate-500">回答数</div>
+      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileCount">0</span><span class="ml-1 text-sm font-medium text-slate-500">件</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="text-xs text-slate-500">総合満足度（平均）</div>
+      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileAvg">-</span><span class="ml-1 text-sm font-medium text-slate-500">／ 5</span></div>
+    </div>
+    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div class="text-xs text-slate-500">「今後も続けたい」の割合</div>
+      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileContinue">-</span><span class="ml-1 text-sm font-medium text-slate-500">%</span></div>
+    </div>
+  </section>
+
+  <!-- 設問別の回答分布（1〜5の帯グラフ＋平均） -->
+  <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <h2 class="font-semibold text-slate-800">設問別の回答分布</h2>
+    <p class="mt-1 text-xs text-slate-500">帯は左から「1（低評価）→ 5（高評価）」の順です。各色の件数は帯の下と、帯にカーソルを合わせた際に表示されます。</p>
+    <div id="questionCharts" class="mt-4 grid gap-5"></div>
+  </section>
+
+  <!-- 講師別の平均 -->
+  <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
+      <h2 class="font-semibold text-slate-800">講師別の平均</h2>
+      <p class="mt-0.5 text-xs text-slate-500">行をクリックするとその講師で絞り込みます。</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="mobile-cards w-full text-sm">
+        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="whitespace-nowrap px-3 py-2 text-left">講師</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">回答数</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">総合満足度</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">わかりやすさ</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">連絡対応</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">意欲変化</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">時間マナー</th>
+            <th class="whitespace-nowrap px-3 py-2 text-right">続けたい率</th>
+          </tr>
+        </thead>
+        <tbody id="tutorTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 個別の回答一覧 -->
+  <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
+    <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
+      <h2 class="font-semibold text-slate-800">回答一覧</h2>
+      <p class="mt-0.5 text-xs text-slate-500">評価は「総合／わかりやすさ／連絡対応／意欲変化／時間マナー」の順（各1〜5）。</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="mobile-cards w-full text-sm">
+        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
+          <tr>
+            <th class="whitespace-nowrap px-3 py-2 text-left">対象月</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">生徒</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">保護者</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">講師</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">評価</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">継続意向</th>
+            <th class="px-3 py-2 text-left">ご意見・ご要望</th>
+            <th class="whitespace-nowrap px-3 py-2 text-left">回答日時</th>
+          </tr>
+        </thead>
+        <tbody id="surveyTableBody"></tbody>
+      </table>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+setBreadcrumb('運営ポータル', '保護者アンケート');
+// 設問キー・選択肢はサーバ（models.ParentSurvey / schemas.ParentSurveyIn）および
+// 回答画面（report_view.html）の定義と同一にすること（変更時は3箇所を同時更新）。
+const SURVEY_SCALE_QUESTIONS = [
+  {key: 'q_satisfaction', label: '講師への総合的な満足度', short: '総合満足度', low: '不満', high: '満足'},
+  {key: 'q_clarity', label: '指導のわかりやすさ', short: 'わかりやすさ', low: 'わかりにくい', high: 'わかりやすい'},
+  {key: 'q_communication', label: '報告・連絡・相談などの対応', short: '連絡対応', low: '不満', high: '満足'},
+  {key: 'q_motivation', label: 'お子さまの学習意欲の変化', short: '意欲変化', low: '下がった', high: '高まった'},
+  {key: 'q_punctuality', label: '時間厳守・礼儀・マナー', short: '時間マナー', low: '不満', high: '満足'},
+];
+// 1〜5の帯の配色（診断的な両極ランプ）: 低評価=rose ／ 中立=slate ／ 高評価=emerald（既存トークンのみ使用）。
+// 帯は常に 1→5 の固定順・セグメント間 2px 空き・件数ラベル併記のため、色だけに依存しない。
+const SCALE_COLORS = {1: '#f43f5e', 2: '#fda4af', 3: '#e2e8f0', 4: '#6ee7b7', 5: '#10b981'};
+const CONTINUATION_META = {
+  continue: {label: '続けたい', color: '#10b981', badge: 'bg-emerald-100 text-emerald-700'},
+  neutral: {label: 'どちらともいえない', color: '#cbd5e1', badge: 'bg-slate-100 text-slate-600'},
+  change: {label: '変更を検討したい', color: '#f43f5e', badge: 'bg-rose-100 text-rose-700'},
+};
+const CONTINUATION_ORDER = ['continue', 'neutral', 'change'];
+let allSurveys = [];
+
+function escapeHtml(value) {
+  return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
+}
+function monthLabel(value) {
+  if (!value) return '-';
+  return `${value.slice(0, 4)}年${Number(value.slice(5, 7))}月`;
+}
+function tutorLabel(row) {
+  return `${row.tutor_name || '-'}${row.tutor_no ? `（${row.tutor_no}）` : ''}`;
+}
+function formatDateTime(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+function average(rows, key) {
+  if (!rows.length) return null;
+  return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0) / rows.length;
+}
+function averageText(rows, key) {
+  const avg = average(rows, key);
+  return avg === null ? '-' : avg.toFixed(1);
+}
+
+function filteredSurveys() {
+  const tutorId = tutorFilter.value;
+  const from = monthFrom.value;
+  const to = monthTo.value;
+  const keyword = (surveySearch.value || '').trim().toLowerCase();
+  return allSurveys.filter(row => {
+    if (tutorId && row.tutor_id !== tutorId) return false;
+    if (from && row.target_month < from) return false;
+    if (to && row.target_month > to) return false;
+    if (keyword) {
+      const haystack = `${row.student_name || ''} ${row.parent_name || ''} ${row.tutor_name || ''} ${row.tutor_no || ''}`.toLowerCase();
+      if (!haystack.includes(keyword)) return false;
+    }
+    return true;
+  });
+}
+
+// 分布の帯グラフ（100%積み上げ・固定順・2px空き・0件のセグメントは描画しない）
+function distributionBar(counts, order, colorOf, labelOf, total) {
+  const segments = order.map(key => {
+    const count = counts[key] || 0;
+    if (!count) return '';
+    const percent = (count / total) * 100;
+    return `<div class="h-5 min-w-[3px]" style="width:${percent}%;background:${colorOf(key)}" title="${escapeHtml(labelOf(key))}：${count}件（${Math.round(percent)}%）"></div>`;
+  }).join('');
+  return `<div class="flex h-5 w-full gap-0.5 overflow-hidden rounded-md bg-slate-100">${segments}</div>`;
+}
+function legendChips(counts, order, colorOf, labelOf) {
+  return order.map(key => `
+    <span class="inline-flex items-center gap-1.5 text-xs text-slate-600">
+      <span class="inline-block h-2.5 w-2.5 rounded-sm border border-slate-200" style="background:${colorOf(key)}"></span>
+      ${escapeHtml(labelOf(key))}：<span class="font-medium text-slate-800">${counts[key] || 0}</span>件
+    </span>`).join('');
+}
+
+function renderQuestionCharts(rows) {
+  const blocks = SURVEY_SCALE_QUESTIONS.map((question, index) => {
+    const counts = {};
+    for (const row of rows) counts[row[question.key]] = (counts[row[question.key]] || 0) + 1;
+    const order = [1, 2, 3, 4, 5];
+    const labelOf = v => (v === 1 ? `1 ${question.low}` : v === 5 ? `5 ${question.high}` : String(v));
+    return `<div>
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-sm font-medium text-slate-700">Q${index + 1}. ${escapeHtml(question.label)}</span>
+        <span class="text-sm text-slate-600">平均 <span class="font-semibold text-slate-800">${averageText(rows, question.key)}</span> ／ 5</span>
+      </div>
+      <div class="mt-1.5">${distributionBar(counts, order, v => SCALE_COLORS[v], labelOf, rows.length)}</div>
+      <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">${legendChips(counts, order, v => SCALE_COLORS[v], labelOf)}</div>
+    </div>`;
+  });
+
+  // 継続意向（3択）
+  const contCounts = {};
+  for (const row of rows) contCounts[row.q_continuation] = (contCounts[row.q_continuation] || 0) + 1;
+  blocks.push(`<div class="border-t border-slate-100 pt-4">
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <span class="text-sm font-medium text-slate-700">Q6. 今後もこの講師による指導を続けたいと思いますか</span>
+      <span class="text-sm text-slate-600">「続けたい」<span class="font-semibold text-slate-800">${continueRateText(rows)}</span></span>
+    </div>
+    <div class="mt-1.5">${distributionBar(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label, rows.length)}</div>
+    <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">${legendChips(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label)}</div>
+  </div>`);
+  questionCharts.innerHTML = blocks.join('');
+}
+function continueRateText(rows) {
+  if (!rows.length) return '-';
+  const count = rows.filter(row => row.q_continuation === 'continue').length;
+  return `${Math.round((count / rows.length) * 100)}%`;
+}
+
+function renderTutorTable(rows) {
+  const byTutor = new Map();
+  for (const row of rows) {
+    if (!byTutor.has(row.tutor_id)) byTutor.set(row.tutor_id, []);
+    byTutor.get(row.tutor_id).push(row);
+  }
+  const entries = [...byTutor.entries()].sort((a, b) => b[1].length - a[1].length);
+  tutorTableBody.innerHTML = entries.map(([tutorId, tutorRows]) => {
+    const first = tutorRows[0];
+    const cells = SURVEY_SCALE_QUESTIONS
+      .map(question => `<td class="whitespace-nowrap px-3 py-2 text-right" data-label="${question.short}">${averageText(tutorRows, question.key)}</td>`)
+      .join('');
+    return `<tr class="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/60" title="この講師で絞り込む" onclick="filterByTutor('${tutorId}')">
+      <td class="px-3 py-2 font-medium text-slate-800" data-label="講師">${escapeHtml(tutorLabel(first))}</td>
+      <td class="whitespace-nowrap px-3 py-2 text-right" data-label="回答数">${tutorRows.length}</td>
+      ${cells}
+      <td class="whitespace-nowrap px-3 py-2 text-right" data-label="続けたい率">${continueRateText(tutorRows)}</td>
+    </tr>`;
+  }).join('');
+}
+function filterByTutor(tutorId) {
+  tutorFilter.value = tutorId;
+  render();
+}
+
+function renderSurveyTable(rows) {
+  surveyTableBody.innerHTML = rows.map(row => {
+    const scores = SURVEY_SCALE_QUESTIONS.map(question => row[question.key]).join('／');
+    const cont = CONTINUATION_META[row.q_continuation] || {label: row.q_continuation || '-', badge: 'bg-slate-100 text-slate-600'};
+    return `<tr class="border-t border-slate-100">
+      <td class="whitespace-nowrap px-3 py-2" data-label="対象月">${escapeHtml(monthLabel(row.target_month))}</td>
+      <td class="whitespace-nowrap px-3 py-2" data-label="生徒">${escapeHtml(row.student_name || '-')}</td>
+      <td class="whitespace-nowrap px-3 py-2" data-label="保護者">${escapeHtml(row.parent_name || '-')}</td>
+      <td class="whitespace-nowrap px-3 py-2" data-label="講師">${escapeHtml(tutorLabel(row))}</td>
+      <td class="whitespace-nowrap px-3 py-2 tabular-nums" data-label="評価" title="総合／わかりやすさ／連絡対応／意欲変化／時間マナー">${escapeHtml(scores)}</td>
+      <td class="whitespace-nowrap px-3 py-2" data-label="継続意向"><span class="inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${cont.badge}">${escapeHtml(cont.label)}</span></td>
+      <td class="px-3 py-2" data-label="ご意見">${row.comment ? `<div class="max-w-xl whitespace-pre-wrap text-slate-700">${escapeHtml(row.comment)}</div>` : '<span class="text-slate-400">—</span>'}</td>
+      <td class="whitespace-nowrap px-3 py-2 text-slate-500" data-label="回答日時">${escapeHtml(formatDateTime(row.updated_at))}</td>
+    </tr>`;
+  }).join('');
+}
+
+function render() {
+  const rows = filteredSurveys();
+  const hasRows = rows.length > 0;
+  surveyEmpty.classList.toggle('hidden', hasRows);
+  surveyContent.classList.toggle('hidden', !hasRows);
+  if (!hasRows) return;
+  tileCount.textContent = String(rows.length);
+  tileAvg.textContent = averageText(rows, 'q_satisfaction');
+  tileContinue.textContent = continueRateText(rows).replace('%', '');
+  renderQuestionCharts(rows);
+  renderTutorTable(rows);
+  renderSurveyTable(rows);
+}
+
+function populateFilters() {
+  const tutors = new Map();
+  const months = new Set();
+  for (const row of allSurveys) {
+    if (!tutors.has(row.tutor_id)) tutors.set(row.tutor_id, tutorLabel(row));
+    months.add(row.target_month);
+  }
+  tutorFilter.innerHTML = '<option value="">すべての講師</option>'
+    + [...tutors.entries()].sort((a, b) => a[1].localeCompare(b[1], 'ja'))
+      .map(([id, label]) => `<option value="${id}">${escapeHtml(label)}</option>`).join('');
+  const monthOptions = [...months].sort().reverse()
+    .map(month => `<option value="${month}">${escapeHtml(monthLabel(month))}</option>`).join('');
+  monthFrom.innerHTML = '<option value="">指定なし</option>' + monthOptions;
+  monthTo.innerHTML = '<option value="">指定なし</option>' + monthOptions;
+}
+
+async function loadSurveys() {
+  allSurveys = await api('/api/parent-surveys');
+  populateFilters();
+  render();
+}
+
+[tutorFilter, monthFrom, monthTo].forEach(el => el.addEventListener('change', render));
+surveySearch.addEventListener('input', render);
+window.authReady.then(user => {
+  if (!user) return;
+  loadSurveys().catch(() => {
+    surveyEmpty.textContent = 'アンケートを読み込めませんでした。再読み込みしてください。';
+    surveyEmpty.classList.remove('hidden');
+  });
+});
+</script>
+<!-- === 保護者アンケート集計 END === -->
+{% endblock %}

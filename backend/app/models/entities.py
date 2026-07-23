@@ -246,7 +246,7 @@ class MonthlyReport(Base):
     tutor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
     parent_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     target_month: Mapped[str] = mapped_column(String(7), index=True)
-    grade: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 学年（フリーフォーマット・必須はUI＋承認依頼ガードで強制）
+    grade: Mapped[str | None] = mapped_column(String(50), nullable=True)  # 学年（フリーフォーマット・任意＝改修 202607231755 ④）
     form_data: Mapped[dict] = mapped_column(JSON, default=dict)
     # 保護者記入欄（ご要望/連絡事項）。保護者が承認時に記入する（講師は記入不可）
     parent_note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -257,6 +257,39 @@ class MonthlyReport(Base):
     assignment: Mapped[Assignment] = relationship()
     tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
     parent: Mapped[User | None] = relationship(foreign_keys=[parent_id])
+
+
+class ParentSurvey(Base):
+    """保護者アンケート（講師への満足度・評価。改修 202607231755 ③）。
+
+    指導月報（monthly_report）×1件で、保護者が月報承認時（承認後の追記も可）に回答する。
+    回答は任意（未回答でも承認をブロックしない）。閲覧は運営スタッフのみ＝講師・他の保護者には
+    一切開示しない（API は admin 限定、画面は /admin/surveys。PDF・CSV・メールにも載せない）。
+    設問は 5段階評価×5問＋継続意向（3択）＋自由記述（任意）で、回答時間3分以内を想定。
+    設問文・選択肢ラベルは画面側（report_view.html / admin/surveys.html）に複製があるため同時更新すること。
+    """
+    __tablename__ = "parent_surveys"
+    __table_args__ = (UniqueConstraint("monthly_report_id", name="uq_parent_survey_monthly_report"),)
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    monthly_report_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("monthly_reports.id"), index=True)
+    # 集計（講師別・月別）をJOINなしで行うための非正規化コピー（回答時点の値で固定）
+    assignment_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("assignments.id"), index=True)
+    tutor_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    parent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    target_month: Mapped[str] = mapped_column(String(7), index=True)
+    q_satisfaction: Mapped[int] = mapped_column(Integer)   # 総合満足度（1-5）
+    q_clarity: Mapped[int] = mapped_column(Integer)        # 指導のわかりやすさ（1-5）
+    q_communication: Mapped[int] = mapped_column(Integer)  # 報告・連絡・相談などの対応（1-5）
+    q_motivation: Mapped[int] = mapped_column(Integer)     # お子さまの学習意欲の変化（1-5）
+    q_punctuality: Mapped[int] = mapped_column(Integer)    # 時間厳守・礼儀・マナー（1-5）
+    q_continuation: Mapped[str] = mapped_column(String(16))  # 継続意向: continue / neutral / change
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)  # 自由記述（任意）
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    monthly_report: Mapped[MonthlyReport] = relationship()
+    assignment: Mapped[Assignment] = relationship()
+    tutor: Mapped[User] = relationship(foreign_keys=[tutor_id])
+    parent: Mapped[User] = relationship(foreign_keys=[parent_id])
 
 
 class Notification(Base):

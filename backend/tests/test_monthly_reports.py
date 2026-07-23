@@ -118,26 +118,62 @@ def test_submit_blocked_until_monthly_report_ready(client, db):
     assert res.status_code == 422
     assert "指導月報が未作成" in res.json()["detail"]
 
-    # 学年なし → 不可
-    client.put(f"/api/monthly-reports/{assignment.id}/{month}", headers=_auth(tutor_token),
-               json={"grade": "", "form_data": {"issues": ["対策あり"]}})
-    res = client.post(f"/api/reports/{rid}/submit-to-parent", headers=_auth(tutor_token), json={})
-    assert res.status_code == 422
-    assert "学年" in res.json()["detail"]
-
-    # 問題点と対策なし → 不可
+    # 問題点と対策なし → 不可（一括APIも同じガードを通る）
     client.put(f"/api/monthly-reports/{assignment.id}/{month}", headers=_auth(tutor_token),
                json={"grade": "小5", "form_data": {"issues": ["", "", "", "", ""]}})
     res = client.post(f"/api/reports/{rid}/submit-to-parent", headers=_auth(tutor_token), json={})
     assert res.status_code == 422
     assert "問題点と対策" in res.json()["detail"]
 
-    # 必須項目が揃えば承認依頼できる（一括APIも同じガードを通る）
+    # 学年が未入力でも、問題点と対策があれば承認依頼できる（学年ほか他項目は任意＝改修 202607231755 ④）
     client.put(f"/api/monthly-reports/{assignment.id}/{month}", headers=_auth(tutor_token),
-               json={"grade": "小5", "form_data": {"issues": ["対策あり"]}})
+               json={"grade": "", "form_data": {"issues": ["対策あり"]}})
     res = client.post("/api/reports/submit-to-parent-bulk", headers=_auth(tutor_token),
                       json={"report_ids": [rid], "target_month": month})
     assert res.status_code == 200, res.text
+
+
+def _month_before(month: str) -> str:
+    year, month_num = map(int, month.split("-"))
+    return f"{year - 1}-12" if month_num == 1 else f"{year}-{month_num - 1:02d}"
+
+
+def test_overview_inherits_previous_target_schools(client, db):
+    """志望校の引継ぎ（改修 202607231755 ①）。
+
+    月報が未作成の月は、直近の過去月報の「現時点での志望校」をデフォルト表示用に返す。
+    当月の月報を作成済みなら引継ぎ値は返さない（保存済みの値を使う）。
+    """
+    tutor_token = token(client, "tutor@example.com")
+    assignment = db.query(Assignment).first()
+    month = get_current_jst_month()
+    prev_month = _month_before(month)
+    older_month = _month_before(prev_month)
+    _delete_monthly(db)
+
+    # さらに古い月報（別の志望校）も置き、「直近の過去月」を引き継ぐことを確認する
+    db.add(MonthlyReport(assignment_id=assignment.id, tutor_id=assignment.tutor_id, parent_id=assignment.parent_id,
+                         target_month=older_month, grade="小4",
+                         form_data={"target_schools": ["旧A中学校", "", "", "", ""]}))
+    db.add(MonthlyReport(assignment_id=assignment.id, tutor_id=assignment.tutor_id, parent_id=assignment.parent_id,
+                         target_month=prev_month, grade="小5",
+                         form_data={"target_schools": ["A中学校", "B中学校", "", "", ""]}))
+    db.commit()
+
+    overview = client.get(f"/api/monthly-reports/overview?target_month={month}", headers=_auth(tutor_token))
+    assert overview.status_code == 200, overview.text
+    item = overview.json()["assignments"][0]
+    assert item["report"] is None
+    assert item["previous_target_schools"][:2] == ["A中学校", "B中学校"]
+
+    # 当月の月報を作成すると引継ぎ値は返さない
+    res = client.put(f"/api/monthly-reports/{assignment.id}/{month}", headers=_auth(tutor_token),
+                     json={"grade": "小5", "form_data": {"issues": ["対策"], "target_schools": ["C中学校"]}})
+    assert res.status_code == 200, res.text
+    overview = client.get(f"/api/monthly-reports/overview?target_month={month}", headers=_auth(tutor_token))
+    item = overview.json()["assignments"][0]
+    assert item["previous_target_schools"] is None
+    assert item["report"]["form_data"]["target_schools"][0] == "C中学校"
 
 
 def test_monthly_report_locked_after_submit_and_editable_after_return(client, db):

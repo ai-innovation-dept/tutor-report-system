@@ -77,7 +77,7 @@ async def _approve_and_submit_reports(
 async def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     if has_role(user, "parent"):
         return _cancel_parent_return(report_id, db, user)
-    # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
+    # 承認依頼（保護者への提出）は指導月報の作成（問題点と対策の入力）を必須とする
     report = get_report_for_user(report_id, user, db)
     _assert_lesson_reports_ready([report])
     assert_monthly_reports_ready(db, [report])
@@ -127,7 +127,7 @@ async def submit_to_parent_bulk(payload: BulkSubmitIn, db: Session = Depends(get
         statuses={ReportStatus.draft.value, ReportStatus.returned_to_tutor.value},
     )
     _validate_target_month(reports, payload.target_month)
-    # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
+    # 承認依頼（保護者への提出）は指導月報の作成（問題点と対策の入力）を必須とする
     _assert_lesson_reports_ready(reports)
     assert_monthly_reports_ready(db, reports)
     changed = []
