@@ -306,6 +306,15 @@ function selectedAssignmentInProgress() {
     inProgressStatuses.includes(r.status)
   );
 }
+// 運営内で差戻し中（再鑑者→受付）。進行中の一種だが、汎用「進行中」ではなく状況が伝わる文言を出す（改修 202607231643）。
+function selectedAssignmentReturnedToReceiver() {
+  if (!selectedAssignmentId) return false;
+  return allReports.some(r =>
+    r.target_month === selectedMonth &&
+    r.assignment_id === selectedAssignmentId &&
+    r.status === 'returned_to_receiver'
+  );
+}
 function filteredReports() {
   return allReports.filter(r => {
     const monthMatches = isSubmitPage || r.target_month === selectedMonth;
@@ -346,6 +355,9 @@ function renderFormAvailability() {
   // 過去月でも編集可否はステータスで判定する（改修 202607211716・案B）。
   if (selectedAssignmentApproved()) {
     message = '対象月は最終承認済みです。追加修正は運営への差戻し依頼が必要です。';
+  } else if (selectedAssignmentReturnedToReceiver()) {
+    // 運営内で差戻し中（再鑑者→受付）。講師は編集不可＝承認管理から差戻しを要求して取り戻す（改修 202607231643）。
+    message = '対象月は運営内で差戻し中です（運営が対応中）。修正が必要な場合は承認管理から差戻しを要求してください。';
   } else if (selectedAssignmentInProgress()) {
     message = '対象月の報告書がすでに進行中です。';
   }
