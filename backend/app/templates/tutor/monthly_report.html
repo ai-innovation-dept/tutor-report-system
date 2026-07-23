@@ -118,6 +118,43 @@ function numberInput(id, value, {width = 'w-20', min = 0, max = 999, disabled = 
   return `<input id="${id}" type="number" inputmode="numeric" value="${escapeAttr(value ?? '')}" min="${min}" max="${max}" ${disabled ? 'disabled' : ''}
     class="${width} rounded-lg border border-slate-300 px-2 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">`;
 }
+// 学年入力（改修 202607231025 ③）＝小1〜6/中1〜3/高1〜3のプルダウン＋「その他（自由入力）」の複合。
+// 保存値は従来どおり単一の文字列（例「小学5年」）。標準候補に一致すればプルダウン、それ以外は自由入力欄に復元する。
+const GRADE_OPTIONS = [
+  '小学1年', '小学2年', '小学3年', '小学4年', '小学5年', '小学6年',
+  '中学1年', '中学2年', '中学3年',
+  '高校1年', '高校2年', '高校3年',
+];
+function gradeControl(value, disabled) {
+  const current = (value || '').trim();
+  const isStandard = GRADE_OPTIONS.includes(current);
+  const isFree = current !== '' && !isStandard;
+  const options = ['<option value="">選択してください</option>']
+    .concat(GRADE_OPTIONS.map(g => `<option value="${escapeAttr(g)}" ${g === current ? 'selected' : ''}>${escapeHtml(g)}</option>`))
+    .concat([`<option value="__free__" ${isFree ? 'selected' : ''}>その他（自由入力）</option>`])
+    .join('');
+  return `<div class="grid gap-2">
+    <select id="gradeSelect" ${disabled ? 'disabled' : ''} onchange="onGradeSelectChange()"
+      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">${options}</select>
+    <input id="gradeFreeInput" type="text" value="${isFree ? escapeAttr(current) : ''}" placeholder="自由入力（例）中高一貫4年）" maxlength="50" ${disabled ? 'disabled' : ''} ${isFree ? '' : 'style="display:none"'}
+      class="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:bg-slate-100 disabled:text-slate-500">
+  </div>`;
+}
+function onGradeSelectChange() {
+  const select = document.getElementById('gradeSelect');
+  const free = document.getElementById('gradeFreeInput');
+  if (!select || !free) return;
+  const isFree = select.value === '__free__';
+  free.style.display = isFree ? '' : 'none';
+  if (isFree) free.focus();
+  updateRequiredNotice();
+}
+function currentGradeValue() {
+  const select = document.getElementById('gradeSelect');
+  if (!select) return '';
+  if (select.value === '__free__') return (document.getElementById('gradeFreeInput')?.value || '').trim();
+  return select.value;
+}
 function radioGroup(name, options, selected, disabled) {
   return options.map(([value, label]) => `
     <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-2 text-sm transition ${selected === value ? 'border-blue-500 bg-blue-50 font-medium text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'} ${disabled ? 'pointer-events-none opacity-60' : ''}">
@@ -307,7 +344,7 @@ function renderForm() {
       <div><dt class="text-xs text-slate-500">講師No（自動）</dt><dd class="mt-0.5 font-medium text-slate-800">${escapeHtml(item.tutor_no || '-')}</dd></div>
       <div>
         <dt class="text-xs text-slate-500">学年 <span class="font-medium text-amber-600">※必須</span></dt>
-        <dd class="mt-0.5">${textInput('gradeInput', report ? report.grade : '', {placeholder: '例）小学5年', required: true, disabled})}</dd>
+        <dd class="mt-0.5">${gradeControl(report ? report.grade : '', disabled)}</dd>
       </div>
     </dl>`);
 
@@ -437,14 +474,15 @@ function renderForm() {
   renderMakeupPlans(disabled);
   saveBar.classList.toggle('hidden', disabled);
   updateRequiredNotice();
-  ['gradeInput', 'issue_0'].forEach(id => document.getElementById(id)?.addEventListener('input', updateRequiredNotice));
+  // 学年（自由入力欄）と問題点1件目の入力で必須充足の注記を更新（プルダウンの変更は onGradeSelectChange 側で更新）
+  ['gradeFreeInput', 'issue_0'].forEach(id => document.getElementById(id)?.addEventListener('input', updateRequiredNotice));
 }
 
 function updateRequiredNotice() {
   const notice = document.getElementById('requiredNotice');
   if (!notice) return;
   const missing = [];
-  if (!(document.getElementById('gradeInput')?.value || '').trim()) missing.push('学年');
+  if (!currentGradeValue()) missing.push('学年');
   const hasIssue = Array.from({length: 5}, (_, i) => document.getElementById(`issue_${i}`)?.value || '').some(v => v.trim());
   if (!hasIssue) missing.push('次月に向けての問題点と対策（1件以上）');
   notice.textContent = missing.length ? `承認依頼には ${missing.join('・')} の入力が必要です` : '';
@@ -458,7 +496,7 @@ function collectForm() {
     deviation: value(`${prefix}_deviation_${i}`),
   }));
   return {
-    grade: value('gradeInput'),
+    grade: currentGradeValue(),
     form_data: {
       issues: Array.from({length: 5}, (_, i) => value(`issue_${i}`)),
       target_schools: Array.from({length: 5}, (_, i) => value(`target_${i}`)),
