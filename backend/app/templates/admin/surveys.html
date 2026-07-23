@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block content %}
-<!-- === 保護者アンケート集計（運営のみ・改修 202607231755 ③） START === -->
+<!-- === 保護者アンケート集計（運営のみ・202607231755 ③新設・202607231933 ②ダッシュボード再設計） START === -->
 <style>
 @media (max-width: 767px) {
   .mobile-cards thead { display: none; }
@@ -38,9 +38,9 @@
   <p class="mt-1 text-sm text-slate-500">保護者が月報承認時に回答した講師への満足度・評価の集計です。回答内容は運営スタッフのみが閲覧でき、講師・保護者には表示されません。</p>
 </section>
 
-<!-- 絞り込み（講師・期間・検索）。集計・一覧の両方に適用される。 -->
-<section class="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-  <div class="grid items-end gap-3 md:grid-cols-[minmax(0,1fr)_150px_150px_minmax(0,1fr)]">
+<!-- 絞り込み（1行・講師/対象月/検索/クリア）。集計・一覧の両方に適用される。 -->
+<section class="mb-4 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+  <div class="grid items-end gap-2 md:grid-cols-[minmax(0,1fr)_140px_140px_minmax(0,1fr)_auto]">
     <label class="block text-sm">
       <span class="mb-1 block text-slate-700">講師</span>
       <select id="tutorFilter" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20">
@@ -63,6 +63,7 @@
       <span class="mb-1 block text-slate-700">検索</span>
       <input id="surveySearch" class="w-full rounded-lg border border-slate-300 px-3 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="生徒名・保護者名・講師名">
     </label>
+    <button id="filterClearBtn" type="button" class="h-[42px] whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-medium text-slate-600 transition hover:bg-slate-50">クリア</button>
   </div>
 </section>
 
@@ -71,49 +72,49 @@
 </div>
 
 <div id="surveyContent" class="hidden space-y-4">
-  <!-- サマリー（回答数・総合満足度・継続意向） -->
+  <!-- KPI タイル（回答数・総合満足度・継続意向）。講師・検索で絞り込み中は全体平均との差分を表示 -->
   <section class="grid gap-3 sm:grid-cols-3">
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div class="text-xs text-slate-500">回答数</div>
-      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileCount">0</span><span class="ml-1 text-sm font-medium text-slate-500">件</span></div>
+      <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span><span id="tileCount" class="text-2xl font-bold text-slate-800">0</span><span class="ml-1 text-xs font-medium text-slate-500">件</span></span>
+        <span id="tileCountSub" class="text-xs text-slate-500"></span>
+      </div>
     </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div class="text-xs text-slate-500">総合満足度（平均）</div>
-      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileAvg">-</span><span class="ml-1 text-sm font-medium text-slate-500">／ 5</span></div>
+      <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span><span id="tileAvg" class="text-2xl font-bold text-slate-800">-</span><span class="ml-1 text-xs font-medium text-slate-500">／5</span></span>
+        <span id="tileAvgSub" class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-slate-500"></span>
+      </div>
     </div>
-    <div class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
       <div class="text-xs text-slate-500">「今後も続けたい」の割合</div>
-      <div class="mt-1 text-2xl font-bold text-slate-800"><span id="tileContinue">-</span><span class="ml-1 text-sm font-medium text-slate-500">%</span></div>
+      <div class="mt-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+        <span><span id="tileContinue" class="text-2xl font-bold text-slate-800">-</span><span class="ml-1 text-xs font-medium text-slate-500">%</span></span>
+        <span id="tileContinueSub" class="inline-flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-slate-500"></span>
+      </div>
     </div>
   </section>
 
-  <!-- 設問別の回答分布（1〜5の帯グラフ＋平均） -->
-  <section class="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <h2 class="font-semibold text-slate-800">設問別の回答分布</h2>
-    <p class="mt-1 text-xs text-slate-500">帯は左から「1（低評価）→ 5（高評価）」の順です。各色の件数は帯の下と、帯にカーソルを合わせた際に表示されます。</p>
-    <div id="questionCharts" class="mt-4 grid gap-5"></div>
+  <!-- 設問別の回答分布（コンパクトなカードのグリッド） -->
+  <section class="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+      <h2 class="font-semibold text-slate-800">設問別の回答分布</h2>
+      <p class="text-xs text-slate-500">帯は左から「1（低評価）→ 5（高評価）」。講師や検索で絞り込むと、グレー点線＝全体平均（同じ対象月範囲）が重なります。</p>
+    </div>
+    <div id="questionCharts" class="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"></div>
   </section>
 
-  <!-- 講師別の平均 -->
+  <!-- 講師別の平均（並べ替え・注意ハイライト・全体平均行つきのメイン集計表） -->
   <section class="rounded-xl border border-slate-200 bg-white shadow-sm">
     <div class="border-b border-slate-200 bg-slate-50 px-4 py-3">
       <h2 class="font-semibold text-slate-800">講師別の平均</h2>
-      <p class="mt-0.5 text-xs text-slate-500">行をクリックするとその講師で絞り込みます。</p>
+      <p class="mt-0.5 text-xs text-slate-500">列見出しのクリックで並べ替え、行のクリックでその講師に絞り込みます。平均3.5未満は<span class="rounded bg-amber-50 px-1 font-medium text-amber-800">オレンジ</span>、3.0未満は<span class="rounded bg-rose-50 px-1 font-medium text-rose-700">赤</span>で注意表示します（続けたい率は50%／30%未満）。</p>
     </div>
     <div class="overflow-x-auto">
       <table class="mobile-cards w-full text-sm">
-        <thead class="bg-slate-50 text-xs font-medium uppercase tracking-wide text-slate-500">
-          <tr>
-            <th class="whitespace-nowrap px-3 py-2 text-left">講師</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">回答数</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">総合満足度</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">わかりやすさ</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">連絡対応</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">意欲変化</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">時間マナー</th>
-            <th class="whitespace-nowrap px-3 py-2 text-right">続けたい率</th>
-          </tr>
-        </thead>
+        <thead id="tutorTableHead" class="bg-slate-50"></thead>
         <tbody id="tutorTableBody"></tbody>
       </table>
     </div>
@@ -157,16 +158,19 @@ const SURVEY_SCALE_QUESTIONS = [
   {key: 'q_motivation', label: 'お子さまの学習意欲の変化', short: '意欲変化', low: '下がった', high: '高まった'},
   {key: 'q_punctuality', label: '時間厳守・礼儀・マナー', short: '時間マナー', low: '不満', high: '満足'},
 ];
-// 1〜5の帯の配色（診断的な両極ランプ）: 低評価=rose ／ 中立=slate ／ 高評価=emerald（既存トークンのみ使用）。
-// 帯は常に 1→5 の固定順・セグメント間 2px 空き・件数ラベル併記のため、色だけに依存しない。
-const SCALE_COLORS = {1: '#f43f5e', 2: '#fda4af', 3: '#e2e8f0', 4: '#6ee7b7', 5: '#10b981'};
+// 1〜5の分岐配色（低評価=rose-600 ／ 中立=slate-200 ／ 高評価=emerald-600・Tailwind既存トークンのみ）。
+// CVD分離・通常視覚分離は検証済み（202607231933）。帯は常に1→5の固定順＋2px空き＋件数表記のため色だけに依存しない。
+const SCALE_COLORS = {1: '#e11d48', 2: '#fda4af', 3: '#e2e8f0', 4: '#34d399', 5: '#059669'};
+const SCALE_ORDER = [1, 2, 3, 4, 5];
 const CONTINUATION_META = {
-  continue: {label: '続けたい', color: '#10b981', badge: 'bg-emerald-100 text-emerald-700'},
-  neutral: {label: 'どちらともいえない', color: '#cbd5e1', badge: 'bg-slate-100 text-slate-600'},
-  change: {label: '変更を検討したい', color: '#f43f5e', badge: 'bg-rose-100 text-rose-700'},
+  continue: {label: '続けたい', short: '続けたい', color: '#059669', badge: 'bg-emerald-100 text-emerald-700'},
+  neutral: {label: 'どちらともいえない', short: 'どちらとも', color: '#cbd5e1', badge: 'bg-slate-100 text-slate-600'},
+  change: {label: '変更を検討したい', short: '変更検討', color: '#e11d48', badge: 'bg-rose-100 text-rose-700'},
 };
 const CONTINUATION_ORDER = ['continue', 'neutral', 'change'];
 let allSurveys = [];
+// 講師別テーブルの並び順（列見出しクリックで切替・既定は回答数の多い順）
+let tutorSort = {key: 'count', dir: 'desc'};
 
 function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({'&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'}[ch]));
@@ -188,9 +192,9 @@ function average(rows, key) {
   if (!rows.length) return null;
   return rows.reduce((sum, row) => sum + Number(row[key] || 0), 0) / rows.length;
 }
-function averageText(rows, key) {
-  const avg = average(rows, key);
-  return avg === null ? '-' : avg.toFixed(1);
+function continueRatePercent(rows) {
+  if (!rows.length) return null;
+  return (rows.filter(row => row.q_continuation === 'continue').length / rows.length) * 100;
 }
 
 function filteredSurveys() {
@@ -210,78 +214,200 @@ function filteredSurveys() {
   });
 }
 
-// 分布の帯グラフ（100%積み上げ・固定順・2px空き・0件のセグメントは描画しない）
+// ===== 全体平均（比較基準）＝講師・検索の絞り込みを外し「対象月の範囲」だけを適用した全回答（202607231933 ②） =====
+function benchmarkSurveys() {
+  const from = monthFrom.value;
+  const to = monthTo.value;
+  return allSurveys.filter(row => (!from || row.target_month >= from) && (!to || row.target_month <= to));
+}
+// 講師・検索で母集団を絞っているときだけ「全体平均」との比較（差分バッジ・点線）を表示する
+function benchmarkActive() {
+  return Boolean(tutorFilter.value) || Boolean((surveySearch.value || '').trim());
+}
+// 差分バッジ（例: 全体比 +0.2 ／ +5pt）。±0は中立色。色だけに依存しないよう符号つきの数値も表示する。
+function deltaChipHtml(delta, digits, unit) {
+  if (delta === null) return '';
+  const rounded = Number(delta.toFixed(digits)) + 0;
+  const cls = rounded > 0 ? 'bg-emerald-100 text-emerald-700' : (rounded < 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-600');
+  return `<span class="whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${cls}" title="全体平均（同じ対象月範囲の全回答）との差">全体比 ${rounded > 0 ? '+' : ''}${rounded.toFixed(digits)}${unit}</span>`;
+}
+// 平均のゲージ（塗り=現在値・グレー点線=全体平均）。最大幅を固定し、件数が少なくても伸び切らない。
+function gaugeHtml(value, benchmark, max, benchTitle) {
+  if (value === null) return '';
+  const pct = v => Math.max(0, Math.min(100, (v / max) * 100));
+  const tick = benchmark === null ? ''
+    : `<div class="absolute -top-1 h-3.5 w-0 border-l-2 border-dashed border-slate-500" style="left:${pct(benchmark)}%" title="${escapeHtml(benchTitle)}"></div>`;
+  return `<div class="relative mt-2 h-1.5 max-w-[260px] rounded-full bg-slate-100">
+    <div class="h-1.5 rounded-full bg-emerald-500" style="width:${pct(value)}%"></div>${tick}
+  </div>`;
+}
+
+// 分布の帯グラフ（100%積み上げ・固定順・2px空き・0件のセグメントは描画しない・件数はツールチップと下の凡例）
 function distributionBar(counts, order, colorOf, labelOf, total) {
   const segments = order.map(key => {
     const count = counts[key] || 0;
     if (!count) return '';
     const percent = (count / total) * 100;
-    return `<div class="h-5 min-w-[3px]" style="width:${percent}%;background:${colorOf(key)}" title="${escapeHtml(labelOf(key))}：${count}件（${Math.round(percent)}%）"></div>`;
+    return `<div class="h-2 min-w-[3px]" style="width:${percent}%;background:${colorOf(key)}" title="${escapeHtml(labelOf(key))}：${count}件（${Math.round(percent)}%）"></div>`;
   }).join('');
-  return `<div class="flex h-5 w-full gap-0.5 overflow-hidden rounded-md bg-slate-100">${segments}</div>`;
+  return `<div class="flex h-2 w-full max-w-[260px] gap-0.5 overflow-hidden rounded-full bg-slate-100">${segments}</div>`;
 }
-function legendChips(counts, order, colorOf, labelOf) {
-  return order.map(key => `
-    <span class="inline-flex items-center gap-1.5 text-xs text-slate-600">
-      <span class="inline-block h-2.5 w-2.5 rounded-sm border border-slate-200" style="background:${colorOf(key)}"></span>
-      ${escapeHtml(labelOf(key))}：<span class="font-medium text-slate-800">${counts[key] || 0}</span>件
-    </span>`).join('');
+function countChips(counts, order, colorOf, labelOf, shortOf) {
+  return order.map(key => `<span class="inline-flex items-center gap-1 text-[11px] text-slate-500" title="${escapeHtml(labelOf(key))}">
+    <span class="inline-block h-2 w-2 rounded-sm border border-slate-200" style="background:${colorOf(key)}"></span>${escapeHtml(shortOf(key))}:<span class="font-medium text-slate-700">${counts[key] || 0}</span></span>`).join('');
+}
+function questionCardHtml({heading, fullLabel, deltaHtml, valueHtml, gauge, bar, chips}) {
+  return `<div class="rounded-lg border border-slate-200 p-3">
+    <div class="flex items-start justify-between gap-2">
+      <span class="truncate text-xs font-medium text-slate-600" title="${escapeHtml(fullLabel)}">${escapeHtml(heading)}</span>
+      ${deltaHtml}
+    </div>
+    <div class="mt-1 flex flex-wrap items-baseline gap-x-2">${valueHtml}</div>
+    ${gauge}
+    <div class="mt-2.5">${bar}</div>
+    <div class="mt-1.5 flex flex-wrap gap-x-2.5 gap-y-0.5">${chips}</div>
+  </div>`;
 }
 
 function renderQuestionCharts(rows) {
-  const blocks = SURVEY_SCALE_QUESTIONS.map((question, index) => {
+  const bench = benchmarkSurveys();
+  const compare = benchmarkActive();
+  const cards = SURVEY_SCALE_QUESTIONS.map((question, index) => {
     const counts = {};
     for (const row of rows) counts[row[question.key]] = (counts[row[question.key]] || 0) + 1;
-    const order = [1, 2, 3, 4, 5];
     const labelOf = v => (v === 1 ? `1 ${question.low}` : v === 5 ? `5 ${question.high}` : String(v));
-    return `<div>
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-sm font-medium text-slate-700">Q${index + 1}. ${escapeHtml(question.label)}</span>
-        <span class="text-sm text-slate-600">平均 <span class="font-semibold text-slate-800">${averageText(rows, question.key)}</span> ／ 5</span>
-      </div>
-      <div class="mt-1.5">${distributionBar(counts, order, v => SCALE_COLORS[v], labelOf, rows.length)}</div>
-      <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">${legendChips(counts, order, v => SCALE_COLORS[v], labelOf)}</div>
-    </div>`;
+    const avg = average(rows, question.key);
+    const benchAvg = compare ? average(bench, question.key) : null;
+    return questionCardHtml({
+      heading: `Q${index + 1} ${question.short}`,
+      fullLabel: `Q${index + 1}. ${question.label}（1 ${question.low} 〜 5 ${question.high}）`,
+      deltaHtml: (avg !== null && benchAvg !== null) ? deltaChipHtml(avg - benchAvg, 1, '') : '',
+      valueHtml: `<span><span class="text-xl font-bold text-slate-800">${avg === null ? '-' : avg.toFixed(1)}</span><span class="text-[11px] font-medium text-slate-500"> ／5.0</span></span>`
+        + (benchAvg === null ? '' : `<span class="text-[11px] text-slate-500">全体 ${benchAvg.toFixed(1)}</span>`),
+      gauge: gaugeHtml(avg, benchAvg, 5, benchAvg === null ? '' : `全体平均 ${benchAvg.toFixed(1)}`),
+      bar: distributionBar(counts, SCALE_ORDER, v => SCALE_COLORS[v], labelOf, rows.length),
+      chips: countChips(counts, SCALE_ORDER, v => SCALE_COLORS[v], labelOf, v => String(v)),
+    });
   });
-
-  // 継続意向（3択）
+  // Q6 継続意向（3択）は「続けたい」の割合で比較する
   const contCounts = {};
   for (const row of rows) contCounts[row.q_continuation] = (contCounts[row.q_continuation] || 0) + 1;
-  blocks.push(`<div class="border-t border-slate-100 pt-4">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <span class="text-sm font-medium text-slate-700">Q6. 今後もこの講師による指導を続けたいと思いますか</span>
-      <span class="text-sm text-slate-600">「続けたい」<span class="font-semibold text-slate-800">${continueRateText(rows)}</span></span>
-    </div>
-    <div class="mt-1.5">${distributionBar(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label, rows.length)}</div>
-    <div class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1">${legendChips(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label)}</div>
-  </div>`);
-  questionCharts.innerHTML = blocks.join('');
-}
-function continueRateText(rows) {
-  if (!rows.length) return '-';
-  const count = rows.filter(row => row.q_continuation === 'continue').length;
-  return `${Math.round((count / rows.length) * 100)}%`;
+  const rate = continueRatePercent(rows);
+  const benchRate = compare ? continueRatePercent(bench) : null;
+  cards.push(questionCardHtml({
+    heading: 'Q6 続けたい率',
+    fullLabel: 'Q6. 今後もこの講師による指導を続けたいと思いますか（「続けたい」の割合）',
+    deltaHtml: (rate !== null && benchRate !== null) ? deltaChipHtml(rate - benchRate, 0, 'pt') : '',
+    valueHtml: `<span><span class="text-xl font-bold text-slate-800">${rate === null ? '-' : Math.round(rate)}</span><span class="text-[11px] font-medium text-slate-500"> %</span></span>`
+      + (benchRate === null ? '' : `<span class="text-[11px] text-slate-500">全体 ${Math.round(benchRate)}%</span>`),
+    gauge: gaugeHtml(rate, benchRate, 100, benchRate === null ? '' : `全体平均 ${Math.round(benchRate)}%`),
+    bar: distributionBar(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label, rows.length),
+    chips: countChips(contCounts, CONTINUATION_ORDER, k => CONTINUATION_META[k].color, k => CONTINUATION_META[k].label, k => CONTINUATION_META[k].short),
+  }));
+  questionCharts.innerHTML = cards.join('');
 }
 
-function renderTutorTable(rows) {
+// ===== KPI タイル =====
+function renderTiles(rows) {
+  const bench = benchmarkSurveys();
+  const compare = benchmarkActive();
+  tileCount.textContent = String(rows.length);
+  tileCountSub.textContent = compare
+    ? `／ 全体 ${bench.length}件中`
+    : `講師 ${new Set(rows.map(row => row.tutor_id)).size}人`;
+  const avg = average(rows, 'q_satisfaction');
+  const benchAvg = compare ? average(bench, 'q_satisfaction') : null;
+  tileAvg.textContent = avg === null ? '-' : avg.toFixed(1);
+  tileAvgSub.innerHTML = (avg === null || benchAvg === null) ? ''
+    : `${deltaChipHtml(avg - benchAvg, 1, '')}<span>全体 ${benchAvg.toFixed(1)}</span>`;
+  const rate = continueRatePercent(rows);
+  const benchRate = compare ? continueRatePercent(bench) : null;
+  tileContinue.textContent = rate === null ? '-' : String(Math.round(rate));
+  tileContinueSub.innerHTML = (rate === null || benchRate === null) ? ''
+    : `${deltaChipHtml(rate - benchRate, 0, 'pt')}<span>全体 ${Math.round(benchRate)}%</span>`;
+}
+
+// ===== 講師別の平均（並べ替え・注意ハイライト・全体平均行） =====
+const TUTOR_COLUMNS = [
+  {key: 'label', label: '講師', numeric: false},
+  {key: 'count', label: '回答数', numeric: true},
+  ...SURVEY_SCALE_QUESTIONS.map(question => ({key: question.key, label: question.short, numeric: true})),
+  {key: 'continueRate', label: '続けたい率', numeric: true},
+];
+function tutorAggregates(rows) {
   const byTutor = new Map();
   for (const row of rows) {
     if (!byTutor.has(row.tutor_id)) byTutor.set(row.tutor_id, []);
     byTutor.get(row.tutor_id).push(row);
   }
-  const entries = [...byTutor.entries()].sort((a, b) => b[1].length - a[1].length);
-  tutorTableBody.innerHTML = entries.map(([tutorId, tutorRows]) => {
-    const first = tutorRows[0];
-    const cells = SURVEY_SCALE_QUESTIONS
-      .map(question => `<td class="whitespace-nowrap px-3 py-2 text-right" data-label="${question.short}">${averageText(tutorRows, question.key)}</td>`)
-      .join('');
-    return `<tr class="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/60" title="この講師で絞り込む" onclick="filterByTutor('${tutorId}')">
-      <td class="px-3 py-2 font-medium text-slate-800" data-label="講師">${escapeHtml(tutorLabel(first))}</td>
-      <td class="whitespace-nowrap px-3 py-2 text-right" data-label="回答数">${tutorRows.length}</td>
-      ${cells}
-      <td class="whitespace-nowrap px-3 py-2 text-right" data-label="続けたい率">${continueRateText(tutorRows)}</td>
-    </tr>`;
+  return [...byTutor.entries()].map(([tutorId, tutorRows]) => {
+    const entry = {tutorId, label: tutorLabel(tutorRows[0]), count: tutorRows.length, continueRate: continueRatePercent(tutorRows)};
+    for (const question of SURVEY_SCALE_QUESTIONS) entry[question.key] = average(tutorRows, question.key);
+    return entry;
+  });
+}
+// 注意ハイライト（数値も表示するため色だけに依存しない）: 平均3.5未満=オレンジ・3.0未満=赤
+function scoreCellClass(value) {
+  if (value === null) return '';
+  if (value < 3.0) return ' bg-rose-50 font-semibold text-rose-700';
+  if (value < 3.5) return ' bg-amber-50 font-semibold text-amber-800';
+  return '';
+}
+// 続けたい率: 50%未満=オレンジ・30%未満=赤
+function rateCellClass(rate) {
+  if (rate === null) return '';
+  if (rate < 30) return ' bg-rose-50 font-semibold text-rose-700';
+  if (rate < 50) return ' bg-amber-50 font-semibold text-amber-800';
+  return '';
+}
+function sortTutorTable(key) {
+  if (tutorSort.key === key) {
+    tutorSort.dir = tutorSort.dir === 'desc' ? 'asc' : 'desc';
+  } else {
+    tutorSort = {key, dir: key === 'label' ? 'asc' : 'desc'};
+  }
+  render();
+}
+function renderTutorHead() {
+  tutorTableHead.innerHTML = `<tr>${TUTOR_COLUMNS.map(col => {
+    const active = tutorSort.key === col.key;
+    const arrow = active ? (tutorSort.dir === 'desc' ? '▼' : '▲') : '↕';
+    return `<th class="whitespace-nowrap px-3 py-2 ${col.numeric ? 'text-right' : 'text-left'}" aria-sort="${active ? (tutorSort.dir === 'desc' ? 'descending' : 'ascending') : 'none'}">
+      <button type="button" onclick="sortTutorTable('${col.key}')" title="クリックで並べ替え"
+        class="inline-flex items-center gap-1 text-xs font-medium uppercase tracking-wide transition ${active ? 'text-blue-700' : 'text-slate-500 hover:text-blue-700'}">
+        ${escapeHtml(col.label)}<span class="text-[10px] ${active ? '' : 'text-slate-300'}">${arrow}</span>
+      </button>
+    </th>`;
+  }).join('')}</tr>`;
+}
+function tutorCellsHtml(entry, muted) {
+  const scoreCells = SURVEY_SCALE_QUESTIONS.map(question => {
+    const value = entry[question.key];
+    return `<td class="whitespace-nowrap px-3 py-2 text-right tabular-nums${muted ? '' : scoreCellClass(value)}" data-label="${question.short}">${value === null ? '-' : value.toFixed(1)}</td>`;
   }).join('');
+  const rate = entry.continueRate;
+  return `<td class="whitespace-nowrap px-3 py-2 text-right tabular-nums" data-label="回答数">${entry.count}</td>${scoreCells}
+    <td class="whitespace-nowrap px-3 py-2 text-right tabular-nums${muted ? '' : rateCellClass(rate)}" data-label="続けたい率">${rate === null ? '-' : `${Math.round(rate)}%`}</td>`;
+}
+function renderTutorTable(rows) {
+  renderTutorHead();
+  const dir = tutorSort.dir === 'asc' ? 1 : -1;
+  const entries = tutorAggregates(rows).sort((a, b) => {
+    const av = a[tutorSort.key];
+    const bv = b[tutorSort.key];
+    if (typeof av === 'string' || typeof bv === 'string') return String(av).localeCompare(String(bv), 'ja') * dir;
+    return ((av ?? -Infinity) - (bv ?? -Infinity)) * dir;
+  });
+  // 先頭に全体平均（比較基準）の行を固定表示（並べ替え・行クリックの対象外・注意ハイライトなし）
+  const bench = benchmarkSurveys();
+  const overall = {label: '全体平均（比較基準）', count: bench.length, continueRate: continueRatePercent(bench)};
+  for (const question of SURVEY_SCALE_QUESTIONS) overall[question.key] = average(bench, question.key);
+  const overallRow = `<tr class="border-t border-slate-100 bg-slate-50/70 text-slate-600">
+    <td class="px-3 py-2 font-medium" data-label="講師">全体平均（比較基準）</td>${tutorCellsHtml(overall, true)}
+  </tr>`;
+  tutorTableBody.innerHTML = overallRow + entries.map(entry => `<tr class="cursor-pointer border-t border-slate-100 transition hover:bg-blue-50/60" title="この講師で絞り込む" onclick="filterByTutor('${entry.tutorId}')">
+      <td class="px-3 py-2 font-medium text-slate-800" data-label="講師">${escapeHtml(entry.label)}</td>${tutorCellsHtml(entry, false)}
+    </tr>`).join('');
 }
 function filterByTutor(tutorId) {
   tutorFilter.value = tutorId;
@@ -311,9 +437,7 @@ function render() {
   surveyEmpty.classList.toggle('hidden', hasRows);
   surveyContent.classList.toggle('hidden', !hasRows);
   if (!hasRows) return;
-  tileCount.textContent = String(rows.length);
-  tileAvg.textContent = averageText(rows, 'q_satisfaction');
-  tileContinue.textContent = continueRateText(rows).replace('%', '');
+  renderTiles(rows);
   renderQuestionCharts(rows);
   renderTutorTable(rows);
   renderSurveyTable(rows);
@@ -343,6 +467,13 @@ async function loadSurveys() {
 
 [tutorFilter, monthFrom, monthTo].forEach(el => el.addEventListener('change', render));
 surveySearch.addEventListener('input', render);
+filterClearBtn.addEventListener('click', () => {
+  tutorFilter.value = '';
+  monthFrom.value = '';
+  monthTo.value = '';
+  surveySearch.value = '';
+  render();
+});
 window.authReady.then(user => {
   if (!user) return;
   loadSurveys().catch(() => {

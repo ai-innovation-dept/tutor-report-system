@@ -265,6 +265,14 @@
       const d = new Date(year, month, 1);
       return `${d.getFullYear()}年${d.getMonth() + 1}月`;
     }
+    // 保護者の承認エリアに「保護者記入欄」の入力フォームを出す状態か（改修 202607231933 ①）。
+    // 入力フォーム表示中は、指導月報カード側の参照用「保護者記入欄」を出さない（同名欄の二重表示を防ぐ。
+    // 前回の回答は入力フォームの初期値として引き継がれるため情報は失われない）。
+    function parentNoteFormVisible() {
+      return PARENT_CAN_ACT && Boolean(monthlyReport)
+        && !currentFiltered.some(report => report.status === 'returned_to_tutor')
+        && currentFiltered.some(report => report.status === 'awaiting_parent_approval');
+    }
     function monthlyReportHtml() {
       if (!monthlyReport) return '';
       const data = monthlyReport.form_data || {};
@@ -312,12 +320,12 @@
             </dl>
           </div>
           ${monthlyField('連絡事項', data.notes, true)}
-          <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+          ${parentNoteFormVisible() ? '' : `<div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
             <h3 class="text-sm font-semibold text-slate-700">保護者記入欄（ご要望／連絡事項）</h3>
             ${parentNote
               ? `<div class="mt-1.5 whitespace-pre-wrap text-sm text-slate-800">${escapeHtml(parentNote)}</div>`
               : '<div class="mt-1.5 text-sm text-slate-500">未記入です（保護者が承認時に記入します）。</div>'}
-          </div>
+          </div>`}
         </div>
       </section>`;
     }
@@ -465,7 +473,8 @@
         return wrap('<div class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">承認対象はありません。</div>');
       }
       // 指導月報がある月は、承認と同時に保護者記入欄（ご要望/連絡事項）の入力が必須。
-      const parentNoteForm = monthlyReport ? `
+      // フォーム表示中は指導月報カード側の参照用「保護者記入欄」を消して1つにする（parentNoteFormVisible と対・202607231933 ①）。
+      const parentNoteForm = parentNoteFormVisible() ? `
         <div class="mt-3 rounded-xl border border-blue-200 bg-blue-50 p-4">
           <label class="text-sm font-medium text-slate-800" for="parentNoteInput">指導月報「保護者記入欄（ご要望／連絡事項）」<span class="ml-1 font-semibold text-amber-700">※承認に必須</span></label>
           <p class="mt-1 text-xs text-slate-600">ご記入いただいた内容は指導月報に記載され、講師・運営へ共有されます。</p>
