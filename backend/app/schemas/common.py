@@ -204,8 +204,9 @@ class InvitationOut(BaseModel):
 
 class ReportCreate(BaseModel):
     # 指導報告の内容項目（2026-07 再構築）。「次回の予定/指導日・開始時刻」以外は必須入力だが、
-    # 必須の強制は入力UI（フロントの required）で行う。API/スキーマ層は後方互換のため
-    # 既存 content（=(b)）のみ必須を維持し、他の内容項目は任意とする（subject は従来も任意）。
+    # 必須の強制は入力UI（フロントの required）で行う。API/スキーマ層は後方互換＋仮保存のため
+    # 内容項目（content 含む）はすべて任意とする（改修 202607231025 ②＝途中入力の仮保存を許可）。
+    # 承認依頼（保護者提出）時に content 非空を workflow 側でガードし、現行の不変条件を保つ。
     # subject=教科・content=(b)何を指導したか は既存カラム流用。
     assignment_id: UUID
     lesson_date: date
@@ -216,7 +217,7 @@ class ReportCreate(BaseModel):
     grade_year: int | None = Field(default=None, ge=1, le=6)           # 学年数（小1〜6・中/高1〜3）
     subject: str | None = Field(default=None, max_length=100)           # 教科
     material_name: str | None = Field(default=None, max_length=2000)    # (a) 使用教材/テキスト名
-    content: str = Field(min_length=1, max_length=2000)               # (b) 何を指導したか/単元など
+    content: str | None = Field(default=None, max_length=2000)          # (b) 何を指導したか/単元など（仮保存では空可）
     learning_status: str | None = Field(default=None, max_length=2000)  # (c) 学習状況/問題と対策
     homework_status: Literal["A", "B", "C"] | None = None             # (d) 宿題/状況
     next_homework: str | None = Field(default=None, max_length=2000)    # 次回までの宿題
@@ -242,7 +243,7 @@ class ReportPatch(BaseModel):
     grade_year: int | None = Field(default=None, ge=1, le=6)
     subject: str | None = Field(default=None, max_length=100)
     material_name: str | None = Field(default=None, max_length=2000)
-    content: str | None = Field(default=None, min_length=1, max_length=2000)
+    content: str | None = Field(default=None, max_length=2000)          # 仮保存では空可（改修 202607231025 ②）
     learning_status: str | None = Field(default=None, max_length=2000)
     homework_status: Literal["A", "B", "C"] | None = None
     next_homework: str | None = Field(default=None, max_length=2000)

@@ -174,10 +174,12 @@
           </div>
         </div>
       </div>
-      <div class="flex gap-2">
-        <button class="flex-1 rounded-lg bg-blue-600 px-3 py-2 font-medium text-white transition hover:bg-blue-700" id="saveButton">保存</button>
+      <div class="flex flex-wrap gap-2">
+        <button class="flex-1 rounded-lg bg-blue-600 px-3 py-2 font-medium text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50" id="saveButton">保存</button>
+        <button type="button" class="rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 font-medium text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50" id="saveDraftButton" onclick="persistReportPayload(true)">仮保存</button>
         <button type="button" class="rounded-lg border border-slate-300 px-3 py-2 font-medium text-slate-700 transition hover:bg-slate-50" onclick="resetReportForm()">取消</button>
       </div>
+      <p class="mt-2 text-xs text-slate-500">「保存」は指導内容の必須項目まで入力が必要です。途中まででも残す場合は「仮保存」（指導日・開始/終了時刻は必須）。承認依頼までに内容を完成させてください。</p>
     </form>
   </section>
   <section class="hidden rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-600 shadow-sm" id="formUnavailablePanel"></section>
@@ -375,7 +377,7 @@ function setReportInputsDisabled(disabled) {
   reportInputsDisabled = disabled;
   [lessonDate, startTime, endTime, breakMinutes,
    gradeLevel, gradeYear, subject, materialName, content, learningStatus, nextHomework,
-   nextLessonDate, nextLessonStart, saveButton].forEach(el => {
+   nextLessonDate, nextLessonStart, saveButton, saveDraftButton].forEach(el => {
     el.disabled = disabled;
   });
   reportForm.querySelectorAll('input[name="homework_status"]').forEach(el => { el.disabled = disabled; });
@@ -671,10 +673,17 @@ async function submitAssignment(assignmentId) {
   await api('/api/reports/submit-to-admin-bulk', {method:'POST', body:JSON.stringify({report_ids: ids, target_month: selectedMonth})});
   await loadTutor();
 }
-reportForm.addEventListener('submit', async e => {
-  e.preventDefault();
+// 保存の実体。isDraft=true は「仮保存」＝指導内容が未入力でも残せる（改修 202607231025 ②）。
+// 指導日・開始/終了時刻は在室/指導時間の基礎かつ重複判定に使うため、仮保存でも必須とする。
+// 「保存」（submit）は指導内容の必須をフロントの HTML5 required で強制済み＝ここに到達した時点で入力済み。
+async function persistReportPayload(isDraft = false) {
+  if (reportInputsDisabled) return;  // 承認済み・進行中の月はフォーム自体が無効
   const payload = formPayload();
   clearFormMessage();
+  if (!payload.lesson_date) {
+    showFormMessage('指導日を選択してください', true);
+    return;
+  }
   // 改修1C: フロントエンド時刻バリデーション
   if (!payload.start_time || !payload.end_time) {
     showFormMessage('開始時刻と終了時刻を選択してください', true);
@@ -689,17 +698,18 @@ reportForm.addEventListener('submit', async e => {
     showFormMessage('この指導日の報告書はすでに登録されています。別の日付を選択してください。', true);
     return;
   }
+  const draftNote = '仮保存しました（承認依頼までに指導内容の入力を完成させてください）';
   try {
     if (editingId.value) {
       delete payload.assignment_id;
       await api(`/api/reports/${editingId.value}`, {method:'PATCH', body: JSON.stringify(payload), suppressFlash: true});
-      showFormMessage('報告書を更新しました');
+      showFormMessage(isDraft ? draftNote : '報告書を更新しました');
     } else {
       if (!payload.assignment_id) {
         throw new Error('生徒を選択してください');
       }
       await api('/api/reports', {method:'POST', body: JSON.stringify(payload), suppressFlash: true});
-      showFormMessage('報告書を作成しました');
+      showFormMessage(isDraft ? draftNote : '報告書を作成しました');
     }
     // 保存完了後は編集モードを抜け、選択中の生徒・月で通常の作成可否ゲートへ戻す
     // （editingId は loadTutor 中も保持され、成功メッセージは維持される）。
@@ -709,9 +719,13 @@ reportForm.addEventListener('submit', async e => {
   } catch (error) {
     let msg = error.message;
     try { msg = JSON.parse(msg).detail || msg; } catch (_) {}
-    showFormMessage(`作成に失敗しました：${msg}`, true);
+    showFormMessage(`保存に失敗しました：${msg}`, true);
     return;
   }
+}
+reportForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  await persistReportPayload(false);
 });
 assignment.addEventListener('change', () => {
   // 生徒を切り替えたら編集中の内容は破棄し、作成モードに戻す

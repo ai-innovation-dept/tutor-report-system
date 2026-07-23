@@ -29,6 +29,24 @@ from app.services.workflow_service import (
 router = APIRouter(prefix="/api/reports", tags=["workflow"])
 
 
+def _assert_lesson_reports_ready(reports: list[LessonReport]) -> None:
+    """承認依頼（保護者提出）の前提: 仮保存中（指導内容が未入力）の報告書がないこと（改修 202607231025 ②）。
+
+    仮保存で content を空にできるようにした代わりに、現行の不変条件（提出済み報告は内容あり）を
+    この関門で維持する。未入力があれば対象の指導日を示して 422 で差し戻す。
+    """
+    for report in reports:
+        if not (report.content or "").strip():
+            day = report.lesson_date
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"仮保存中の指導報告があります（{day.month}月{day.day}日分）。"
+                    "指導内容（何を指導したか）を入力してから承認依頼してください。"
+                ),
+            )
+
+
 async def _run(report_id: UUID, action: str, payload: CommentIn, db: Session, user: User):
     report = get_report_for_user(report_id, user, db)
     transition(db, report, user, action, payload.comment)
@@ -61,6 +79,7 @@ async def submit_to_parent(report_id: UUID, payload: CommentIn = CommentIn(), db
         return _cancel_parent_return(report_id, db, user)
     # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
     report = get_report_for_user(report_id, user, db)
+    _assert_lesson_reports_ready([report])
     assert_monthly_reports_ready(db, [report])
     return await _run(report_id, ReportAction.submit_to_parent.value, payload, db, user)
 
@@ -109,6 +128,7 @@ async def submit_to_parent_bulk(payload: BulkSubmitIn, db: Session = Depends(get
     )
     _validate_target_month(reports, payload.target_month)
     # 承認依頼（保護者への提出）は指導月報の作成（学年・問題点と対策の入力）を必須とする
+    _assert_lesson_reports_ready(reports)
     assert_monthly_reports_ready(db, reports)
     changed = []
     for report in reports:

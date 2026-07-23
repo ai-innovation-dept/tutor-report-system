@@ -195,8 +195,10 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db), user: Us
     # （最終承認済み・進行中の場合はより具体的な上記メッセージを優先する）
     if _duplicate_lesson_date_exists(db, user.id, payload.assignment_id, payload.lesson_date):
         raise HTTPException(status_code=409, detail="同じ指導日の報告書がすでに登録されています")
+    data = payload.model_dump()
+    data["content"] = data.get("content") or ""  # 仮保存で内容未入力なら空文字（content 列は NOT NULL・改修 202607231025 ②）
     report = LessonReport(
-        **payload.model_dump(),
+        **data,
         tutor_id=user.id,
         parent_id=assignment.parent_id,
         target_month=target_month,
@@ -784,6 +786,8 @@ async def patch_report(report_id: UUID, payload: ReportPatch, db: Session = Depe
     if report.status not in {ReportStatus.draft.value, ReportStatus.returned_to_tutor.value}:
         raise HTTPException(status_code=409, detail="only draft or returned reports can be edited")
     data = payload.model_dump(exclude_unset=True)
+    if "content" in data and data["content"] is None:
+        data["content"] = ""  # 仮保存で内容を空へ更新（content 列は NOT NULL・改修 202607231025 ②）
     # 差戻し中の報告書の修正は、差戻した運営担当へ通知する。適用すると旧値が失われるため、変更前に差分を取得する。
     was_returned = report.status == ReportStatus.returned_to_tutor.value
     changes = _collect_changes(report, data) if was_returned else []
