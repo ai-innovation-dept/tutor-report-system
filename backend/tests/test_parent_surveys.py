@@ -141,4 +141,18 @@ def test_admin_surveys_page_access(client, db):
     token(client, "parent@example.com")
     res = client.get("/admin/surveys", follow_redirects=False)
     assert res.status_code == 302
+
+
+def test_survey_sent_only_with_approval_ui(client, db):
+    """改修 202607231908: 専用の「アンケートを送信する」ボタンを廃止し、回答は承認と同時に送信する。"""
+    token(client, "parent@example.com")
+    html = client.get("/parent/report-view?month=2026-07").text
+    # 専用の送信ボタン（surveySubmitBtn／「アンケートを送信する」）が存在しないこと
+    assert "surveySubmitBtn" not in html
+    assert "アンケートを送信する" not in html
+    # 「すべて承認する」の承認と同時に送信される案内と、承認成功時のあわせて送信メッセージがあること
+    assert "承認したときに送信されます" in html
+    assert "講師評価アンケートもあわせて送信しました" in html
+    # 入力を戻す／クリアの操作は残す（途中入力のまま承認しようとしたときの案内先）
+    assert "surveyResetBtn" in html
 # === 保護者アンケート テスト END ===

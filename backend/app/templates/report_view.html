@@ -324,6 +324,7 @@
 
     // ===== 保護者アンケート（講師評価・改修 202607231755 ③） =====
     // 回答は任意（未回答でも承認できる）。回答内容は運営スタッフのみが閲覧し、講師には一切表示されない。
+    // 送信は「すべて承認する」の承認と同時のみ（改修 202607231908＝専用の送信ボタンは廃止）。
     // 設問キー・選択肢はサーバ（models.ParentSurvey / schemas.ParentSurveyIn）および
     // 集計画面（admin/surveys.html）の定義と同一にすること（変更時は3箇所を同時更新）。
     const SURVEY_SCALE_QUESTIONS = [
@@ -365,6 +366,9 @@
     }
     function parentSurveyHtml() {
       if (!PARENT_CAN_ACT || !monthlyReport) return '';
+      // 送信は承認と同時のみ（202607231908）のため、承認操作ができない状態（差戻し中・承認対象なし）では出さない。
+      if (currentFiltered.some(report => report.status === 'returned_to_tutor')) return '';
+      if (!currentFiltered.some(report => report.status === 'awaiting_parent_approval')) return '';
       const saved = parentSurvey || {};
       const answered = Boolean(parentSurvey);
       const badge = answered
@@ -379,7 +383,7 @@
           ${badge}
           <span class="text-xs text-slate-500">所要3分程度</span>
         </div>
-        <p class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">回答内容は<span class="font-medium">運営スタッフのみ</span>が確認し、<span class="font-medium">講師には表示されません</span>。率直なご意見をお聞かせください。回答は任意のため、未回答のままでも承認できます。</p>
+        <p class="mt-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">回答内容は<span class="font-medium">運営スタッフのみ</span>が確認し、<span class="font-medium">講師には表示されません</span>。率直なご意見をお聞かせください。ご回答は、下の<span class="font-medium">「すべて承認する」で承認したときに送信されます</span>。回答は任意のため、未回答のままでも承認できます。</p>
         <div class="mt-4 grid gap-4">
           ${scaleRows}
           <div class="grid gap-1.5 border-t border-slate-100 pt-4">
@@ -392,10 +396,8 @@
           </div>
         </div>
         <div class="mt-4 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-          <button id="surveySubmitBtn" type="button" class="w-full rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-blue-700 sm:w-auto">${answered ? '回答を更新する' : 'アンケートを送信する'}</button>
           <button id="surveyResetBtn" type="button" class="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50 sm:w-auto">${answered ? '入力を元に戻す' : '選択をクリア'}</button>
         </div>
-        <div id="surveyMsg" class="mt-3 hidden rounded-lg px-3 py-2 text-sm"></div>
       </section>`;
     }
     function collectSurvey() {
@@ -416,20 +418,11 @@
         || values.q_continuation !== parentSurvey.q_continuation
         || values.comment !== (parentSurvey.comment || '');
     }
-    function showSurveyMsg(text, ok) {
-      const el = document.getElementById('surveyMsg');
-      if (!el) return;
-      el.textContent = text;
-      el.className = `mt-3 rounded-lg px-3 py-2 text-sm ${ok ? 'border border-emerald-200 bg-emerald-50 text-emerald-700' : 'border border-rose-200 bg-rose-50 text-rose-700'}`;
-    }
-    // silent=true は承認と同時の自動送信用（メッセージ表示は呼び出し元が行う）
-    async function submitSurvey({silent = false} = {}) {
+    // 承認と同時の自動送信専用（202607231908 で専用の送信ボタンを廃止）。結果メッセージは呼び出し元が表示する。
+    async function submitSurvey() {
       if (!monthlyReport) return false;
       const values = collectSurvey();
-      if (surveyAnsweredCount(values) < 6) {
-        if (!silent) showSurveyMsg('未回答の設問があります。Q1〜Q6のすべてに回答してから送信してください。', false);
-        return false;
-      }
+      if (surveyAnsweredCount(values) < 6) return false;
       try {
         const res = await fetch(`/api/parent-surveys/${encodeURIComponent(monthlyReport.id)}`, {
           method: 'PUT',
@@ -441,7 +434,6 @@
         parentSurvey = await res.json();
         return true;
       } catch (_) {
-        if (!silent) showSurveyMsg('アンケートを送信できませんでした。通信環境をご確認のうえ、もう一度お試しください。', false);
         return false;
       }
     }
@@ -453,20 +445,10 @@
       wireSurveyActions();
     }
     function wireSurveyActions() {
-      const submitBtn = document.getElementById('surveySubmitBtn');
-      if (!submitBtn) return; // アンケート欄なし（月報なし・保護者以外）
-      submitBtn.addEventListener('click', async () => {
-        submitBtn.disabled = true;
-        try {
-          if (await submitSurvey()) {
-            flashMsg = '講師評価アンケートを送信しました。ご協力ありがとうございました。';
-            await load();
-          }
-        } finally {
-          submitBtn.disabled = false;
-        }
-      });
-      document.getElementById('surveyResetBtn').addEventListener('click', resetSurveyCard);
+      // 送信は承認と同時に行う（202607231908）ため、アンケート欄の操作は入力を戻す／クリアのみ。
+      const resetBtn = document.getElementById('surveyResetBtn');
+      if (!resetBtn) return; // アンケート欄なし（月報なし・承認対象なし・保護者以外）
+      resetBtn.addEventListener('click', resetSurveyCard);
     }
 
     // 保護者の参照画面に出す「承認・差戻し」エリア。承認管理一覧から本画面へ機能を集約したもの。
@@ -694,16 +676,18 @@
         document.getElementById('parentNoteInput')?.focus();
         return;
       }
-      // 講師評価アンケート（任意・202607231755 ③）: 全問回答済みで未送信なら承認と同時に自動送信する
-      // （入力の取りこぼし防止）。入力が途中なら、完了か未回答へ戻すかを選んでもらってから承認する。
+      // 講師評価アンケート（任意・202607231755 ③）: 回答は承認と同時に送信する（202607231908＝専用の送信ボタン廃止）。
+      // 入力が途中なら、完了か未回答へ戻すかを選んでもらってから承認する。
+      let surveySent = false;
       if (document.getElementById('surveyCard')) {
         const surveyValues = collectSurvey();
         if (surveyDirty(surveyValues)) {
           if (surveyAnsweredCount(surveyValues) === 6) {
-            if (!(await submitSurvey({silent: true}))) {
+            if (!(await submitSurvey())) {
               showActionMsg('講師評価アンケートを送信できませんでした。通信環境をご確認のうえ、もう一度お試しください。', false);
               return;
             }
+            surveySent = true;
           } else {
             showActionMsg('講師評価アンケートの入力が途中です。Q1〜Q6のすべてに回答するか、アンケート欄の「入力を元に戻す／選択をクリア」で未回答に戻してから承認してください。', false);
             return;
@@ -713,7 +697,8 @@
       try {
         await postJson('/api/reports/parent-approve-bulk', {report_ids: pending.map(report => report.id), target_month: targetMonth, parent_note: parentNote || null});
         notifyOpener();
-        flashMsg = `${monthLabel(targetMonth)}の指導実績を承認しました。`;
+        flashMsg = `${monthLabel(targetMonth)}の指導実績を承認しました。`
+          + (surveySent ? '講師評価アンケートもあわせて送信しました。ご協力ありがとうございました。' : '');
         await load();
       } catch (e) {
         showActionMsg(`承認できませんでした：${e.message}`, false);
