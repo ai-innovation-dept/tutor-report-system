@@ -4,7 +4,7 @@
 
 > メモ: Claude Code の個人メモリ（`~/.claude/...`）はアカウント/PCに紐づくため引き継がれない。引継ぎに必要な文脈はすべて本ファイル（リポジトリ）に集約している。
 
-最終更新: 2026-07-23（代々木進学会 202607231025＝②指導内容の仮保存・③月報の学年プルダウン+自由入力・④サイドバー会社情報。①過去月編集は既にmain実装済＝本番未反映のため未反映に見えると確認提示）
+最終更新: 2026-07-23（代々木進学会 バグ修正 202607231643＝講師の承認管理で returned_to_receiver（運営内差戻し）が「まだ記録中」と誤表示され講師が手詰まりに見える不具合を修正。加えて 202607231025＝②仮保存・③月報学年プルダウン・④サイドバー会社情報）
 
 ---
 
@@ -158,6 +158,7 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 ## 5. 直近の主な改修
 
 > 正確な履歴は `git log --oneline` を参照（手動コミット表は陳腐化しやすいため要点のみ）。
+- **代々木進学会 バグ修正：講師の承認管理で `returned_to_receiver`（運営内差戻し）が「まだ記録中」と誤表示され講師が手詰まりに見える（バグ調査依頼 202607231643）**（2026-07-23）: 症状＝差戻しなのに講師が編集できない／承認管理「まだ記録中の指導日があります」「保護者へ依頼日時 作成中」／報告書一覧「対象月の報告書がすでに進行中です。」。**根本原因**＝ここでの「差戻し」は **`returned_to_receiver`**（再鑑者が最終承認済みを受付へ差し戻す**運営内**差戻し。講師宛の `returned_to_tutor` とは別物）で、`tutor/approval.html` の `monthlyPhase` の rank マップに **`returned_to_receiver` が欠落**していたため `?? 0` で draft と同じ rank 0 に落ち、この状態を含む月が **phase='recording'** と誤判定されていた（→「まだ記録中」、`preRequest` により「作成中」）。報告書一覧では returned_to_receiver は進行中集合に含む（正しい）ため「進行中」＋新規作成不可、かつ講師編集は draft/returned_to_tutor のみ＝**編集できない**。三症状すべてこの1状態で説明できる。`monthlyPhase` は tutor/approval.html 固有（複製なし）で、admin/dashboard・report_view・parent/approval・reports.html は returned_to_receiver を既に正しく扱っており、**講師の承認管理だけが欠落**していた。**恒久修正**＝`tutor/approval.html` の4箇所（①`monthlyPhase` の rank マップに `returned_to_receiver:3` ＋ `returned_to_tutor` 判定直後に `returned_to_receiver` 専用フェーズの早期 return を追加＝どの混在でも recording に落とさない・講師宛差戻しを優先／②`PHASE_CURRENT_STEP` に `returned_to_receiver:2`／③`STATUS_LABELS` に `運営内差戻し`／④`actionArea` に案内パネル「運営内で差戻し中です（受付担当が対応します）。講師の操作は不要です。修正が必要な場合は下の『差戻しを要求』からご依頼ください」）＋`tutor/reports.html` の `renderFormAvailability` に returned_to_receiver 専用文言（`selectedAssignmentReturnedToReceiver`）。**講師の正しい導線は差戻し要求**（`REQUESTABLE_STATUSES` に既に含む）で、returned_to_receiver を講師が直接編集できないのは仕様どおり（運営内状態）＝本修正は「状態の正確表示＋差戻し要求への誘導」であり直接編集の解禁ではない。テスト: `tests/test_returned_to_receiver_display.py` 新設（配信HTMLの静的検証＝monthlyPhase は client JS のため既存 test_accordion_ui.py と同方式）＝**legacy 337件・EMPS 510件通過**（`MAIL_BACKEND=console`・実送信ゼロ）。**本番未反映**。
 - **代々木進学会 指導内容の仮保存＋月報の学年プルダウン＋サイドバー会社情報（改修依頼 202607231025・②③④）**（2026-07-23）:
   - **① 過去月編集＝コード変更なし（既に main 実装済み）**: 依頼①（未承認は直接編集可／承認済は差戻要求→差戻承認で再編集／未来月は作成不可）は、`d60a15b`（過去月編集解禁＝月ゲート撤廃しステータス判定へ）＋`85fd5ad`（講師起点の差戻し要求を legacy 移植）で**すでに main にある**。**本番が未反映**のため「過去月が編集できない」ように見えていたと判断し、再実装はせず**要件確認事項として提示**（本番反映は別途）。
   - **② 指導報告「指導内容」の仮保存**: 必須未入力でも途中保存できる「仮保存」ボタンを報告書フォームに追加。**保存＝従来どおり指導内容の必須をフロント HTML5 `required` で強制／仮保存＝指導内容を空のまま draft 保存**（指導日・開始/終了時刻は在室時間・重複判定の基礎のため仮保存でも必須）。`schemas/common.py` の `ReportCreate.content`/`ReportPatch.content` を **min_length 撤廃で空可**に緩和し、`api/reports.py` の create/patch で **未入力→空文字コアース**（`content` 列は NOT NULL）。**現行の不変条件（提出済み報告は内容あり）を保つため、`api/workflow.py` に `_assert_lesson_reports_ready()` を新設し submit-to-parent（単/bulk）で content 非空を 422 ガード**（既存 `assert_monthly_reports_ready` の隣）。`tutor/reports.html` は submit ハンドラを `persistReportPayload(isDraft)` へ抽出（保存=submit で required 強制、仮保存=`type=button` で迂回）・`saveDraftButton` を `setReportInputsDisabled` 対象に追加。PDF/CSV/report_view は提出済み前提のため影響なし。
