@@ -303,6 +303,8 @@ docker compose exec backend python -m app.scripts.seed_production --yes
   - ⚠ **DNS切替は未完**: `kintai-yoyogi.haken.net` / `kintai-emps.haken.net` はまだ旧ワイルドカード `163.44.176.16`（旧LiteSpeed既定ページ）を指しており、EIP `52.199.22.60` に向いていない。
   - ⚠ **HTTPS未対応**: 現状は IP:ポートの HTTP（平文）＝ログイン情報・JWT Cookie が暗号化されずに流れる。HTTPS化を優先。
   - ✅ **メールは送信オフ（安全）**: `MAIL_BACKEND=console`＝実メールは飛ばない。`BASE_URL=http://52.199.22.60:8000` / `NEW_BASE_URL=http://52.199.22.60:8001`（リンクは新IPを指すが送信オフ）。→ 実配信の有効化は DNS/HTTPS/BASE_URL 更新後に行うのが安全。
+  - ⚠ **二重稼働中**: 旧 Lightsail（52.197.43.164）が**現行として稼働継続**（2026-07-24 両アプリ応答確認）、EC2 は**本番切替前の検証**。両者はDBが別々＝EC2は移行時点のコピー。**切替直前に Lightsail の最新を `pg_dump`→EC2へ復元（最終同期）が必須**。切替までEC2での破壊的操作はユーザー無影響だが検証データは切替時に上書きされうる。
+  - 📄 **EC2ドキュメント一式（202607241629）**: `docs/EC2/インフラ仕様書.md`・`docs/EC2/デプロイ手順書.md`・`docs/EC2/Lightsailとの差分.md`。SG実測=開:22/8000/8001・閉:80/443/5432/8025/1025（DB・MailHogは非公開／アプリは平文HTTP直開放）。
 - **EC2 情報（確定・2026-07-24）**: EIP `52.199.22.60` / instance `i-0ce3a2e284f376401` / region ap-northeast-1 / **OS Ubuntu 24.04 LTS** / **t3.small(2vCPU/2GB)＋swap4GB** / gp3 30GB / IAMロール `tutor-ec2-s3-backup-role`。SSH=`ubuntu`＋キーペア`tutor-ec2-key`（`ssh -i tutor-ec2-key.pem ubuntu@52.199.22.60`・秘密鍵は作業者PCローカル保管）。配置 `~/tutor-report-system`。DB=コンテナ内`postgres:16-alpine`維持（RDS未移行）。詳細は `docs/INFRASTRUCTURE.md`（実態反映済）。
 - **残タスク（本番化前）**: ①DNS切替（`kintai-*` → 52.199.22.60、`*.haken.net`ワイルドカードを個別Aで上書き）②nginxリバプロ（Host振り分け8000/8001）③Let's Encrypt でHTTPS化 ④`.env` の `BASE_URL`/`NEW_BASE_URL` を新HTTPS URLへ（**メールリンク直結**）⑤HTTPS化後は8000/8001をSGで閉じ22/80/443のみに ⑥監視アラート。手順は `docs/EC2移行_引継ぎ_202607241011.md` Step6–8。
 - **移行時の恒久注意（コード起因）**: uvicorn は**単一ワーカー維持**（APScheduler多重発火防止）／メール検証は `MAIL_BACKEND=console`＋sandbox／DBパスワード（既定 `postgres/postgres`）強化推奨。
