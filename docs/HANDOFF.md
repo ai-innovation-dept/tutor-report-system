@@ -248,6 +248,7 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 - [ ] 必要に応じて本番で `seed_production --yes` を実行しサンプル 6 ユーザーに統一。
 - [ ] （任意）legacy 用の 保護者/受付/再鑑 サンプルが必要なら別エイリアスで追加。
 - [ ] （任意）送信量が増えるなら SendGrid / SES へ移行。
+- [ ] **【計画 202607241011】Lightsail → EC2 移行 ＋ ドメイン/HTTPS 化**: 手順は §9 と `docs/EC2移行_引継ぎ_202607241011.md`。別チャットで実施予定・未着手。
 
 ---
 
@@ -290,3 +291,13 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 - **変更ファイル**: `new_backend/app/api/reports.py`（新API＋メタ保持）・`app/schemas/reports.py`（`SchoolRequestsPatch`）・`app/services/export_service.py`（`_report_footer_values` を3欄へ）・`app/templates/tutor/reports.html`（3欄のUI＋`DEFAULT_META`＋`OTHER_ROLE_META_KEYS`／`lockMetaInputs`）・`app/templates/report_view.html`（3欄表示＋学校の入力欄・保存・自動保存）。CSV は requests 系を出力していないため追随不要。legacy 側への影響なし。
 - **テスト**: `new_backend/tests/test_report_requests_fields.py` 新設（13件＝講師欄の保存往復／講師は学校欄を作れない・上書きできない・meta省略でも消えない／学校は `awaiting_school` のみ保存可・承認後は409・下書きと他校は403・講師/事務は403／講師フォーム・参照画面・PDFフッターの3欄）＋`test_attendance.py` のPDFフッター期待値を3欄へ更新＝**new 499件通過**（実メール送信ゼロ＝`MAIL_BACKEND=console`）。
 - **実画面確認（Playwright・DB非変更／メール送信ゼロ）**: 講師フォームの3欄（運営・学校が灰色＝readOnly、講師のみ入力可）と参照画面の3欄を確認。学校の入力欄は、承認済みの実データを**クライアント側でだけ** `awaiting_school` に差し替えて描画を確認し、保存を押すとサーバが409を返して「保存できませんでした」と出る（＝サーバ側ガードが実データでも効く）ことまで確認した。PDFはラベル列42mmに対し「要望連絡事項（〇〇）」＝31.8mmで折返しなし。
+
+---
+
+## 9. 【計画 202607241011】Lightsail → EC2 移行 ＋ ドメイン/HTTPS 化
+
+- **状態**: 📋 計画・引継ぎ資料作成のみ（**未着手・本番未反映**）。実作業は別 Claude チャットで実施予定。
+- **詳細資料**: **`docs/EC2移行_引継ぎ_202607241011.md`**（現行構成・EC2サイジング・移行ランブック9ステップ・固有の注意点・秘密情報の扱い・添付ファイル一覧を自己完結でまとめた。移行チャットにはこの資料＋`docker-compose.yml`・両`Dockerfile`・`.env.example`・`mailmode.sh`・`docs/INFRASTRUCTURE.md`・両`pyproject.toml` を添付する）。
+- **方針**: 同一 `docker compose` 構成を EC2 で再現するリフト&シフト＋DB は `pg_dump`/`psql` で移送。合わせて `kintai-yoyogi.haken.net`（:8000）/ `kintai-emps.haken.net`（:8001）へ DNS 切替・nginx リバースプロキシ・Let's Encrypt でHTTPS化。
+- **移行時の必須事項（コード起因）**: ①`.env` の `BASE_URL`/`NEW_BASE_URL` を新HTTPS URLへ更新（メールリンク直結）。②uvicorn は**単一ワーカー維持**（APScheduler多重発火防止）。③メールは検証完了まで `MAIL_BACKEND=console`／検証は sandbox。④`5432/8025/8000/8001` は外部公開しない（SGで80/443/22のみ）。⑤DBパスワード（既定 `postgres/postgres`）強化を推奨。
+- **移行前に決める事項**: EC2サイズ（t3.small+swap or **t3.medium推奨**）／DBはコンテナ維持 or RDS／HTTPSを同時にやるか二段構えか／ダウンタイム許容度。詳細資料§6参照。
