@@ -1,68 +1,80 @@
 # インフラ構成情報（本番）
 
-> 本番 Lightsail ホストで2システムを同一 `docker compose` で稼働: **イスト勤怠レポート for 代々木進学会**（旧称: 指導実績報告システム / `backend` / 8000）と **イスト勤怠レポート for EMPS**（旧称: 業務連絡表システム / `new_backend` / 8001）。ドキュメント索引は `README.md`。
-> 最終更新: 2026-06-22
+> 本番 **AWS EC2** ホストで2システムを同一 `docker compose` で稼働: **イスト勤怠レポート for 代々木進学会**（旧称: 指導実績報告システム / `backend` / 8000）と **イスト勤怠レポート for EMPS**（旧称: 業務連絡表システム / `new_backend` / 8001）。ドキュメント索引は `README.md`。
+> 最終更新: 2026-07-24（**AWS Lightsail → EC2 移行完了**。管理番号 202607241603 で実態反映）。
+> ⚠ **DNS切替・HTTPS化は未完**（現状は EC2 の IP:ポートに HTTP 直アクセス。下記「本番化前に必要な作業」参照）。「要確認」の項目は移行担当からの情報待ち。
 
-## AWS Lightsail インスタンス
+## AWS EC2 インスタンス
 
 | 項目 | 内容 |
 |---|---|
-| インスタンス名 | tutor-report-system |
+| インスタンスID | `i-0ce3a2e284f376401` |
 | リージョン | 東京（ap-northeast-1） |
-| OS | Ubuntu 22.04 LTS |
-| スペック | 2GB RAM / 2vCPU / 60GB SSD |
-| 月額 | $12 USD |
+| Elastic IP | **52.199.22.60** |
+| OS | 要確認（旧Lightsailは Ubuntu 22.04 LTS） |
+| インスタンスタイプ | 要確認 |
+| IAMロール | `tutor-ec2-s3-backup-role`（S3バックアップ用にアタッチ） |
+| 稼働方式 | 単一 `docker compose`（db / mailhog / backend:8000 / new_backend:8001） |
+
+## バックアップ（S3）
+
+| 項目 | 内容 |
+|---|---|
+| S3バケット | `tutor-report-system-backup-nxtech2026` |
+| IAMロール | `tutor-ec2-s3-backup-role`（EC2にアタッチ＝アクセスキー不要でS3書込可） |
+| 取得内容・スケジュール | 要確認（想定: cron で `pg_dump` → `aws s3 cp` でバケットへ。実スクリプト・cron・世代管理を要確認） |
 
 ## ネットワーク
 
 | 項目 | 内容 |
 |---|---|
-| 静的IP | 52.197.43.164 |
-| SSH | ポート22 |
-| HTTP | ポート80 |
-| アプリ（既存=代々木進学会） | ポート8000 |
-| アプリ（新=EMPS） | ポート8001 |
-| MailHog | ポート8025 |
+| Elastic IP | 52.199.22.60 |
+| SSH | ポート22（接続方法・鍵は要確認） |
+| アプリ（既存=代々木進学会） | ポート8000（**現在インターネット公開中**＝2026-07-24 実機確認） |
+| アプリ（新=EMPS） | ポート8001（**現在インターネット公開中**） |
+| HTTP/HTTPS (80/443) | HTTPS化後に使用（現状は未使用） |
 
-## アクセスURL
+## アクセスURL（現在＝2026-07-24 稼働確認済）
 
 | 用途 | URL |
 |---|---|
-| アプリ（既存=代々木進学会） | http://52.197.43.164:8000 |
-| アプリ（新=EMPS） | http://52.197.43.164:8001 |
-| API仕様 | http://52.197.43.164:8000/docs ・ http://52.197.43.164:8001/docs |
-| メール確認(MailHog) | http://52.197.43.164:8025 |
+| アプリ（既存=代々木進学会） | http://52.199.22.60:8000 （応答確認: title「指導報告・指導時間確認票」） |
+| アプリ（新=EMPS） | http://52.199.22.60:8001 （応答確認: title「業務連絡表システム」） |
+| API仕様 | http://52.199.22.60:8000/docs ・ http://52.199.22.60:8001/docs |
+
+> ⚠ **`kintai-yoyogi.haken.net` / `kintai-emps.haken.net` はまだ使えない**。DNSが旧ワイルドカード（`163.44.176.16`＝旧LiteSpeed の既定ページ）を指したままで、EIP `52.199.22.60` へ切替されていない（2026-07-24 実機確認）。切替・nginx・HTTPS化の手順は `docs/EC2移行_引継ぎ_202607241011.md` Step6–8。
+> ⚠ **現状はHTTP（平文）**。IP:ポート直アクセスのためログイン情報・JWT Cookie が暗号化されずに流れる。HTTPS化を優先すること。
 
 ## SSH接続方法
 
-LightsailコンソールのブラウザSSHから接続：
-https://lightsail.aws.amazon.com
-
-または：
-- SSHユーザー：ubuntu
-- デフォルトSSHキーはLightsailコンソールからダウンロード
+- EC2 キーペア（`.pem`）で SSH（ユーザー名・鍵の所在は**要確認**。旧 Lightsail コンソールのブラウザ SSH は使えない）。
+- 例（要確認）: `ssh -i <キー.pem> ubuntu@52.199.22.60`（Ubuntu AMI なら既定ユーザーは `ubuntu`）。
 
 ## 現在の状態
 
 | 項目 | 状態 |
 |---|---|
-| ドメイン | 未取得（IPアドレス直接アクセス）|
-| HTTPS | 未対応（HTTP通信）|
-| メール送信 | 送信キュー(outbox)経由で1通ずつ間隔送信。既定 `MAIL_BACKEND=console`（送信オフ・ログのみ）。`mailmode.sh` で sandbox/live 切替（詳細は `HANDOFF.md` §1・3）|
-| DB | コンテナ内PostgreSQL（両システム共有）|
+| ホスティング | ✅ AWS EC2（移行完了・両アプリ稼働確認済） |
+| ドメイン | ⚠ 未切替（DNSは旧 `163.44.176.16` のまま。目標: `kintai-yoyogi`/`kintai-emps.haken.net` → 52.199.22.60） |
+| HTTPS | ⚠ 未対応（IP:ポートのHTTP＝平文） |
+| メール送信 | 要確認（`MAIL_BACKEND` が console＝送信オフ / smtp(live)＝実配信 のいずれか） |
+| DB | 要確認（コンテナ内PostgreSQL維持 or RDSへ移行） |
+| バックアップ | ✅ S3構成あり（バケット + IAMロール。詳細スケジュールは要確認） |
 
-## 本番化前に必要な作業
+## 本番化前に必要な作業（EC2移行後の残タスク）
 
-- [ ] ドメイン取得
-- [ ] SSL証明書取得HTTPS化（Let's Encrypt推奨）
-- [ ] 実メール配信の有効化（`bash mailmode.sh live` ＋ `.env` の `MAIL_LIVE_*` 設定、または `SMTP_*`＋`MAIL_BACKEND=smtp`）※送信機構・送信キューは実装済み
-- [ ] PostgreSQLをLightsailマネージドDBへ移行（推奨）
-- [ ] 自動バックアップ設定
+- [ ] **DNS切替**: `kintai-yoyogi.haken.net` / `kintai-emps.haken.net` を **52.199.22.60** へ向ける（`*.haken.net` ワイルドカードを個別Aレコードで上書き）
+- [ ] **nginx リバースプロキシ**（Host振り分け: `kintai-yoyogi`→127.0.0.1:8000 / `kintai-emps`→127.0.0.1:8001）
+- [ ] **HTTPS化**（Let's Encrypt。2ドメイン個別 or `*.haken.net` ワイルドカードは DNS-01）
+- [ ] `.env` の `BASE_URL` / `NEW_BASE_URL` を新HTTPS URLへ更新（**メールリンク直結**）
+- [ ] HTTPS化後、**8000/8001 の外部公開を閉じる**（セキュリティグループを 22/80/443 のみに）
+- [x] 自動バックアップ（S3バケット `tutor-report-system-backup-nxtech2026` + IAMロール構成済／cron・世代管理は要確認）
 - [ ] 監視アラート設定
+- [ ] 実メール配信の有効化（`bash mailmode.sh live` ＋ `.env` `MAIL_LIVE_*`）※現状の `MAIL_BACKEND` 要確認
 
 ## サーバー更新手順
 
-コードを更新した後にサーバーへ反映する手順：
+コードを更新した後にサーバーへ反映する手順（SSH接続方法・配置ディレクトリは**要確認**。従来は `~/tutor-report-system`）：
 
 ### 1. ローカルでコードを修正してGitHubにプッシュ
 
@@ -72,10 +84,10 @@ git commit -m "修正内容"
 git push
 ```
 
-### 2. LightsailのSSHで以下を実行
+### 2. EC2 に SSH して以下を実行
 
 ```bash
-cd tutor-report-system
+cd tutor-report-system        # 配置ディレクトリは要確認
 git pull
 sudo docker compose up -d --build
 ```
@@ -106,7 +118,7 @@ sudo docker compose exec backend python -m app.scripts.normalize_allowed_systems
 マイグレーションのみで、**ユーザー等のデータは消えない**。本番を空にしてサンプルユーザー
 （実在Gmail＋プラスエイリアスの6件）だけにするには、デプロイ後に下記を**1回だけ**実行する。
 
-> ⚠️ **全データ（ユーザー・報告書・契約・招待・通知 等）を削除します。** 実ユーザー運用開始後は
+> ⚠ **全データ（ユーザー・報告書・契約・招待・通知 等）を削除します。** 実ユーザー運用開始後は
 > 実行しないこと。両システムは DB を共有するため、`backend` で1回実行すれば両系がクリーンになる。
 
 ```bash
