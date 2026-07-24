@@ -299,11 +299,11 @@ docker compose exec backend python -m app.scripts.seed_production --yes
 
 - **状態（2026-07-24 実機確認・管理番号 202607241603）**:
   - ✅ **EC2 へのアプリ移行は完了・両システム稼働中**。`http://52.199.22.60:8000`（代々木・title「指導報告・指導時間確認票」）/ `http://52.199.22.60:8001`（EMPS・title「業務連絡表システム」）が uvicorn で応答。ポート8000/8001はインターネット公開中。
-  - ✅ **S3バックアップ構成あり**: バケット `tutor-report-system-backup-nxtech2026` ＋ IAMロール `tutor-ec2-s3-backup-role`（EC2にアタッチ）。cron/世代管理の詳細は要確認。
+  - ⚠ **S3バックアップは準備途中**: バケット `tutor-report-system-backup-nxtech2026` ＋ IAMロール `tutor-ec2-s3-backup-role`（EC2アタッチ）は**準備済だが、日次cron自動化は未実装（次タスク）**。
   - ⚠ **DNS切替は未完**: `kintai-yoyogi.haken.net` / `kintai-emps.haken.net` はまだ旧ワイルドカード `163.44.176.16`（旧LiteSpeed既定ページ）を指しており、EIP `52.199.22.60` に向いていない。
   - ⚠ **HTTPS未対応**: 現状は IP:ポートの HTTP（平文）＝ログイン情報・JWT Cookie が暗号化されずに流れる。HTTPS化を優先。
-  - ❓ **要確認**: OS/インスタンスタイプ・SSH接続方法/鍵・配置ディレクトリ・DB方式（コンテナ or RDS）・`MAIL_BACKEND`（console/live）・`BASE_URL`/`NEW_BASE_URL` の現在値。
-- **EC2 情報**: EIP `52.199.22.60` / instance `i-0ce3a2e284f376401` / region ap-northeast-1 / IAMロール `tutor-ec2-s3-backup-role`。詳細は `docs/INFRASTRUCTURE.md`（EC2実態に更新済）。
+  - ✅ **メールは送信オフ（安全）**: `MAIL_BACKEND=console`＝実メールは飛ばない。`BASE_URL=http://52.199.22.60:8000` / `NEW_BASE_URL=http://52.199.22.60:8001`（リンクは新IPを指すが送信オフ）。→ 実配信の有効化は DNS/HTTPS/BASE_URL 更新後に行うのが安全。
+- **EC2 情報（確定・2026-07-24）**: EIP `52.199.22.60` / instance `i-0ce3a2e284f376401` / region ap-northeast-1 / **OS Ubuntu 24.04 LTS** / **t3.small(2vCPU/2GB)＋swap4GB** / gp3 30GB / IAMロール `tutor-ec2-s3-backup-role`。SSH=`ubuntu`＋キーペア`tutor-ec2-key`（`ssh -i tutor-ec2-key.pem ubuntu@52.199.22.60`・秘密鍵は作業者PCローカル保管）。配置 `~/tutor-report-system`。DB=コンテナ内`postgres:16-alpine`維持（RDS未移行）。詳細は `docs/INFRASTRUCTURE.md`（実態反映済）。
 - **残タスク（本番化前）**: ①DNS切替（`kintai-*` → 52.199.22.60、`*.haken.net`ワイルドカードを個別Aで上書き）②nginxリバプロ（Host振り分け8000/8001）③Let's Encrypt でHTTPS化 ④`.env` の `BASE_URL`/`NEW_BASE_URL` を新HTTPS URLへ（**メールリンク直結**）⑤HTTPS化後は8000/8001をSGで閉じ22/80/443のみに ⑥監視アラート。手順は `docs/EC2移行_引継ぎ_202607241011.md` Step6–8。
 - **移行時の恒久注意（コード起因）**: uvicorn は**単一ワーカー維持**（APScheduler多重発火防止）／メール検証は `MAIL_BACKEND=console`＋sandbox／DBパスワード（既定 `postgres/postgres`）強化推奨。
 - **改修依頼の進め方**: EC2移行による**変更なし**（対象システム・コード・テスト・管理番号採番・デザイン統一ルールは不変）。変わるのは本番反映先＝上記EC2情報のみ。
